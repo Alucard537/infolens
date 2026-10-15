@@ -1,0 +1,33 @@
+// Carga el modelo 3D (.glb) de un elemento para mostrarlo en realidad aumentada.
+// Lo deja preparado: centrado, apoyado en su base (y = 0) y con un tamaño razonable.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+const cargador = new GLTFLoader();
+
+/** blob: el .glb. tamMax: medida máxima del modelo en metros. Devuelve un THREE.Group. */
+export async function cargarModeloAR(blob, tamMax) {
+  const datos = await blob.arrayBuffer();
+  const gltf = await cargador.parseAsync(datos, '');
+  const modelo = gltf.scene;
+
+  // Medir el modelo y escalarlo para que su lado más largo mida tamMax
+  modelo.updateMatrixWorld(true);
+  const caja = new THREE.Box3().setFromObject(modelo);
+  const tam = caja.getSize(new THREE.Vector3());
+  const mayor = Math.max(tam.x, tam.y, tam.z) || 1;
+  const k = tamMax / mayor;
+  const centro = caja.getCenter(new THREE.Vector3());
+
+  // Centrado en horizontal y con la base en y = 0
+  const ajustado = new THREE.Group();
+  modelo.position.set(-centro.x, -caja.min.y, -centro.z);
+  ajustado.add(modelo);
+  ajustado.scale.setScalar(k);
+
+  const raiz = new THREE.Group();
+  raiz.add(ajustado);
+  raiz.matrixAutoUpdate = false;
+  raiz.userData.altura = tam.y * k;
+  return raiz;
+}

@@ -7,10 +7,14 @@ import { descargar } from '../ui/descargar.js';
 
 const EXT_FOTO = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'gif', 'bmp'];
 const base = (ruta) => String(ruta || '').split(/[\\/]/).pop().toLowerCase();
+// "V-0002", "v0002" y "V_0002" se consideran el mismo ID (para reconocer carpetas y nombres de archivo)
+const normId = (t) => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const extDe = (nombre) => nombre.split('.').pop();
+const EXT_MODELO = ['glb', 'stp', 'step', 'igs', 'iges', 'stl'];
 
 export function pantallaImportar(app, { volver, irCopia }) {
   let filas = null;            // filas leídas de la hoja
-  const archivos = new Map();  // nombre en minúsculas -> File
+  const archivos = new Map();  // ruta en minúsculas -> { file, ruta, base, carpetas }
 
   app.innerHTML = `
     <div class="pagina pagina-ancha">
@@ -67,14 +71,36 @@ export function pantallaImportar(app, { volver, irCopia }) {
   const error = (msg) => { $('.error-form').hidden = !msg; $('.error-form').textContent = msg || ''; };
 
   // Para cada fila, decide qué archivos le corresponden
+  // Devuelve { archivo } o { aviso }. Reglas, en orden:
+  //  1. Si la hoja indica el archivo: se busca por su ruta o por su nombre. Si hay varios con el
+  //     mismo nombre, se usa el que está en la carpeta del elemento; si no se puede saber, se avisa.
+  //  2. Si no lo indica: un archivo llamado como el ID (V-0001.jpg) o, si no, el que haya dentro
+  //     de una carpeta con el nombre del ID (por ejemplo V0002/UIT501.png).
   function buscarArchivo(valor, id, extensiones) {
-    if (valor) return archivos.get(base(valor)) || null;
-    if (!id) return null;
-    for (const ext of extensiones) {
-      const f = archivos.get(`${id.toLowerCase()}.${ext}`);
-      if (f) return f;
+    const lista = [...archivos.values()];
+    const idN = normId(id);
+    const enSuCarpeta = (a) => idN && a.carpetas.includes(idN);
+    const extOk = (a) => extensiones.includes(extDe(a.base));
+    if (valor) {
+      const v = String(valor).replace(/\\/g, '/').toLowerCase().replace(/^\.?\//, '');
+      let c = lista.filter((a) => a.ruta === v || a.ruta.endsWith('/' + v));
+      if (!c.length) c = lista.filter((a) => a.base === base(v));
+      if (c.length > 1) { const suyos = c.filter(enSuCarpeta); if (suyos.length) c = suyos; }
+      if (c.length === 1) return { archivo: c[0].file };
+      if (c.length > 1) return { aviso: `hay ${c.length} archivos llamados "${valor}" en carpetas distintas y no sé cuál es (ponlo en una carpeta con el nombre del ID)` };
+      return { aviso: `no encuentro "${valor}"` };
     }
-    return null;
+    if (!idN) return {};
+    const porNombre = lista.filter((a) => extOk(a) && normId(a.base.replace(/\.[^.]+$/, '')) === idN);
+    if (porNombre.length) return { archivo: porNombre[0].file };
+    const enCarpeta = lista.filter((a) => extOk(a) && enSuCarpeta(a)).sort((x, y) =>
+      extensiones.indexOf(extDe(x.base)) - extensiones.indexOf(extDe(y.base)) || x.ruta.localeCompare(y.ruta));
+    if (!enCarpeta.length) return {};
+    const mismoTipo = enCarpeta.filter((a) => extDe(a.base) === extDe(enCarpeta[0].base));
+    return {
+      archivo: enCarpeta[0].file,
+      aviso: mismoTipo.length > 1 ? `hay varios archivos posibles en su carpeta; uso "${enCarpeta[0].base}"` : '',
+    };
   }
 
   let plan = [];
@@ -96,12 +122,13 @@ export function pantallaImportar(app, { volver, irCopia }) {
       if (!f.nombre || !f.referencia) { avisos.push(`Fila ${f.fila}: falta el nombre o la referencia (se salta).`); continue; }
       if (vistos.has(id)) { avisos.push(`Fila ${f.fila}: el ID ${id} está repetido en la hoja (se salta).`); continue; }
       vistos.add(id);
-      const foto = buscarArchivo(f.foto, id, EXT_FOTO);
-      const pdf = buscarArchivo(f.pdf, id, ['pdf']);
-      const modelo = buscarArchivo(f.modelo3d, id, ['glb', 'stp', 'step', 'igs', 'iges', 'stl']);
-      if (f.foto && !foto) avisos.push(`Fila ${f.fila} (${id}): no encuentro la foto "${f.foto}".`);
-      if (f.pdf && !pdf) avisos.push(`Fila ${f.fila} (${id}): no encuentro el PDF "${f.pdf}".`);
-      if (f.modelo3d && !modelo) avisos.push(`Fila ${f.fila} (${id}): no encuentro el modelo "${f.modelo3d}".`);
+      const rFoto = buscarArchivo(f.foto, id, EXT_FOTO);
+      const rPdf = buscarArchivo(f.pdf, id, ['pdf']);
+      const rModelo = buscarArchivo(f.modelo3d, id, EXT_MODELO);
+      for (const [r, que] of [[rFoto, 'foto'], [rPdf, 'PDF'], [rModelo, 'modelo 3D']]) {
+        if (r.aviso) avisos.push(`Fila ${f.fila} (${id}), ${que}: ${r.aviso}.`);
+      }
+      const foto = rFoto.archivo || null, pdf = rPdf.archivo || null, modelo = rModelo.archivo || null;
       plan.push({
         id, existe: existentes.has(id), foto, pdf, modelo,
         datos: {
@@ -146,7 +173,13 @@ export function pantallaImportar(app, { volver, irCopia }) {
         return;
       }
     } else {
-      for (const f of lista) archivos.set(base(f.name), f);
+      for (const f of lista) {
+        const ruta = String(f.webkitRelativePath || f.name).replace(/\\/g, '/');
+        const partes = ruta.split('/');
+        const nombre = partes.pop();
+        if (/^(desktop\.ini|thumbs\.db|\.ds_store)$/i.test(nombre)) continue;
+        archivos.set(ruta.toLowerCase(), { file: f, ruta: ruta.toLowerCase(), base: nombre.toLowerCase(), carpetas: partes.map(normId) });
+      }
       $('.estado-archivos').textContent = `✅ ${archivos.size} archivos elegidos.`;
     }
     revisar();

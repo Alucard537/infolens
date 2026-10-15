@@ -19,19 +19,46 @@ export function nombreArchivoCopia() {
 /** Crea el .zip con todo. alAvanzar(texto, fraccion 0-1). */
 export async function exportarCopia(alAvanzar = () => {}) {
   alAvanzar('Leyendo la base de datos…', 0);
-  const elementos = await db.elementos.toArray();
+  const elementos = await db.elementos.orderBy('id').toArray();
   const archivos = await db.archivos.toArray();
+  const porId = new Map(archivos.map((a) => [a.id, a]));
+
+  // Carpetas legibles: elementos/V-0001 - Nombre/foto.jpg, ficha.pdf, modelo.glb…
+  // (así, al abrir el .zip en el PC, se ve qué archivo es de cada elemento)
+  const rutaDe = new Map();
+  const ext = (n, def) => { const m = /\.([a-z0-9]{1,5})$/i.exec(n || ''); return m ? m[1].toLowerCase() : def; };
+  const filasCsv = [['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'modelo3d']];
+  for (const el of elementos) {
+    const carpeta = `elementos/${sanear(el.id)} - ${sanear(el.nombre).slice(0, 60).trim()}`;
+    const nombres = {
+      imagenId: `foto.${ext(porId.get(el.imagenId)?.nombre, 'jpg')}`,
+      miniaturaId: `miniatura.${ext(porId.get(el.miniaturaId)?.nombre, 'jpg')}`,
+      pdfId: sanear(porId.get(el.pdfId)?.nombre || 'ficha.pdf'),
+      modelo3dId: sanear(porId.get(el.modelo3dId)?.nombre || 'modelo.glb'),
+    };
+    for (const c of CAMPOS_ARCHIVO) {
+      if (el[c] && porId.has(el[c]) && !rutaDe.has(el[c])) rutaDe.set(el[c], `${carpeta}/${nombres[c]}`);
+    }
+    filasCsv.push([el.id, el.nombre, el.referencia, el.tipo === 'COMPUESTO' ? 'compuesto' : 'sencillo', el.descripcion || '',
+      el.imagenId ? rutaDe.get(el.imagenId) : '', el.pdfId ? rutaDe.get(el.pdfId) : '', el.modelo3dId ? rutaDe.get(el.modelo3dId) : '']);
+  }
   const meta = archivos.map((a) => ({
-    id: a.id, nombre: a.nombre, tipoMime: a.tipoMime, ruta: `archivos/${a.id}/${sanear(a.nombre)}`,
+    id: a.id, nombre: a.nombre, tipoMime: a.tipoMime,
+    ruta: rutaDe.get(a.id) || `archivos/${a.id}/${sanear(a.nombre)}`,
   }));
   const { qrCm, fovGrados } = leerAjustes();
   const indice = {
     formato: FORMATO, version: 1, app: APP_NAME, fecha: Date.now(),
     elementos, archivos: meta, ajustes: { qrCm, fovGrados },
   };
+  // Lista de elementos para abrir con Excel (separador ";" y BOM para los acentos)
+  const celda = (v) => { const t = String(v ?? ''); return /[;"\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const csv = '﻿' + filasCsv.map((f) => f.map(celda).join(';')).join('\r\n') + '\r\n';
   const entradas = [
     { nombre: JSON_COPIA, blob: new Blob([JSON.stringify(indice, null, 1)], { type: 'application/json' }) },
-    ...archivos.map((a, i) => ({ nombre: meta[i].ruta, blob: a.blob })),
+    { nombre: 'elementos.csv', blob: new Blob([csv], { type: 'text/csv' }) },
+    ...archivos.map((a, i) => ({ nombre: meta[i].ruta, blob: a.blob }))
+      .sort((x, y) => x.nombre.localeCompare(y.nombre)),
   ];
   const zip = await crearZip(entradas, (i, n) => alAvanzar(`Preparando archivos ${i} de ${n}…`, n ? i / n : 1));
   guardarAjustes({ ultimaCopia: Date.now() });
@@ -69,9 +96,11 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
     const e = porRuta.get(m.ruta);
     if (!e) { faltan++; continue; }
     const contenido = await leerEntradaZip(archivoZip, e);
+    // Copiar los bytes de verdad: Safari del iPhone puede guardar mal un "trozo" (slice) de un archivo grande
+    const bytes = await contenido.arrayBuffer();
     await db.archivos.put({
       id: m.id, nombre: m.nombre, tipoMime: m.tipoMime,
-      blob: new Blob([contenido], { type: m.tipoMime || 'application/octet-stream' }),
+      blob: new Blob([bytes], { type: m.tipoMime || 'application/octet-stream' }),
     });
     importados.add(m.id);
   }

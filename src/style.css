@@ -222,3 +222,8 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .lista-edz .error-edz { color: #ff9a9a; font-size: 14px; }
 .fila.check { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 12px 0; color: var(--texto2); }
 .fila.check input { width: 26px; height: 26px; accent-color: var(--azul); }
+.et-foto {
+  flex: none; width: 84px; height: 84px; padding: 0; border: none; border-radius: 12px;
+  overflow: hidden; background: #fff;
+}
+.et-foto img { width: 100%; height: 100%; object-fit: contain; display: block; }

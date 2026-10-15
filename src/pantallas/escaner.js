@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { QR_PREFIX } from '../config.js';
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
-import { mapaElementos } from '../db.js';
+import { mapaElementos, obtenerArchivo } from '../db.js';
+import { cargarModeloAR } from '../ar/modelo-ar.js';
 import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
 import { crearIcono, crearLuces } from '../ar/icono.js';
@@ -12,6 +13,8 @@ const TIEMPO_OCULTAR_MS = 1000;   // si no se ve el QR durante 1 s, se oculta el
 const MAX_LADO_CAPTURA = 1920;    // resolución máxima que se pasa al lector de QR
 const DIAMETRO_ICONO = 0.7;       // tamaño de la "i" respecto al lado del QR
 const SEPARACION_ICONO = 0.15;    // hueco entre el borde del QR y la "i" (respecto al lado del QR)
+// Tamaño del modelo 3D en realidad aumentada: unas 2,5 veces el QR, entre 12 y 30 cm
+const tamanoModelo = (lado) => Math.min(0.3, Math.max(0.12, lado * 2.5));
 
 export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   let ajustes = leerAjustes();
@@ -124,6 +127,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     etiqueta.className = 'etiqueta';
     etiqueta.hidden = true;
     etiqueta.innerHTML = `
+      ${elemento && (elemento.miniaturaId || elemento.imagenId) ? '<button class="et-foto" aria-label="Ver detalle"><img alt=""></button>' : ''}
       <div class="et-textos"><div class="et-nombre"></div><div class="et-ref"></div><div class="et-debug"></div></div>
       ${elemento
         ? '<button class="et-mas" aria-label="Más información">+</button>'
@@ -131,17 +135,45 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     etiqueta.querySelector('.et-nombre').textContent = elemento ? elemento.nombre : 'Elemento no registrado';
     etiqueta.querySelector('.et-ref').textContent = elemento ? elemento.referencia : `ID: ${id}`;
     etiqueta.querySelector('.et-mas')?.addEventListener('click', () => abrirDetalle(id));
+    etiqueta.querySelector('.et-foto')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-alta')?.addEventListener('click', () => darDeAlta(id));
     capaEtiquetas.appendChild(etiqueta);
 
-    return {
-      id, elemento, raiz, flotar, icono, etiqueta,
+    const seguido = {
+      id, elemento, raiz, flotar, icono, etiqueta, modelo: null,
       filtros: Array.from({ length: 8 }, () => new OneEuro()),
       visto: 0, visible: false, esquinas: null, distancia: 0,
       objetivoPos: new THREE.Vector3(), objetivoRot: new THREE.Quaternion(),
       pos: new THREE.Vector3(), rot: new THREE.Quaternion(),
     };
+
+    // Foto del elemento en la tarjeta (la miniatura carga al instante; si no hay, la foto grande)
+    const img = etiqueta.querySelector('.et-foto img');
+    if (img) {
+      obtenerArchivo(elemento.miniaturaId || elemento.imagenId).then((a) => {
+        if (!a || !activo) return;
+        const u = URL.createObjectURL(a.blob);
+        urlsFotos.push(u);
+        img.src = u;
+      }).catch(() => {});
+    }
+
+    // Modelo 3D, si lo tiene: se carga en segundo plano y aparece en cuanto está listo
+    if (elemento && elemento.modelo3dId) {
+      obtenerArchivo(elemento.modelo3dId)
+        .then((a) => (a ? cargarModeloAR(a.blob, tamanoModelo(ajustes.qrCm / 100)) : null))
+        .then((m) => {
+          if (!m || !activo) return;
+          m.traverse((o) => { o.userData.id = id; });
+          m.visible = seguido.visible;
+          escena.add(m);
+          seguido.modelo = m;
+        })
+        .catch((e) => console.warn('No se pudo cargar el modelo 3D de', id, e));
+    }
+    return seguido;
   }
+  const urlsFotos = [];
 
   function procesarDeteccion(qrs, k, tiempo) {
     if (!elementos) return; // la base de datos aún no ha cargado (tarda milisegundos)
@@ -246,6 +278,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       if (!reciente) {
         if (s.visible) {
           s.visible = false; s.raiz.visible = false; s.flotar.visible = false; s.etiqueta.hidden = true;
+          if (s.modelo) s.modelo.visible = false;
           s.filtros.forEach((f) => f.reset());
         }
         continue;
@@ -261,13 +294,20 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       s.raiz.matrixWorldNeedsUpdate = true;
       // La "i": SIEMPRE DE PIE (vertical del mundo, con el sensor) y mirando hacia la cámara.
       // Del QR solo se usa la posición; su inclinación no afecta a la "i".
-      const altura = lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO + 0.04 * Math.sin(ahora / 450));
-      pIcono.copy(s.pos).addScaledVector(arriba, altura);           // encima del QR, hacia el techo
-      haciaCamara.copy(pIcono).negate();                              // la cámara está en el origen
+      haciaCamara.copy(s.pos).negate();                               // la cámara está en el origen
       haciaCamara.addScaledVector(arriba, -haciaCamara.dot(arriba));  // solo giro horizontal
       if (haciaCamara.lengthSq() < 1e-8) haciaCamara.set(0, 0, 1).addScaledVector(arriba, -arriba.z);
       haciaCamara.normalize();
       ejeX.crossVectors(arriba, haciaCamara).normalize();
+      const flota = 0.04 * Math.sin(ahora / 450);
+      if (s.modelo) {
+        // Con modelo 3D: el modelo va encima del QR y la "i" a su derecha, a la altura del QR
+        pIcono.copy(s.pos).addScaledVector(ejeX, lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO))
+          .addScaledVector(arriba, lado * flota);
+        colocarModelo(s, lado, arriba);
+      } else {
+        pIcono.copy(s.pos).addScaledVector(arriba, lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO + flota));
+      }
       s.flotar.matrix.makeBasis(ejeX, arriba, haciaCamara)
         .scale(escalaIcono.setScalar(lado * DIAMETRO_ICONO))
         .setPosition(pIcono);
@@ -301,7 +341,27 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     }
   }
 
-  // Rectángulo en pantalla que ocupan juntos el QR y la "i" (para colocar la etiqueta fuera de él)
+  // Modelo 3D de pie (vertical del mundo), apoyado justo encima del QR.
+  // Su giro horizontal sigue al QR (no a la cámara), para poder rodearlo y verlo por los lados.
+  const frenteModelo = new THREE.Vector3(), lateralModelo = new THREE.Vector3(), baseModelo = new THREE.Vector3();
+  function colocarModelo(s, lado, arriba) {
+    frenteModelo.set(0, 0, 1).applyQuaternion(s.rot);                 // hacia fuera del QR
+    frenteModelo.addScaledVector(arriba, -frenteModelo.dot(arriba));
+    if (frenteModelo.lengthSq() < 0.05) {                               // QR tumbado (en una mesa)
+      frenteModelo.set(0, -1, 0).applyQuaternion(s.rot);                // usar el borde de abajo del QR
+      frenteModelo.addScaledVector(arriba, -frenteModelo.dot(arriba));
+    }
+    if (frenteModelo.lengthSq() < 1e-8) frenteModelo.copy(haciaCamara);
+    frenteModelo.normalize();
+    lateralModelo.crossVectors(arriba, frenteModelo).normalize();
+    baseModelo.copy(s.pos).addScaledVector(arriba, lado * 0.6);
+    s.modelo.matrix.makeBasis(lateralModelo, arriba, frenteModelo).setPosition(baseModelo);
+    s.modelo.matrixWorldNeedsUpdate = true;
+    s.modelo.visible = true;
+  }
+
+  // Rectángulo en pantalla que ocupan juntos el QR, la "i" y el modelo (para colocar la etiqueta fuera)
+  const cajaModelo = new THREE.Box3();
   function cajaEnPantalla(s, lado, g) {
     let arriba = Infinity, abajo = -Infinity, izq = Infinity, der = -Infinity;
     const anadir = (vec) => {
@@ -319,6 +379,13 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     for (let i = 0; i < 12; i++) {                                     // borde de la "i"
       const a = (i / 12) * Math.PI * 2;
       if (!anadir(v.set(0.55 * Math.cos(a), 0.55 * Math.sin(a), 0).applyMatrix4(s.flotar.matrixWorld))) return null;
+    }
+    if (s.modelo && s.modelo.visible) {                                // caja del modelo 3D
+      cajaModelo.setFromObject(s.modelo);
+      const { min, max } = cajaModelo;
+      for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) {
+        if (!anadir(v.set(x, y, z))) return null;
+      }
     }
     return { arriba, abajo, centroX: (izq + der) / 2 };
   }
@@ -344,7 +411,8 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   lienzo3d.addEventListener('click', (e) => {
     const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camara);
-    const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento).map((s) => s.icono);
+    const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento)
+      .flatMap((s) => (s.modelo ? [s.icono, s.modelo] : [s.icono]));
     const toque = raycaster.intersectObjects(objetivos, true)[0];
     if (toque) abrirDetalle(toque.object.userData.id);
   });
@@ -465,5 +533,6 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     worker.terminate();
     window.removeEventListener('resize', ajustarTamano);
     renderer.dispose();
+    urlsFotos.forEach((u) => URL.revokeObjectURL(u));
   };
 }
