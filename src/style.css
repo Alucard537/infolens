@@ -251,3 +251,31 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .rec-candidato.destacado { border-color: #34c759; }
 .rec-candidato .mini { width: 52px; height: 52px; }
 .rec-pct { margin-left: auto; font-size: 18px; font-weight: 700; color: var(--azul); flex: none; }
+.huella-resumen { font-size: 16px; margin: 4px 0; }
+.huella-panel [data-accion="galeria"][hidden] { display: none; }
+.galeria {
+  position: absolute; inset: 0; z-index: 5; background: var(--fondo); overflow: auto;
+  padding: max(12px, env(safe-area-inset-top)) 12px 140px;
+}
+.galeria[hidden] { display: none; }
+.galeria-barra { display: flex; align-items: center; gap: 12px; }
+.galeria-titulo { font-size: 20px; font-weight: 700; }
+.galeria-grupo { margin: 18px 0; }
+.galeria-cab { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-bottom: 8px; color: var(--texto2); }
+.boton-mini { min-height: 40px; padding: 0 12px; border-radius: 10px; border: none; background: var(--tarjeta); color: #fff; font-size: 15px; flex: none; }
+.galeria-rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.galeria-img {
+  position: relative; aspect-ratio: 1; padding: 0; border: 3px solid transparent; border-radius: 10px;
+  overflow: hidden; background: #0b141b; color: #666; font-size: 30px;
+}
+.galeria-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.galeria-img.marcada { border-color: #ff453a; }
+.galeria-img.marcada::after {
+  content: '✕'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 69, 58, 0.45); color: #fff; font-size: 34px; font-weight: 700;
+}
+.galeria-pie {
+  position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 12px max(12px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--fondo) 25%);
+}
+.galeria-pie .boton { margin: 0 0 6px; }

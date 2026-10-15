@@ -3,9 +3,9 @@
 // sitio dan listas parecidas. Para reconocer, se compara lo que ve la cámara con las huellas guardadas.
 import { ImageEmbedder } from '@mediapipe/tasks-vision';
 
-import { MODELO, empaquetar, comparar } from './vectores.js';
+import { MODELO, comparar } from './vectores.js';
 
-export { MODELO, empaquetar, comparar };
+export { MODELO, comparar };
 const base = import.meta.env.BASE_URL;
 let promesa = null;
 
@@ -63,6 +63,21 @@ export function ajustarGuia(guia, video) {
 export function huellaDe(embedder, fuente, ancho, alto) {
   const r = embedder.embed(recortarCentro(fuente, ancho, alto));
   return Float32Array.from(r.embeddings[0].floatEmbedding);
+}
+
+const LADO_MINI = 96;
+/**
+ * Huella + miniatura JPEG pequeña de la misma imagen (para poder verla y borrarla después).
+ * Devuelve { v, mini: Promise<Uint8Array> }.
+ */
+export function capturarImagen(embedder, fuente, ancho, alto) {
+  const recorte = recortarCentro(fuente, ancho, alto);
+  const v = Float32Array.from(embedder.embed(recorte).embeddings[0].floatEmbedding);
+  const c = document.createElement('canvas');
+  c.width = c.height = LADO_MINI;
+  c.getContext('2d').drawImage(recorte, 0, 0, LADO_MINI, LADO_MINI);
+  const mini = new Promise((ok) => c.toBlob(async (b) => ok(b ? new Uint8Array(await b.arrayBuffer()) : new Uint8Array(0)), 'image/jpeg', 0.6));
+  return { v, mini };
 }
 
 /** Saca imágenes repartidas de un vídeo (para crear la huella desde un vídeo grabado). */

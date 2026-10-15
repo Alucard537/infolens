@@ -4,6 +4,7 @@ import { APP_NAME } from './config.js';
 import { db, CAMPOS_ARCHIVO } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { crearZip, leerIndiceZip, leerEntradaZip } from './zip.js';
+import { serializarHuella, deserializarHuella } from './reconocer/vectores.js';
 
 const FORMATO = 'infolens-copia';
 const JSON_COPIA = 'infolens.json';
@@ -49,9 +50,11 @@ export async function exportarCopia(alAvanzar = () => {}) {
     ruta: rutaDe.get(a.id) || `archivos/${a.id}/${sanear(a.nombre)}`,
   }));
   // Huellas para reconocer sin QR: un archivo binario por elemento (vectores y después escalas)
-  const huellas = (await db.huellas.toArray()).filter((h) => carpetaDe.has(h.elementoId));
+  const huellas = (await db.huellas.toArray())
+    .filter((h) => carpetaDe.has(h.elementoId))
+    .map((h) => ({ elementoId: h.elementoId, ...serializarHuella(h) }));
   const metaHuellas = huellas.map((h) => ({
-    elementoId: h.elementoId, modelo: h.modelo, dim: h.dim, n: h.n, fecha: h.fecha,
+    elementoId: h.elementoId, ...h.meta,
     ruta: `${carpetaDe.get(h.elementoId)}/huella-reconocimiento.bin`,
   }));
   const { qrCm, fovGrados, posModelo } = leerAjustes();
@@ -67,7 +70,7 @@ export async function exportarCopia(alAvanzar = () => {}) {
     { nombre: 'elementos.csv', blob: new Blob([csv], { type: 'text/csv' }) },
     ...[
       ...archivos.map((a, i) => ({ nombre: meta[i].ruta, blob: a.blob })),
-      ...huellas.map((h, i) => ({ nombre: metaHuellas[i].ruta, blob: new Blob([h.vectores, h.escalas]) })),
+      ...huellas.map((h, i) => ({ nombre: metaHuellas[i].ruta, blob: new Blob(h.partes) })),
     ].sort((x, y) => x.nombre.localeCompare(y.nombre)),
   ];
   const zip = await crearZip(entradas, (i, n) => alAvanzar(`Preparando archivos ${i} de ${n}…`, n ? i / n : 1));
@@ -120,12 +123,8 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
     const e = porRuta.get(h.ruta);
     if (!e || !h.dim || !h.n) continue;
     const buf = await (await leerEntradaZip(archivoZip, e)).arrayBuffer();
-    const tamV = h.n * h.dim;
-    if (buf.byteLength !== tamV + h.n * 4) continue; // archivo incompleto
-    await db.huellas.put({
-      elementoId: h.elementoId, modelo: h.modelo, dim: h.dim, n: h.n, fecha: h.fecha || Date.now(),
-      vectores: new Int8Array(buf.slice(0, tamV)), escalas: new Float32Array(buf.slice(tamV)),
-    });
+    const huella = deserializarHuella(buf, h, h.elementoId);
+    if (huella) await db.huellas.put(huella); // si está incompleta, se ignora
   }
 
   // 2) Elementos
