@@ -1,7 +1,7 @@
 // Pantalla "Importar desde Excel" (pensada para usarla en el PC):
 // una hoja CSV con los datos + una carpeta con las fotos, PDF y modelos 3D.
 import { decodificarTexto, parsearCSV, filasAElementos, plantillaCSV } from '../csv.js';
-import { listarElementos, guardarElemento, normalizarId } from '../db.js';
+import { listarElementos, guardarElemento, normalizarId, siguienteId } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
 import { descargar } from '../ui/descargar.js';
 
@@ -18,6 +18,18 @@ export function pantallaImportar(app, { volver, irCopia }) {
       <h1>Importar desde Excel</h1>
       <p class="nota">Pensado para hacerlo en el PC. Después crea una copia .zip y pásala al iPhone.</p>
 
+      <h2>📦 Archivos de EPLAN (.edz)</h2>
+      <p class="nota">Elige uno o varios .edz descargados del portal de EPLAN. De cada uno se crea un elemento con
+        su nombre, referencia, descripción técnica y foto. Los ID se ponen solos (V-0001, V-0002…).</p>
+      <label class="fila check"><input type="checkbox" data-opcion="saltar" checked> Saltar los que ya existen (misma referencia)</label>
+      <label class="boton">📦 Elegir archivos .edz
+        <input type="file" multiple class="entrada-oculta" data-entrada="edz"></label>
+      <ul class="lista-edz"></ul>
+      <button class="boton grande" data-accion="importar-edz" hidden>📥 Importar</button>
+      <div class="progreso progreso-edz" hidden><div class="progreso-texto"></div><div class="barra"><div class="barra-relleno"></div></div></div>
+      <div class="ok-form ok-edz" hidden></div>
+
+      <h2>📊 Desde una hoja de Excel</h2>
       <h2>1. Prepara la hoja</h2>
       <p class="nota">Descarga la plantilla, ábrela con Excel y rellena una fila por elemento. Columnas:
         <b>id</b> (opcional: si lo dejas vacío se pone V-0001, V-0002…), <b>nombre</b>, <b>referencia</b>,
@@ -117,7 +129,7 @@ export function pantallaImportar(app, { volver, irCopia }) {
 
   app.addEventListener('change', async (e) => {
     const tipo = e.target.dataset.entrada;
-    if (!tipo) return;
+    if (!tipo || tipo === 'edz') return;
     error('');
     const lista = [...(e.target.files || [])];
     if (tipo === 'csv') {
@@ -180,4 +192,94 @@ export function pantallaImportar(app, { volver, irCopia }) {
     if (fallos.length) error(fallos.slice(0, 20).join('\n'));
     boton.disabled = false;
   });
+
+  // ---------- archivos .edz de EPLAN ----------
+  let leidos = []; // [{ archivo, datos, foto, error, existe }]
+  const urlsEdz = [];
+  app.querySelector('[data-entrada="edz"]').addEventListener('change', async (e) => {
+    const lista = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!lista.length) return;
+    const ul = $('.lista-edz');
+    ul.innerHTML = '<li>Leyendo archivos…</li>';
+    $('[data-accion="importar-edz"]').hidden = true;
+    $('.ok-edz').hidden = true;
+    const { leerEdz } = await import('../edz.js');
+    const porReferencia = new Map((await listarElementos()).map((el) => [String(el.referencia).toLowerCase(), el]));
+    leidos = [];
+    for (const archivo of lista) {
+      try {
+        const r = await leerEdz(archivo);
+        leidos.push({ archivo, ...r, existe: porReferencia.get(r.datos.referencia.toLowerCase()) || null });
+      } catch (err) {
+        leidos.push({ archivo, error: err.message });
+      }
+    }
+    ul.innerHTML = '';
+    for (const l of leidos) {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="sin-foto">📦</span><span class="fila-textos"><span class="fila-nombre"></span><span class="fila-ref"></span><span class="aviso-edz"></span></span>';
+      if (l.foto) {
+        const u = URL.createObjectURL(l.foto); urlsEdz.push(u);
+        const img = document.createElement('img'); img.src = u; img.alt = '';
+        li.querySelector('.sin-foto').replaceWith(img);
+      }
+      li.querySelector('.fila-nombre').textContent = l.error ? l.archivo.name : l.datos.nombre;
+      li.querySelector('.fila-ref').textContent = l.error ? '' : `${l.datos.referencia}${l.datos.fabricante ? ' · ' + l.datos.fabricante : ''}`;
+      const aviso = li.querySelector('.aviso-edz');
+      if (l.error) { aviso.className = 'error-edz'; aviso.textContent = '❌ ' + l.error; }
+      else if (l.existe) aviso.textContent = `Ya existe: ${l.existe.id} (${l.existe.nombre})`;
+      else if (!l.foto) aviso.textContent = 'Sin foto';
+      ul.appendChild(li);
+    }
+    const validos = leidos.filter((l) => !l.error).length;
+    const b = $('[data-accion="importar-edz"]');
+    b.hidden = validos === 0;
+    b.textContent = `📥 Importar ${validos} archivos .edz`;
+  });
+
+  $('[data-accion="importar-edz"]').addEventListener('click', async () => {
+    const b = $('[data-accion="importar-edz"]');
+    b.hidden = true;
+    const saltar = app.querySelector('[data-opcion="saltar"]').checked;
+    const prog = $('.progreso-edz');
+    prog.hidden = false;
+    const pendientes = leidos.filter((l) => !l.error && !(saltar && l.existe));
+    const creados = [], fallos = [];
+    for (let i = 0; i < pendientes.length; i++) {
+      const l = pendientes[i];
+      prog.querySelector('.progreso-texto').textContent = `Importando ${i + 1} de ${pendientes.length}: ${l.datos.nombre}`;
+      prog.querySelector('.barra-relleno').style.width = Math.round((i / pendientes.length) * 100) + '%';
+      try {
+        const cambios = {};
+        if (l.foto) {
+          try {
+            const { imagen, miniatura } = await prepararFoto(l.foto);
+            cambios.imagenId = { blob: imagen, nombre: 'foto.jpg' };
+            cambios.miniaturaId = { blob: miniatura, nombre: 'foto-mini.jpg' };
+          } catch {}
+        }
+        const id = await siguienteId();
+        await guardarElemento({
+          id, nombre: l.datos.nombre, referencia: l.datos.referencia, tipo: 'SENCILLO', descripcion: l.datos.descripcion,
+        }, cambios, true);
+        creados.push(id);
+      } catch (err) {
+        fallos.push(`${l.archivo.name}: ${err.message}`);
+      }
+    }
+    prog.querySelector('.barra-relleno').style.width = '100%';
+    prog.querySelector('.progreso-texto').textContent = 'Terminado.';
+    const saltados = leidos.filter((l) => !l.error && saltar && l.existe).length;
+    const ok = $('.ok-edz');
+    ok.hidden = false;
+    ok.innerHTML = `<p>✅ Creados ${creados.length} elementos${creados.length ? ` (${creados[0]}${creados.length > 1 ? ' … ' + creados[creados.length - 1] : ''})` : ''}.`
+      + `${saltados ? ` Saltados ${saltados} que ya existían.` : ''}${fallos.length ? ` Fallaron ${fallos.length}.` : ''}</p>
+      <p>Puedes revisarlos en Elementos (por ejemplo para cambiar el nombre o el tipo) y después imprimir sus QR.</p>
+      <button class="boton" data-accion="ir-copia-edz">📦 Ir a Copia de seguridad</button>`;
+    ok.querySelector('[data-accion="ir-copia-edz"]').addEventListener('click', irCopia);
+    if (fallos.length) error(fallos.join('\n'));
+  });
+
+  return () => urlsEdz.forEach((u) => URL.revokeObjectURL(u));
 }

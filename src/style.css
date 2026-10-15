@@ -212,3 +212,13 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
   background: linear-gradient(transparent, var(--fondo) 30%);
 }
 .barra-inferior .boton[hidden] { display: none; }
+.det-desc { white-space: pre-wrap; word-break: break-word; }
+.det-desc a { color: var(--azul); }
+.lista-edz { list-style: none; padding: 0; }
+.lista-edz li { display: flex; gap: 12px; align-items: center; background: var(--tarjeta); border-radius: 12px; padding: 8px; margin: 8px 0; }
+.lista-edz img { width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 8px; flex: none; }
+.lista-edz .sin-foto { width: 56px; height: 56px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+.lista-edz .aviso-edz { color: #ffd27a; font-size: 14px; }
+.lista-edz .error-edz { color: #ff9a9a; font-size: 14px; }
+.fila.check { display: flex; align-items: center; gap: 10px; font-size: 17px; margin: 12px 0; color: var(--texto2); }
+.fila.check input { width: 26px; height: 26px; accent-color: var(--azul); }

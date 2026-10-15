@@ -21,6 +21,12 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
       <button class="volver">‹ Cancelar</button>
       <h1>${esNuevo ? 'Añadir elemento' : 'Editar elemento'}</h1>
       <form novalidate>
+        <div class="bloque-archivo">
+          <div class="titulo-archivo">📦 ¿Tienes el .edz de EPLAN?</div>
+          <p class="nota">Rellena solos el nombre, la referencia, la descripción y la foto.</p>
+          <label class="boton secundario">Rellenar desde .edz
+            <input type="file" data-entrada="edz" class="entrada-oculta"></label>
+        </div>
         <label>ID (el que va en el QR)
           <input name="id" required autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
           <small class="ayuda">${esNuevo ? 'Se propone uno automático. Puedes cambiarlo (letras, números y guiones).' : 'El ID no se puede cambiar porque ya puede estar impreso en un QR.'}</small>
@@ -131,7 +137,22 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
     if (!archivo) return;
     mostrarError('');
     try {
-      if (tipo === 'foto') {
+      if (tipo === 'edz') {
+        const { leerEdz } = await import('../edz.js');
+        const { datos, foto } = await leerEdz(archivo);
+        const f = form.elements;
+        const hayDatos = f.nombre.value || f.referencia.value || f.descripcion.value;
+        if (hayDatos && !confirm('¿Sustituir el nombre, la referencia y la descripción por los del .edz?')) return;
+        f.nombre.value = datos.nombre;
+        f.referencia.value = datos.referencia;
+        f.descripcion.value = datos.descripcion;
+        if (foto) {
+          const { imagen, miniatura } = await prepararFoto(foto);
+          cambios.imagenId = { blob: imagen, nombre: 'foto.jpg' };
+          cambios.miniaturaId = { blob: miniatura, nombre: 'foto-mini.jpg' };
+          verFoto(imagen);
+        }
+      } else if (tipo === 'foto') {
         $('.vista-foto').hidden = true;
         const { imagen, miniatura } = await prepararFoto(archivo);
         cambios.imagenId = { blob: imagen, nombre: 'foto.jpg' };

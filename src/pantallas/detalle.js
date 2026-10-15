@@ -48,7 +48,15 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
     $('.det-nombre').textContent = el.nombre;
     $('.det-ref').textContent = 'Referencia: ' + el.referencia;
     $('.det-tipo').textContent = 'Tipo: ' + (el.tipo === 'COMPUESTO' ? 'Compuesto' : 'Sencillo');
-    $('.det-desc').textContent = el.descripcion || '';
+    // Descripción: respeta los saltos de línea y convierte las direcciones web en enlaces
+    const desc = $('.det-desc');
+    for (const trozo of String(el.descripcion || '').split(/(https?:\/\/[^\s]+)/)) {
+      if (/^https?:\/\//.test(trozo)) {
+        const a = document.createElement('a');
+        a.href = trozo; a.textContent = trozo; a.target = '_blank'; a.rel = 'noopener';
+        desc.appendChild(a);
+      } else desc.appendChild(document.createTextNode(trozo));
+    }
     $('.det-id').textContent = el.id;
     $('.det-qr').textContent = 'INFOLENS:' + el.id;
     $('.volver').addEventListener('click', volver);
