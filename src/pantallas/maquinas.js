@@ -135,12 +135,7 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
         <div class="anadir-existentes" hidden></div>
         <ul class="lista lista-elementos-maquina"></ul>
 
-        <h2>⚓ Anclas QR (${anclas.length})</h2>
-        <p class="nota">Cada ancla es un QR fijo en la máquina que sirve de referencia (0, 0, 0) para localizar componentes.
-          Imprímelo, pégalo en la máquina y después posiciona los componentes con el botón 📍 de ANCLA.</p>
-        <button class="boton" data-a="nueva-ancla">➕ Nueva ancla</button>
-        <form class="form-ancla bloque-archivo formulario" hidden novalidate></form>
-        <ul class="lista lista-anclas"></ul>
+        <div class="seccion-anclas"></div>
 
         <h2>📘 Guías (${listaGuias.length})</h2>
         <button class="boton secundario" data-a="guias">Gestionar las guías de esta máquina</button>
@@ -215,60 +210,101 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
     });
 
     // Anclas
-    const ula = $('.lista-anclas');
-    for (const a of anclas) {
-      const li = document.createElement('li');
-      li.innerHTML = `<div class="fila-elemento fila-maquina">
-          <span class="fila-textos"><span class="fila-nombre"></span><span class="fila-ref"></span></span>
-          <span class="acciones-fila">
-            <button class="boton-mini" data-a="qr">🖨️ QR</button>
-            <button class="boton-mini" data-a="ed">✏️</button>
-            <button class="boton-mini" data-a="del">🗑️</button>
-          </span></div>`;
-      li.querySelector('.fila-nombre').textContent = `⚓ ${a.nombre}`;
-      li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
-      li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
-        const { generarPdfQR } = await import('../qr-pdf.js');
-        const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.nombre} (${m.id})` }], leerAjustes().qrCm);
-        guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
-      });
-      li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));
-      li.querySelector('[data-a="del"]').addEventListener('click', async () => {
-        const d = await dependenciasAncla(a.id);
-        if (!confirm(`¿Borrar el ancla ${a.id}?\n\nSe borrarán ${d.localizaciones} localizaciones y ${d.guias} guías quedarán sin ancla (en borrador).`)) return;
-        await borrarAncla(a.id);
-        pintar();
-      });
-      ula.appendChild(li);
-    }
-    $('[data-a="nueva-ancla"]').addEventListener('click', async () => formularioAncla(null));
-
-    async function formularioAncla(a) {
-      const f = $('.form-ancla');
-      f.hidden = false;
-      f.innerHTML = `
-        <div class="titulo-archivo">${a ? 'Editar ancla' : 'Nueva ancla'}</div>
-        <label>Identificador (es lo que lleva su QR)<input name="id" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
-        <label>Nombre<input name="nombre" autocomplete="off" placeholder="Por ejemplo Frontal izquierdo"></label>
-        <label>Descripción<input name="descripcion" autocomplete="off"></label>
-        <p class="error-form" hidden></p>
-        <div class="botones-archivo"><button class="boton" type="submit">💾 Guardar ancla</button><button class="boton secundario" type="button" data-a="cancelar">Cancelar</button></div>`;
-      f.elements.id.value = a ? a.id : await siguienteIdAncla(id);
-      f.elements.id.readOnly = !!a;
-      f.elements.nombre.value = a ? a.nombre : '';
-      f.elements.descripcion.value = a ? a.descripcion || '' : '';
-      f.querySelector('[data-a="cancelar"]').addEventListener('click', () => { f.hidden = true; });
-      f.onsubmit = async (ev) => {
-        ev.preventDefault();
-        const er = f.querySelector('.error-form');
-        try {
-          await guardarAncla({ id: f.elements.id.value, maquinaId: id, nombre: f.elements.nombre.value, descripcion: f.elements.descripcion.value }, !a);
-          pintar();
-        } catch (ex) { er.hidden = false; er.textContent = ex.message; }
-      };
-      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    montarAnclas($('.seccion-anclas'), m);
   };
   pintar();
+  return () => { activo = false; };
+}
+
+// ---------------------------------------------------------------- sección de anclas (reutilizable)
+/** Lista de anclas de una máquina con crear, editar, imprimir su QR y borrar. */
+export async function montarAnclas(cont, m, { alCambiar } = {}) {
+  const anclas = await listarAnclas(m.id);
+  cont.innerHTML = `
+    <h2>⚓ Anclas QR (${anclas.length})</h2>
+    <p class="nota">Cada ancla es un QR fijo en la máquina que sirve de referencia (0, 0, 0) para localizar componentes
+      y para las guías. Créala aquí, imprime su QR, pégalo en la máquina y después posiciona los componentes con el botón 📍 de ANCLA.</p>
+    <button class="boton" data-a="nueva-ancla">➕ Nueva ancla</button>
+    <form class="form-ancla bloque-archivo formulario" hidden novalidate></form>
+    <ul class="lista lista-anclas"></ul>`;
+  const $ = (q) => cont.querySelector(q);
+  const repintar = () => { montarAnclas(cont, m, { alCambiar }); alCambiar && alCambiar(); };
+  const ula = $('.lista-anclas');
+  if (!anclas.length) ula.innerHTML = '<li class="nota">Esta máquina todavía no tiene anclas.</li>';
+  for (const a of anclas) {
+    const li = document.createElement('li');
+    li.innerHTML = `<div class="fila-elemento fila-maquina">
+        <span class="fila-textos"><span class="fila-nombre"></span><span class="fila-ref"></span></span>
+        <span class="acciones-fila">
+          <button class="boton-mini" data-a="qr">🖨️ QR</button>
+          <button class="boton-mini" data-a="ed">✏️</button>
+          <button class="boton-mini" data-a="del">🗑️</button>
+        </span></div>`;
+    li.querySelector('.fila-nombre').textContent = `⚓ ${a.nombre}`;
+    li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
+    li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
+      const { generarPdfQR } = await import('../qr-pdf.js');
+      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.nombre} (${m.id})` }], leerAjustes().qrCm);
+      guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
+    });
+    li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));
+    li.querySelector('[data-a="del"]').addEventListener('click', async () => {
+      const d = await dependenciasAncla(a.id);
+      if (!confirm(`¿Borrar el ancla ${a.id}?\n\nSe borrarán ${d.localizaciones} localizaciones y ${d.guias} guías quedarán sin ancla (en borrador).`)) return;
+      await borrarAncla(a.id);
+      repintar();
+    });
+    ula.appendChild(li);
+  }
+  $('[data-a="nueva-ancla"]').addEventListener('click', () => formularioAncla(null));
+
+  async function formularioAncla(a) {
+    const fo = $('.form-ancla');
+    fo.hidden = false;
+    fo.innerHTML = `
+      <div class="titulo-archivo">${a ? 'Editar ancla' : 'Nueva ancla'}</div>
+      <label>Identificador (es lo que lleva su QR)<input name="id" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <label>Nombre<input name="nombre" autocomplete="off" placeholder="Por ejemplo Frontal izquierdo"></label>
+      <label>Descripción<input name="descripcion" autocomplete="off"></label>
+      <p class="error-form" hidden></p>
+      <div class="botones-archivo"><button class="boton" type="submit">💾 Guardar ancla</button><button class="boton secundario" type="button" data-a="cancelar">Cancelar</button></div>`;
+    fo.elements.id.value = a ? a.id : await siguienteIdAncla(m.id);
+    fo.elements.id.readOnly = !!a;
+    fo.elements.nombre.value = a ? a.nombre : '';
+    fo.elements.descripcion.value = a ? a.descripcion || '' : '';
+    fo.querySelector('[data-a="cancelar"]').addEventListener('click', () => { fo.hidden = true; });
+    fo.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const er = fo.querySelector('.error-form');
+      try {
+        await guardarAncla({ id: fo.elements.id.value, maquinaId: m.id, nombre: fo.elements.nombre.value, descripcion: fo.elements.descripcion.value }, !a);
+        repintar();
+      } catch (ex) { er.hidden = false; er.textContent = ex.message; }
+    };
+    fo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    fo.elements.nombre.focus();
+  }
+}
+
+// ---------------------------------------------------------------- Gestión de anclas (máquina activa)
+export function pantallaAnclas(app, maquinaId, { volver, cambiarMaquina }) {
+  let activo = true;
+  (async () => {
+    const m = await obtenerMaquina(maquinaId);
+    if (!activo) return;
+    app.innerHTML = `
+      <div class="pagina formulario">
+        <button class="volver">‹ Volver</button>
+        <h1>⚓ Gestión de anclas</h1>
+        <p class="det-ref"></p>
+        <button class="boton-mini" data-a="otra">🏭 Cambiar de máquina</button>
+        <div class="seccion-anclas"></div>
+      </div>`;
+    app.querySelector('.volver').addEventListener('click', volver);
+    app.querySelector('[data-a="otra"]').addEventListener('click', cambiarMaquina);
+    if (!m) { app.querySelector('.det-ref').textContent = 'No hay máquina activa.'; return; }
+    app.querySelector('.det-ref').textContent = `Máquina: ${m.nombre} (${m.id})`;
+    montarAnclas(app.querySelector('.seccion-anclas'), m);
+  })();
   return () => { activo = false; };
 }

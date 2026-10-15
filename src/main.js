@@ -17,7 +17,7 @@ import { esAdmin } from './permisos.js';
 import { pantallaAdmin } from './pantallas/admin.js';
 import { hayQuickLook, crearEnlaceAR } from './ar/boton-ar.js';
 import { maquinaActiva, maquinaActivaId, establecerMaquinaActiva, migrarDatosAntiguos, elementosDeMaquina } from './maquinas.js';
-import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina } from './pantallas/maquinas.js';
+import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina, pantallaAnclas } from './pantallas/maquinas.js';
 import { pantallaLocalizacion } from './pantallas/localizacion.js';
 import { pantallaGuias, pantallaGuiaPortada } from './pantallas/guias.js';
 import { pantallaGuiaEditor } from './pantallas/guia-editor.js';
@@ -72,6 +72,7 @@ async function pantallaInicio() {
       ${admin ? `
       <h2>🔑 Administración</h2>
       <button class="boton secundario" data-ir="#/maquinas">🏭 Gestión de máquinas</button>
+      <button class="boton secundario" data-ir="#/anclas">⚓ Gestión de anclas</button>
       <button class="boton secundario" data-ir="#/guias">📘 Gestión de guías</button>
       <button class="boton secundario" data-ir="#/nuevo">➕ Añadir elemento</button>
       <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
@@ -117,13 +118,13 @@ async function mostrar() {
 
   // Pantallas solo para el administrador: si no lo es, se le pide la contraseña
   const SOLO_ADMIN = ['nuevo', 'editar', 'importar', 'hoja', 'qr', 'huella', 'maquina', 'maquina-nueva', 'maquina-editar',
-    'localizacion', 'guia-editar', 'guia-nueva'];
+    'localizacion', 'guia-editar', 'guia-nueva', 'anclas'];
   if (SOLO_ADMIN.includes(pantalla) && !esAdmin()) {
     location.replace('#/admin?ir=' + encodeURIComponent(location.hash));
     return;
   }
   // Pantallas que necesitan una máquina activa (si no la hay, se pide elegirla antes)
-  const CON_MAQUINA = ['escaner', 'ancla', 'guias', 'guia', 'guia-ejecutar', 'elementos'];
+  const CON_MAQUINA = ['escaner', 'ancla', 'guias', 'guia', 'guia-ejecutar', 'elementos', 'anclas'];
   if (CON_MAQUINA.includes(pantalla) && !(await maquinaActiva())) {
     if (miTurno !== turno) return;
     location.replace('#/maquinas?falta=1&ir=' + encodeURIComponent(location.hash));
@@ -175,6 +176,8 @@ async function mostrar() {
       localizaciones: (e) => ir('#/localizacion/' + enc(e)),
       guias: (m) => ir('#/guias?maquina=' + enc(m)),
     });
+  } else if (pantalla === 'anclas') {
+    limpiar = pantallaAnclas(app, maquinaActivaId(), { volver, cambiarMaquina: () => ir('#/maquinas?ir=' + enc('#/anclas')) });
   } else if (pantalla === 'localizacion' && id) {
     limpiar = pantallaLocalizacion(app, id, {
       volver,

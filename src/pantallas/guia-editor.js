@@ -3,7 +3,7 @@
 // coordenadas guardadas para el ancla de la guía), flechas 3D, icono 3D, advertencia de seguridad,
 // comprobaciones y confirmación. Solo se pueden elegir anclas y componentes de la máquina de la guía.
 import {
-  obtenerGuia, guardarGuia, obtenerMaquina, listarAnclas, elementosDeMaquina, localizacionesDeAncla,
+  obtenerGuia, guardarGuia, obtenerMaquina, listarAnclas, elementosDeMaquina, localizacionesDeAncla, guardarAncla, siguienteIdAncla,
   pasoVacio, ESTADOS_GUIA, TIPOS_GUIA,
 } from '../maquinas.js';
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
@@ -74,7 +74,19 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         </fieldset>
         <label>Descripción<textarea name="descripcion" rows="3"></textarea></label>
         <label>Ancla QR que usará la guía<select name="ancla"><option value="">— Elige un ancla —</option></select></label>
-        ${!anclas.length ? '<p class="error-form">Esta máquina no tiene anclas: créalas en Gestión de máquinas.</p>' : ''}
+        <button type="button" class="boton-mini" data-a="crear-ancla">➕ Crear ancla nueva</button>
+        <div class="bloque-archivo form-ancla-guia" hidden>
+          <div class="titulo-archivo">⚓ Nueva ancla de ${maquina.nombre}</div>
+          <label>Identificador (lo que llevará su QR)<input name="anclaNuevaId" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+          <label>Nombre<input name="anclaNuevaNombre" autocomplete="off" placeholder="Por ejemplo Frontal izquierdo"></label>
+          <p class="error-form error-ancla" hidden></p>
+          <div class="botones-archivo">
+            <button type="button" class="boton" data-a="guardar-ancla">💾 Crear y usar en la guía</button>
+            <button type="button" class="boton secundario" data-a="cancelar-ancla">Cancelar</button>
+          </div>
+          <p class="nota">Después imprime su QR en ⚓ Gestión de anclas y pégalo en la máquina.</p>
+        </div>
+        ${!anclas.length ? '<p class="nota aviso-sin-anclas">Esta máquina aún no tiene anclas: crea una con el botón de arriba.</p>' : ''}
         <div class="bloque-archivo">
           <div class="titulo-archivo">🖼️ Imagen de portada</div>
           <img class="vista-foto portada" alt="" hidden>
@@ -115,6 +127,31 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     app.querySelectorAll('[name="tipo"]').forEach((r) => r.addEventListener('change', () => { g.tipo = r.value; }));
     campo('estado').addEventListener('change', (e) => { g.estado = e.target.value; });
     campo('ancla').addEventListener('change', async (e) => { g.anclaId = e.target.value || null; await cargarLocs(); pintarPasos(); });
+    // Crear un ancla nueva sin salir del editor
+    const formAncla = $('.form-ancla-guia');
+    $('[data-a="crear-ancla"]').addEventListener('click', async () => {
+      formAncla.hidden = false;
+      campo('anclaNuevaId').value = await siguienteIdAncla(g.maquinaId);
+      campo('anclaNuevaNombre').focus();
+    });
+    $('[data-a="cancelar-ancla"]').addEventListener('click', () => { formAncla.hidden = true; });
+    $('[data-a="guardar-ancla"]').addEventListener('click', async () => {
+      const er = $('.error-ancla');
+      er.hidden = true;
+      try {
+        const a = await guardarAncla({ id: campo('anclaNuevaId').value, maquinaId: g.maquinaId, nombre: campo('anclaNuevaNombre').value }, true);
+        anclas = await listarAnclas(g.maquinaId);
+        const sel = campo('ancla');
+        sel.innerHTML = '<option value="">— Elige un ancla —</option>';
+        for (const x of anclas) { const o = document.createElement('option'); o.value = x.id; o.textContent = `${x.nombre} (${x.id})`; sel.appendChild(o); }
+        sel.value = a.id;
+        g.anclaId = a.id;
+        formAncla.hidden = true;
+        $('.aviso-sin-anclas')?.remove();
+        await cargarLocs();
+        pintarPasos();
+      } catch (ex) { er.hidden = false; er.textContent = ex.message; }
+    });
 
     // Portada
     const portada = $('.portada');
