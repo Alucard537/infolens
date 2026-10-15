@@ -5,6 +5,7 @@ import { db, CAMPOS_ARCHIVO } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { crearZip, leerIndiceZip, leerEntradaZip } from './zip.js';
 import { serializarHuella, deserializarHuella } from './reconocer/vectores.js';
+import { claveParaCopia, aplicarClaveDeCopia } from './permisos.js';
 
 const FORMATO = 'infolens-copia';
 const JSON_COPIA = 'infolens.json';
@@ -61,6 +62,7 @@ export async function exportarCopia(alAvanzar = () => {}) {
   const indice = {
     formato: FORMATO, version: 1, app: APP_NAME, fecha: Date.now(),
     elementos, archivos: meta, huellas: metaHuellas, ajustes: { qrCm, fovGrados, posModelo },
+    adminClave: claveParaCopia(), // contraseña de administrador cifrada (nunca en texto normal)
   };
   // Lista de elementos para abrir con Excel (separador ";" y BOM para los acentos)
   const celda = (v) => { const t = String(v ?? ''); return /[;"\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
@@ -152,10 +154,10 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
     await db.huellas.bulkDelete(huellasSobran);
   });
 
-  if (indice.ajustes && modo === 'sustituir') {
-    const { qrCm, fovGrados } = indice.ajustes;
-    guardarAjustes({ ...(qrCm ? { qrCm } : {}), ...(fovGrados ? { fovGrados } : {}) });
-  }
+  // El tamaño del QR es el mismo para todos. El campo de visión NO se copia: depende de cada teléfono.
+  if (indice.ajustes && modo === 'sustituir' && indice.ajustes.qrCm) guardarAjustes({ qrCm: indice.ajustes.qrCm });
+  // Si la copia trae contraseña de administrador, este teléfono pasa a usar la misma
+  aplicarClaveDeCopia(indice.adminClave);
   guardarAjustes({ ejemploCreado: true });
   return { elementos: idsCopia.size, archivos: importados.size, faltan };
 }

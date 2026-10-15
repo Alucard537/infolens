@@ -3,6 +3,7 @@ import { exportarCopia, importarCopia, nombreArchivoCopia, espacioUsado } from '
 import { contarElementos } from '../db.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
+import { esAdmin } from '../permisos.js';
 
 const fmtMB = (b) => (b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0) + ' MB';
 const fmtFecha = (t) => new Date(t).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' });
@@ -10,20 +11,23 @@ const fmtFecha = (t) => new Date(t).toLocaleString('es-ES', { dateStyle: 'long',
 export function pantallaCopia(app, { volver, irImportarExcel }) {
   let activo = true;
   let copiaLista = null;
+  const admin = esAdmin();
 
   app.innerHTML = `
     <div class="pagina">
       <button class="volver">‹ Inicio</button>
-      <h1>Copia de seguridad</h1>
+      <h1>${admin ? 'Copia de seguridad' : 'Recibir actualización'}</h1>
       <div class="tarjeta-info">
         <div>Elementos: <b class="n-elementos">…</b></div>
         <div>Espacio usado: <b class="espacio">…</b></div>
         <div>Última copia: <b class="ultima">…</b></div>
       </div>
 
+      ${admin ? `
       <h2>📤 Exportar</h2>
-      <p class="nota">Guarda todos los elementos con sus fotos, PDF y modelos 3D en un único archivo .zip.
-        Sirve como copia de seguridad y para pasar los datos del PC al iPhone (o al revés).</p>
+      <p class="nota">Guarda todos los elementos con sus fotos, PDF, modelos 3D y huellas en un único archivo .zip.
+        Sirve como copia de seguridad y para pasar los datos a otros teléfonos. Lleva también la contraseña de
+        administrador (cifrada), para que los teléfonos de los operarios queden protegidos.</p>
       <button class="boton" data-accion="preparar">📦 Crear copia (.zip)</button>
       <button class="boton" data-accion="guardar" hidden>💾 Guardar / enviar la copia</button>
 
@@ -32,7 +36,10 @@ export function pantallaCopia(app, { volver, irImportarExcel }) {
       <fieldset class="tipo">
         <label class="opcion"><input type="radio" name="modo" value="combinar" checked> Añadir y actualizar</label>
         <label class="opcion"><input type="radio" name="modo" value="sustituir"> Sustituir todo</label>
-      </fieldset>
+      </fieldset>` : `
+      <p class="nota">Elige el archivo .zip que te ha enviado el administrador (por ejemplo desde iCloud Drive,
+        WhatsApp o el correo). Este teléfono quedará igual que el del administrador.</p>
+      <input type="radio" name="modo" value="sustituir" checked hidden>`}
       <p class="nota modo-ayuda"></p>
       <label class="boton">📂 Elegir copia .zip e importar
         <input type="file" accept=".zip,application/zip,application/x-zip-compressed" class="entrada-oculta" data-entrada="zip"></label>
@@ -41,17 +48,18 @@ export function pantallaCopia(app, { volver, irImportarExcel }) {
       <p class="error-form" hidden></p>
       <p class="ok-form" hidden></p>
 
-      <h2>🖥️ Desde el PC</h2>
+      ${admin ? `<h2>🖥️ Desde el PC</h2>
       <p class="nota">¿Tienes los datos en un Excel? En el PC puedes importarlos todos de golpe y luego pasar la copia al iPhone.</p>
-      <button class="boton secundario" data-accion="excel">📊 Importar desde Excel</button>
+      <button class="boton secundario" data-accion="excel">📊 Importar desde Excel</button>` : ''}
     </div>`;
 
   const $ = (s) => app.querySelector(s);
   $('.volver').addEventListener('click', volver);
-  $('[data-accion="excel"]').addEventListener('click', irImportarExcel);
+  $('[data-accion="excel"]')?.addEventListener('click', irImportarExcel);
 
   const ayudaModo = () => {
     const m = app.querySelector('[name="modo"]:checked').value;
+    if (!admin) return;
     $('.modo-ayuda').textContent = m === 'combinar'
       ? 'Añade los elementos nuevos y actualiza los que tengan el mismo ID. No borra nada de lo que ya tienes.'
       : '⚠️ Este dispositivo quedará exactamente igual que la copia: se borrarán los elementos que no estén en ella.';
@@ -80,7 +88,7 @@ export function pantallaCopia(app, { volver, irImportarExcel }) {
   };
   const ocupado = (si) => app.querySelectorAll('.boton').forEach((b) => b.classList.toggle('desactivado', si));
 
-  $('[data-accion="preparar"]').addEventListener('click', async () => {
+  $('[data-accion="preparar"]')?.addEventListener('click', async () => {
     mensaje(); ocupado(true);
     $('[data-accion="guardar"]').hidden = true;
     try {
@@ -95,7 +103,7 @@ export function pantallaCopia(app, { volver, irImportarExcel }) {
     ocupado(false);
   });
 
-  $('[data-accion="guardar"]').addEventListener('click', async () => {
+  $('[data-accion="guardar"]')?.addEventListener('click', async () => {
     if (!copiaLista) return;
     const r = await guardarOCompartir(copiaLista.blob, copiaLista.nombre, 'application/zip');
     if (r === 'descargado') mensaje(`Copia descargada: ${copiaLista.nombre} (mírala en la carpeta Descargas).`);

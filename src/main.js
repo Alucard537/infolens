@@ -13,6 +13,8 @@ import { pantallaImportar } from './pantallas/importar.js';
 import { pantallaQR, pantallaHojaQR } from './pantallas/qr.js';
 import { pantallaHuella } from './pantallas/huella.js';
 import { pedirPermisoSensor } from './ar/permiso-sensor.js';
+import { esAdmin } from './permisos.js';
+import { pantallaAdmin } from './pantallas/admin.js';
 
 document.title = APP_NAME;
 
@@ -39,15 +41,19 @@ const enc = encodeURIComponent;
 const cargarEscaner = () => import('./pantallas/escaner.js');
 
 function pantallaInicio() {
+  const admin = esAdmin();
   app.innerHTML = `
     <div class="pagina">
       <h1 class="titulo-app"></h1>
+      <button class="usuario ${admin ? 'es-admin' : ''}" data-ir="#/admin">${admin ? '🔑 Administrador' : '👤 Usuario normal'}</button>
       <button class="boton grande" data-ir="#/escaner">📷 Escanear</button>
       <button class="boton secundario" data-ir="#/elementos">📋 Elementos <span class="cuenta"></span></button>
+      ${admin ? `
       <button class="boton secundario" data-ir="#/nuevo">➕ Añadir elemento</button>
       <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
-      <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>
-      <button class="boton secundario" disabled>⚙️ Ajustes</button>
+      <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>` : `
+      <button class="boton secundario" data-ir="#/copia">📥 Recibir actualización</button>`}
+      <button class="boton secundario" data-ir="#/admin">${admin ? '🚪 Salir del modo administrador' : '🔒 Entrar como administrador'}</button>
       <p class="nota">Versión ${__VERSION__}</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
@@ -69,7 +75,22 @@ async function mostrar() {
   document.body.classList.toggle('modo-escaner', pantalla === 'escaner' || pantalla === 'huella');
   window.scrollTo(0, 0);
 
-  if (pantalla === 'escaner') {
+  // Pantallas solo para el administrador: si no lo es, se le pide la contraseña
+  const SOLO_ADMIN = ['nuevo', 'editar', 'importar', 'hoja', 'qr', 'huella'];
+  if (SOLO_ADMIN.includes(pantalla) && !esAdmin()) {
+    location.replace('#/admin?ir=' + encodeURIComponent(location.hash));
+    return;
+  }
+
+  if (pantalla && pantalla.startsWith('admin')) {
+    const destino = new URLSearchParams(location.hash.split('?')[1] || '').get('ir');
+    pantallaAdmin(app, {
+      volver: () => ir('#/'),
+      destino,
+      alEntrar: (d) => sustituir(d || '#/'),
+      alSalir: () => sustituir('#/'),
+    });
+  } else if (pantalla === 'escaner') {
     const { pantallaEscaner } = await cargarEscaner();
     if (miTurno !== turno) return;
     limpiar = pantallaEscaner(app, {

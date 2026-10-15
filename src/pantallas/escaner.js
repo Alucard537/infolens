@@ -5,6 +5,7 @@ import { leerAjustes, guardarAjustes } from '../ajustes.js';
 import { mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarModeloAR } from '../ar/modelo-ar.js';
 import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
+import { esAdmin } from '../permisos.js';
 import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
 import { crearIcono, crearLuces } from '../ar/icono.js';
@@ -40,9 +41,9 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       <div class="rec-panel" hidden></div>
       <div class="esc-panel" hidden>
         <h3>Ajuste fino</h3>
-        <label>Tamaño del QR impreso (cm, solo la zona negra)
+        ${esAdmin() ? `<label>Tamaño del QR impreso (cm, solo la zona negra)
           <input type="number" step="0.1" min="1" max="100" inputmode="decimal" data-ajuste="qrCm" value="${ajustes.qrCm}">
-        </label>
+        </label>` : `<p class="nota">Tamaño del QR impreso: ${ajustes.qrCm} cm (lo fija el administrador).</p>`}
         <label>Campo de visión de la cámara: <b data-valor="fov">${ajustes.fovGrados}°</b>
           <input type="range" min="40" max="100" step="0.5" data-ajuste="fovGrados" value="${ajustes.fovGrados}">
         </label>
@@ -142,7 +143,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       <div class="et-textos"><div class="et-nombre"></div><div class="et-ref"></div><div class="et-debug"></div></div>
       ${elemento
         ? '<button class="et-mas" aria-label="Más información">+</button>'
-        : '<button class="et-alta">➕ Dar de alta</button>'}`;
+        : (esAdmin() ? '<button class="et-alta">➕ Dar de alta</button>' : '')}`;
     etiqueta.querySelector('.et-nombre').textContent = elemento ? elemento.nombre : 'Elemento no registrado';
     etiqueta.querySelector('.et-ref').textContent = elemento ? elemento.referencia : `ID: ${id}`;
     etiqueta.querySelector('.et-mas')?.addEventListener('click', () => abrirDetalle(id));

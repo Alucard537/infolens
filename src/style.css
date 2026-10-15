@@ -279,3 +279,13 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
   background: linear-gradient(transparent, var(--fondo) 25%);
 }
 .galeria-pie .boton { margin: 0 0 6px; }
+
+/* ---------- usuarios ---------- */
+.usuario {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; margin: -8px 0 10px;
+  border-radius: 20px; border: 1px solid #3a5468; background: var(--tarjeta); color: var(--texto2); font-size: 16px;
+}
+.usuario.es-admin { border-color: #ffd60a; color: #ffd60a; }
+.campo-clave { display: flex; gap: 8px; align-items: stretch; margin-top: 6px; }
+.formulario .campo-clave input { margin-top: 0; flex: 1; }
+.ver-clave { flex: none; width: 56px; border-radius: 12px; border: 1px solid #3a5468; background: var(--tarjeta); font-size: 22px; }

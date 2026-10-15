@@ -1,5 +1,6 @@
 // Lista de elementos con buscador (por nombre, referencia o ID) y miniaturas.
 import { listarElementos, obtenerArchivo } from '../db.js';
+import { esAdmin } from '../permisos.js';
 
 // Quita acentos y pasa a minúsculas para buscar sin importar cómo se escriba
 const simplificar = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -11,17 +12,17 @@ export function pantallaLista(app, { abrirDetalle, nuevo, hojaQR, volver }) {
       <h1>Elementos <span class="contador"></span></h1>
       <input class="buscador" type="search" placeholder="🔍 Buscar por nombre, referencia o ID"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-      <div class="botones-archivo">
+      ${esAdmin() ? `<div class="botones-archivo">
         <button class="boton" data-accion="nuevo">➕ Añadir</button>
         <button class="boton secundario" data-accion="hoja">🖨️ Hoja de QR</button>
-      </div>
+      </div>` : ''}
       <ul class="lista"></ul>
       <p class="nota vacio" hidden></p>
     </div>`;
   const $ = (s) => app.querySelector(s);
   $('.volver').addEventListener('click', volver);
-  $('[data-accion="nuevo"]').addEventListener('click', () => nuevo());
-  $('[data-accion="hoja"]').addEventListener('click', () => hojaQR());
+  $('[data-accion="nuevo"]')?.addEventListener('click', () => nuevo());
+  $('[data-accion="hoja"]')?.addEventListener('click', () => hojaQR());
 
   const urls = new Map();      // miniaturaId -> blob: URL (se liberan al salir)
   let elementos = [];
