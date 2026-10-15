@@ -2,6 +2,7 @@
 // una hoja CSV con los datos + una carpeta con las fotos, PDF y modelos 3D.
 import { decodificarTexto, parsearCSV, filasAElementos, plantillaCSV } from '../csv.js';
 import { listarElementos, guardarElemento, normalizarId, siguienteId } from '../db.js';
+import { listarMaquinas, maquinaActivaId } from '../maquinas.js';
 import { prepararFoto } from '../imagenes.js';
 import { descargar } from '../ui/descargar.js';
 
@@ -26,6 +27,10 @@ export function pantallaImportar(app, { volver, irCopia }) {
       <button class="volver">‹ Volver</button>
       <h1>Importar desde Excel</h1>
       <p class="nota">Pensado para hacerlo en el PC. Después crea una copia .zip y pásala al iPhone.</p>
+      <label class="selector-destino">🏭 Máquina a la que se añaden los elementos
+        <select class="maquina-destino"></select>
+      </label>
+      <p class="nota">En la hoja de Excel puedes poner además una columna <b>maquina</b> (su identificador) para repartirlos entre varias.</p>
 
       <h2>📦 Archivos de EPLAN (.edz)</h2>
       <p class="nota">Elige uno o varios .edz descargados del portal de EPLAN. De cada uno se crea un elemento con
@@ -73,6 +78,21 @@ export function pantallaImportar(app, { volver, irCopia }) {
   $('.volver').addEventListener('click', volver);
   $('[data-accion="plantilla"]').addEventListener('click', () => descargar(plantillaCSV(), 'plantilla-elementos.csv'));
 
+  // Máquina destino (por defecto, la activa)
+  let maquinas = [];
+  const selDestino = app.querySelector('.maquina-destino');
+  const destino = () => selDestino.value || null;
+  const maquinaFila = (f) => {
+    const m = normalizarId(f.maquina || '');
+    return m && maquinas.some((x) => x.id === m) ? m : destino();
+  };
+  listarMaquinas().then((l) => {
+    maquinas = l;
+    selDestino.innerHTML = l.length ? '' : '<option value="">(no hay máquinas: créalas antes)</option>';
+    for (const m of l) { const o = document.createElement('option'); o.value = m.id; o.textContent = `${m.nombre} (${m.id})`; selDestino.appendChild(o); }
+    if (l.some((m) => m.id === maquinaActivaId())) selDestino.value = maquinaActivaId();
+  });
+  selDestino.addEventListener('change', () => revisar());
   const error = (msg) => { $('.error-form').hidden = !msg; $('.error-form').textContent = msg || ''; };
 
   // Para cada fila, decide qué archivos le corresponden
@@ -128,6 +148,10 @@ export function pantallaImportar(app, { volver, irCopia }) {
       if (!id) id = 'V-' + String(++max).padStart(4, '0');
       if (!f.nombre || !f.referencia) { avisos.push(`Fila ${f.fila}: falta el nombre o la referencia (se salta).`); continue; }
       if (vistos.has(id)) { avisos.push(`Fila ${f.fila}: el ID ${id} está repetido en la hoja (se salta).`); continue; }
+      if (f.maquina && !maquinas.some((x) => x.id === normalizarId(f.maquina))) avisos.push(`Fila ${f.fila} (${id}): la máquina "${f.maquina}" no existe; se usa ${destino()}.`);
+      if (!maquinaFila(f)) { avisos.push(`Fila ${f.fila}: no hay máquina destino (se salta).`); continue; }
+      const previo = existentes.get(id);
+      if (previo && previo.maquinaId && previo.maquinaId !== maquinaFila(f)) avisos.push(`Fila ${f.fila}: el ID ${id} ya existe en la máquina ${previo.maquinaId}; se moverá a ${maquinaFila(f)} y perderá sus localizaciones allí. Si es otra pieza, usa otro ID.`);
       vistos.add(id);
       const rFoto = buscarArchivo(f.foto, id, EXT_FOTO);
       const rPdf = buscarArchivo(f.pdf, id, ['pdf'], esFicha);
@@ -140,7 +164,7 @@ export function pantallaImportar(app, { volver, irCopia }) {
       plan.push({
         id, existe: existentes.has(id), foto, pdf, conexion, modelo,
         datos: {
-          id, nombre: f.nombre, referencia: f.referencia,
+          id, nombre: f.nombre, referencia: f.referencia, maquinaId: maquinaFila(f),
           tipo: /^c/i.test(f.tipo || '') ? 'COMPUESTO' : 'SENCILLO',
           descripcion: f.descripcion || '',
         },
@@ -256,7 +280,8 @@ export function pantallaImportar(app, { volver, irCopia }) {
     $('[data-accion="importar-edz"]').hidden = true;
     $('.ok-edz').hidden = true;
     const { leerEdz } = await import('../edz.js');
-    const porReferencia = new Map((await listarElementos()).map((el) => [String(el.referencia).toLowerCase(), el]));
+    // Solo dentro de la máquina destino: la misma pieza puede estar en varias máquinas
+    const porReferencia = new Map((await listarElementos()).filter((el) => el.maquinaId === destino()).map((el) => [String(el.referencia).toLowerCase(), el]));
     leidos = [];
     for (const archivo of lista) {
       try {
@@ -312,7 +337,7 @@ export function pantallaImportar(app, { volver, irCopia }) {
         }
         const id = await siguienteId();
         await guardarElemento({
-          id, nombre: l.datos.nombre, referencia: l.datos.referencia, tipo: 'SENCILLO', descripcion: l.datos.descripcion,
+          id, nombre: l.datos.nombre, referencia: l.datos.referencia, tipo: 'SENCILLO', descripcion: l.datos.descripcion, maquinaId: destino(),
         }, cambios, true);
         creados.push(id);
       } catch (err) {

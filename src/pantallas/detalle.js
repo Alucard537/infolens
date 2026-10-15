@@ -1,11 +1,12 @@
 // Pantalla de detalle de un elemento (datos de la base de datos del móvil).
 import { obtenerElemento, obtenerArchivo, obtenerHuella } from '../db.js';
 import { esAdmin } from '../permisos.js';
+import { maquinaActivaId, obtenerMaquina, localizacionesDeElemento } from '../maquinas.js';
 
 // El visor (con pdf.js, que es grande) se carga solo cuando hace falta
 const visor = () => import('../ui/visor.js');
 
-export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR, huella }) {
+export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR, huella, localizaciones }) {
   let activo = true;
   const urls = [];
   app.innerHTML = '<div class="pagina"><p class="nota">Cargando…</p></div>';
@@ -23,6 +24,12 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       return;
     }
 
+    if (!esAdmin() && el.maquinaId !== maquinaActivaId()) {
+      app.innerHTML = '<div class="pagina"><button class="volver">‹ Volver</button><p class="error-form">Este elemento no pertenece a la máquina seleccionada.</p></div>';
+      app.querySelector('.volver').addEventListener('click', volver);
+      return;
+    }
+    const [maquina, locs] = await Promise.all([obtenerMaquina(el.maquinaId), localizacionesDeElemento(el.id)]);
     const [foto, pdf, conexion, modelo, hu] = await Promise.all([
       obtenerArchivo(el.imagenId), obtenerArchivo(el.pdfId), obtenerArchivo(el.pdfConexionId), obtenerArchivo(el.modelo3dId), obtenerHuella(el.id),
     ]);
@@ -45,7 +52,8 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
           <button class="boton secundario" data-accion="qr">🖨️ Imprimir QR</button>
         </div>
         <button class="boton secundario" data-accion="huella">🎯 Reconocer sin QR ${hu ? '(huella: ' + hu.n + ' imágenes)' : '(sin huella)'}</button>` : ''}
-        ${el.nav && el.nav.ancla ? '<p class="nota det-nav"></p>' : ''}
+        <p class="nota det-nav"></p>
+        ${esAdmin() ? '<button class="boton secundario" data-accion="loc">🧭 Localizaciones (' + locs.length + ')</button>' : ''}
         <p class="nota">ID: <b class="det-id"></b> · Su QR contiene el texto <b class="det-qr"></b></p>
       </div>`;
     const $ = (s) => app.querySelector(s);
@@ -62,7 +70,9 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       } else desc.appendChild(document.createTextNode(trozo));
     }
     $('.det-id').textContent = el.id;
-    if (el.nav && el.nav.ancla) $('.det-nav').textContent = `🧭 Se puede llegar con flechas desde el QR ${el.nav.ancla} (a ${Math.hypot(...el.nav.pos).toFixed(1).replace('.', ',')} m de él).`;
+    $('.det-nav').textContent = `🏭 Máquina: ${maquina ? maquina.nombre + ' (' + maquina.id + ')' : 'sin máquina'}`
+      + (locs.length ? ` · 🧭 localizable desde ${locs.length === 1 ? 'el ancla ' + locs[0].anclaId : locs.length + ' anclas'}` : '');
+    $('[data-accion="loc"]')?.addEventListener('click', () => localizaciones(el.id));
     $('.det-qr').textContent = 'INFOLENS:' + el.id;
     $('.volver').addEventListener('click', volver);
     $('[data-accion="editar"]')?.addEventListener('click', () => editar(el.id));

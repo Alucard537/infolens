@@ -16,6 +16,11 @@ import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 import { esAdmin } from './permisos.js';
 import { pantallaAdmin } from './pantallas/admin.js';
 import { hayQuickLook, crearEnlaceAR } from './ar/boton-ar.js';
+import { maquinaActiva, maquinaActivaId, establecerMaquinaActiva, migrarDatosAntiguos, elementosDeMaquina } from './maquinas.js';
+import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina } from './pantallas/maquinas.js';
+import { pantallaLocalizacion } from './pantallas/localizacion.js';
+import { pantallaGuias, pantallaGuiaPortada } from './pantallas/guias.js';
+import { pantallaGuiaEditor } from './pantallas/guia-editor.js';
 
 document.title = APP_NAME;
 
@@ -37,19 +42,37 @@ const ir = (ruta) => { location.hash = ruta; };
 const sustituir = (ruta) => { location.replace(ruta); }; // sin dejar la pantalla actual en el "atrás"
 const volver = () => (history.length > 1 ? history.back() : ir('#/'));
 const enc = encodeURIComponent;
+const abrirImagen = async (u, t) => (await import('./ui/visor.js')).abrirImagen(u, t);
 
 // El escáner (con three.js) se carga solo cuando se usa, para que la app arranque más rápido
 const cargarEscaner = () => import('./pantallas/escaner.js');
 
-function pantallaInicio() {
+// Pantallas con cámara: botón ESCÁNER / ANCLA / guía en marcha. El permiso del sensor de movimiento
+// del iPhone tiene que pedirse en el mismo toque.
+const CON_CAMARA = ['escaner', 'ancla', 'guia-ejecutar', 'huella'];
+const irConCamara = (ruta) => { pedirPermisoSensor(); ir(ruta); };
+
+async function pantallaInicio() {
   const admin = esAdmin();
+  const maquina = await maquinaActiva();
   app.innerHTML = `
     <div class="pagina">
       <h1 class="titulo-app"></h1>
       <button class="usuario ${admin ? 'es-admin' : ''}" data-ir="#/admin">${admin ? '🔑 Administrador' : '👤 Usuario normal'}</button>
-      <button class="boton grande" data-ir="#/escaner">📷 Escanear</button>
-      <button class="boton secundario" data-ir="#/elementos">📋 Elementos <span class="cuenta"></span></button>
+      <button class="maquina-activa ${maquina ? '' : 'sin-maquina'}" data-ir="#/maquinas">
+        MÁQUINA ACTIVA: <b class="nombre-maquina"></b>
+      </button>
+      <div class="botones-principales">
+        <button class="boton grande" data-ir="#/escaner" data-camara>📷 ESCÁNER</button>
+        <button class="boton grande secundario" data-ir="#/maquinas">🏭 MÁQUINAS</button>
+        <button class="boton grande" data-ir="#/ancla" data-camara>⚓ ANCLA</button>
+        <button class="boton grande secundario" data-ir="#/guias">📘 GUÍAS</button>
+      </div>
+      <button class="boton secundario" data-ir="#/elementos">📋 Elementos de la máquina <span class="cuenta"></span></button>
       ${admin ? `
+      <h2>🔑 Administración</h2>
+      <button class="boton secundario" data-ir="#/maquinas">🏭 Gestión de máquinas</button>
+      <button class="boton secundario" data-ir="#/guias">📘 Gestión de guías</button>
       <button class="boton secundario" data-ir="#/nuevo">➕ Añadir elemento</button>
       <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
       <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>` : `
@@ -59,11 +82,12 @@ function pantallaInicio() {
       <p class="nota">Versión ${__VERSION__}</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
+  app.querySelector('.nombre-maquina').textContent = maquina ? `${maquina.nombre} (${maquina.id})` : 'ninguna — toca para elegir';
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
-    if (b.dataset.ir === '#/escaner') pedirPermisoSensor(); // iPhone: el permiso se pide en el mismo toque
-    ir(b.dataset.ir);
+    if (b.hasAttribute('data-camara')) irConCamara(b.dataset.ir); else ir(b.dataset.ir);
   }));
-  contarElementos().then((n) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${n})`; });
+  if (maquina) elementosDeMaquina(maquina.id).then((l) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${l.length})`; });
+  else contarElementos().then(() => {});
   // Prueba del AR de Apple con LiDAR (modelo de ejemplo): sirve para saber si funciona en este iPhone
   const prueba = app.querySelector('.prueba-ar');
   if (hayQuickLook()) {
@@ -83,34 +107,111 @@ async function mostrar() {
   const miTurno = ++turno;
   if (limpiar) { try { limpiar(); } catch {} limpiar = null; }
   document.querySelectorAll('.visor').forEach((v) => v.remove());
-  const ruta = location.hash.replace(/^#/, '') || '/';
+  const completa = location.hash.replace(/^#/, '') || '/';
+  const [ruta, consulta = ''] = completa.split('?');
+  const params = new URLSearchParams(consulta);
   const [pantalla, param] = ruta.split('/').filter(Boolean);
   const id = param ? decodeURIComponent(param) : '';
-  document.body.classList.toggle('modo-escaner', pantalla === 'escaner' || pantalla === 'huella');
+  document.body.classList.toggle('modo-escaner', CON_CAMARA.includes(pantalla));
   window.scrollTo(0, 0);
 
   // Pantallas solo para el administrador: si no lo es, se le pide la contraseña
-  const SOLO_ADMIN = ['nuevo', 'editar', 'importar', 'hoja', 'qr', 'huella'];
+  const SOLO_ADMIN = ['nuevo', 'editar', 'importar', 'hoja', 'qr', 'huella', 'maquina', 'maquina-nueva', 'maquina-editar',
+    'localizacion', 'guia-editar', 'guia-nueva'];
   if (SOLO_ADMIN.includes(pantalla) && !esAdmin()) {
     location.replace('#/admin?ir=' + encodeURIComponent(location.hash));
     return;
   }
+  // Pantallas que necesitan una máquina activa (si no la hay, se pide elegirla antes)
+  const CON_MAQUINA = ['escaner', 'ancla', 'guias', 'guia', 'guia-ejecutar', 'elementos'];
+  if (CON_MAQUINA.includes(pantalla) && !(await maquinaActiva())) {
+    if (miTurno !== turno) return;
+    location.replace('#/maquinas?falta=1&ir=' + encodeURIComponent(location.hash));
+    return;
+  }
+  if (miTurno !== turno) return;
 
-  if (pantalla && pantalla.startsWith('admin')) {
-    const destino = new URLSearchParams(location.hash.split('?')[1] || '').get('ir');
+  if (pantalla === 'admin') {
     pantallaAdmin(app, {
       volver: () => ir('#/'),
-      destino,
+      destino: params.get('ir'),
       alEntrar: (d) => sustituir(d || '#/'),
       alSalir: () => sustituir('#/'),
     });
-  } else if (pantalla === 'escaner') {
+  } else if (pantalla === 'escaner' || pantalla === 'ancla' || pantalla === 'guia-ejecutar') {
     const { pantallaEscaner } = await cargarEscaner();
     if (miTurno !== turno) return;
     limpiar = pantallaEscaner(app, {
+      modo: pantalla === 'escaner' ? 'escaner' : pantalla === 'ancla' ? 'ancla' : 'guia',
+      guiaId: pantalla === 'guia-ejecutar' ? id : null,
+      verLocId: params.get('ver'),
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
-      darDeAlta: (i) => ir('#/nuevo/' + enc(i)),
+      darDeAlta: (i) => ir('#/nuevo/' + enc(i) + '?maquina=' + enc(maquinaActivaId() || '')),
+      abrirImagen,
+      volver: () => (pantalla === 'guia-ejecutar' ? ir('#/guia/' + enc(id)) : ir('#/')),
+    });
+  } else if (pantalla === 'maquinas') {
+    const destino = params.get('ir');
+    limpiar = pantallaMaquinas(app, {
       volver: () => ir('#/'),
+      aviso: params.get('falta') ? 'Primero elige con qué máquina vas a trabajar.' : '',
+      gestionar: (m) => ir('#/maquina/' + enc(m)),
+      nueva: () => ir('#/maquina-nueva'),
+      // Al cambiar de máquina se cierra todo lo de la anterior (las pantallas AR se crean de nuevo)
+      alElegir: () => sustituir(destino || '#/'),
+    });
+  } else if (pantalla === 'maquina-nueva' || (pantalla === 'maquina-editar' && id)) {
+    limpiar = pantallaMaquinaForm(app, pantalla === 'maquina-editar' ? id : null, {
+      volver,
+      alGuardar: (m) => { if (!maquinaActivaId()) establecerMaquinaActiva(m); sustituir('#/maquina/' + enc(m)); },
+      alBorrar: () => sustituir('#/maquinas'),
+    });
+  } else if (pantalla === 'maquina' && id) {
+    limpiar = pantallaMaquina(app, id, {
+      volver: () => ir('#/maquinas'),
+      editarMaquina: (m) => ir('#/maquina-editar/' + enc(m)),
+      editarElemento: (e) => ir('#/editar/' + enc(e)),
+      nuevoElemento: (m) => ir('#/nuevo?maquina=' + enc(m)),
+      localizaciones: (e) => ir('#/localizacion/' + enc(e)),
+      guias: (m) => ir('#/guias?maquina=' + enc(m)),
+    });
+  } else if (pantalla === 'localizacion' && id) {
+    limpiar = pantallaLocalizacion(app, id, {
+      volver,
+      // Previsualizar: abre ANCLA con ese recorrido (en la máquina del elemento)
+      previsualizar: (loc) => { establecerMaquinaActiva(loc.maquinaId); irConCamara('#/ancla?ver=' + enc(loc.id)); },
+      posicionarConCamara: () => irConCamara('#/ancla'),
+    });
+  } else if (pantalla === 'guias') {
+    // El administrador puede gestionar las guías de cualquier máquina; el usuario, solo las de la activa
+    const maq = (esAdmin() && params.get('maquina')) || maquinaActivaId();
+    limpiar = pantallaGuias(app, maq, {
+      volver,
+      abrir: (g) => ir('#/guia/' + enc(g)),
+      editar: (g) => ir('#/guia-editar/' + enc(g)),
+      nueva: (m) => ir('#/guia-nueva?maquina=' + enc(m)),
+    });
+  } else if (pantalla === 'guia' && id) {
+    limpiar = pantallaGuiaPortada(app, id, {
+      volver: () => ir('#/guias'),
+      empezar: (g) => irConCamara('#/guia-ejecutar/' + enc(g)),
+      editar: (g) => ir('#/guia-editar/' + enc(g)),
+    });
+  } else if (pantalla === 'guia-nueva' || (pantalla === 'guia-editar' && id)) {
+    limpiar = pantallaGuiaEditor(app, {
+      id: pantalla === 'guia-editar' ? id : null,
+      maquinaId: params.get('maquina') || maquinaActivaId(),
+      volver,
+      // Actualizar la dirección sin recargar el editor
+      alGuardar: (g) => history.replaceState(null, '', '#/guia-editar/' + enc(g)),
+      probar: (g) => {
+        // La guía se prueba en su máquina
+        import('./maquinas.js').then(async ({ obtenerGuia }) => {
+          const guia = await obtenerGuia(g);
+          if (guia) establecerMaquinaActiva(guia.maquinaId);
+          irConCamara('#/guia-ejecutar/' + enc(g));
+        });
+      },
     });
   } else if (pantalla === 'detalle' && id) {
     limpiar = pantallaDetalle(app, id, {
@@ -118,12 +219,13 @@ async function mostrar() {
       editar: (i) => ir('#/editar/' + enc(i)),
       imprimirQR: (i) => ir('#/qr/' + enc(i)),
       huella: (i) => ir('#/huella/' + enc(i)),
-      darDeAlta: (i) => ir('#/nuevo/' + enc(i)),
+      localizaciones: (i) => ir('#/localizacion/' + enc(i)),
+      darDeAlta: (i) => ir('#/nuevo/' + enc(i) + '?maquina=' + enc(maquinaActivaId() || '')),
     });
   } else if (pantalla === 'elementos') {
     limpiar = pantallaLista(app, {
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
-      nuevo: () => ir('#/nuevo'),
+      nuevo: () => ir('#/nuevo?maquina=' + enc(maquinaActivaId() || '')),
       hojaQR: () => ir('#/hoja'),
       volver: () => ir('#/'),
     });
@@ -141,19 +243,21 @@ async function mostrar() {
     limpiar = pantallaFormulario(app, {
       id: pantalla === 'editar' ? id : null,
       idSugerido: pantalla === 'nuevo' ? id : null,
+      maquinaSugerida: params.get('maquina') || maquinaActivaId(),
       alGuardar: (i) => sustituir('#/detalle/' + enc(i)),
       alBorrar: () => sustituir('#/elementos'),
       volver,
     });
   } else {
-    pantallaInicio();
+    await pantallaInicio();
   }
 }
 
-// Arranque: cargar ajustes y el elemento de ejemplo antes de mostrar la primera pantalla
+// Arranque: cargar ajustes, el ejemplo y pasar los datos antiguos al sistema de máquinas
 (async () => {
   await cargarAjustes();
   await crearEjemploSiHaceFalta();
+  try { await migrarDatosAntiguos(); } catch (e) { console.warn('Migración:', e); }
   window.addEventListener('hashchange', mostrar);
   mostrar();
 })();

@@ -13,6 +13,19 @@ db.version(1).stores({
 db.version(2).stores({
   huellas: 'elementoId',
 });
+// Versión 3: máquinas, anclas, localizaciones y guías (cada máquina es un entorno independiente)
+//  maquinas:        { id, nombre, modelo, descripcion, creado, modificado }
+//  elementos:       + maquinaId (la máquina a la que pertenece; null = sin asignar)
+//  anclas:          { id (= el que va en su QR), maquinaId, nombre, descripcion, gravedad: [x,y,z] | null }
+//  localizaciones:  { id, maquinaId, anclaId, elementoId, pos: [x,y,z], ruta: [[x,y,z]…], posIcono: [x,y,z] | null }
+//  guias:           { id, maquinaId, nombre, tipo, descripcion, anclaId, portadaId, estado, pasos: […] }
+db.version(3).stores({
+  elementos: 'id, nombre, referencia, tipo, modificado, maquinaId',
+  maquinas: 'id, nombre',
+  anclas: 'id, maquinaId',
+  localizaciones: 'id, maquinaId, anclaId, elementoId',
+  guias: 'id, maquinaId, estado',
+});
 
 const nuevoIdArchivo = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -65,7 +78,7 @@ export async function siguienteId(prefijo = 'V-') {
  *   - { blob, nombre } -> se guarda (sustituyendo al anterior)
  */
 export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
-  return db.transaction('rw', db.elementos, db.archivos, async () => {
+  return db.transaction('rw', [db.elementos, db.archivos, db.localizaciones, db.maquinas], async () => {
     const anterior = await db.elementos.get(datos.id);
     if (esNuevo && anterior) throw new Error(`Ya existe un elemento con el ID ${datos.id}`);
     const ahora = Date.now();
@@ -75,6 +88,14 @@ export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
       creado: anterior?.creado || ahora,
       modificado: ahora,
     };
+    // La máquina tiene que existir (comprobación también al guardar, no solo en pantalla)
+    if (el.maquinaId && !(await db.maquinas.get(el.maquinaId))) {
+      throw new Error(`La máquina ${el.maquinaId} no existe.`);
+    }
+    // Si cambia de máquina, sus localizaciones de la máquina anterior dejan de valer
+    if (anterior && (anterior.maquinaId || null) !== (el.maquinaId || null)) {
+      await db.localizaciones.where('elementoId').equals(el.id).delete();
+    }
     for (const campo of CAMPOS_ARCHIVO) {
       const nuevo = archivos[campo];
       if (nuevo === undefined) continue;
@@ -94,11 +115,12 @@ export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
 }
 
 export async function borrarElemento(id) {
-  return db.transaction('rw', db.elementos, db.archivos, db.huellas, async () => {
+  return db.transaction('rw', [db.elementos, db.archivos, db.huellas, db.localizaciones], async () => {
     const el = await db.elementos.get(id);
     if (!el) return;
     for (const campo of CAMPOS_ARCHIVO) if (el[campo]) await db.archivos.delete(el[campo]);
     await db.huellas.delete(id);
+    await db.localizaciones.where('elementoId').equals(id).delete(); // sus localizaciones ya no sirven
     await db.elementos.delete(id);
   });
 }
@@ -142,4 +164,17 @@ export async function leerTodosAjustes() {
 
 export async function guardarAjuste(clave, valor) {
   await db.ajustes.put({ clave, valor });
+}
+
+// ---------- archivos sueltos (por ejemplo, fotos y vídeos de las guías) ----------
+
+export async function guardarArchivo(blob, nombre) {
+  const id = nuevoIdArchivo();
+  await db.archivos.put({ id, nombre: nombre || 'archivo', tipoMime: blob.type || 'application/octet-stream', blob });
+  return id;
+}
+
+export async function borrarArchivos(ids) {
+  const lista = (ids || []).filter(Boolean);
+  if (lista.length) await db.archivos.bulkDelete(lista);
 }

@@ -1,6 +1,7 @@
 // Lista de elementos con buscador (por nombre, referencia o ID) y miniaturas.
 import { listarElementos, obtenerArchivo } from '../db.js';
 import { esAdmin } from '../permisos.js';
+import { maquinaActivaId } from '../maquinas.js';
 
 // Quita acentos y pasa a minúsculas para buscar sin importar cómo se escriba
 const simplificar = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -10,6 +11,8 @@ export function pantallaLista(app, { abrirDetalle, nuevo, hojaQR, volver }) {
     <div class="pagina">
       <button class="volver">‹ Inicio</button>
       <h1>Elementos <span class="contador"></span></h1>
+      <p class="nota filtro-maquina"></p>
+      ${esAdmin() ? '<select class="selector-maquina"><option value="activa">Solo la máquina activa</option><option value="todas">Todas las máquinas</option><option value="sin">Sin máquina</option></select>' : ''}
       <input class="buscador" type="search" placeholder="🔍 Buscar por nombre, referencia o ID"
         autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
       ${esAdmin() ? `<div class="botones-archivo">
@@ -64,7 +67,7 @@ export function pantallaLista(app, { abrirDetalle, nuevo, hojaQR, volver }) {
           </span>
         </button>`;
       li.querySelector('.fila-nombre').textContent = e.nombre;
-      li.querySelector('.fila-ref').textContent = `${e.referencia} · ${e.id}`;
+      li.querySelector('.fila-ref').textContent = `${e.referencia} · ${e.id}${esAdmin() && e.maquinaId !== maq ? ' · ' + (e.maquinaId || 'sin máquina') : ''}`;
       li.querySelector('button').addEventListener('click', () => abrirDetalle(e.id));
       const img = li.querySelector('img');
       if (img) { img.dataset.mini = e.miniaturaId; observador.observe(img); }
@@ -80,7 +83,18 @@ export function pantallaLista(app, { abrirDetalle, nuevo, hojaQR, volver }) {
   }
 
   $('.buscador').addEventListener('input', pintar);
-  listarElementos().then((l) => { elementos = l; if (activo) pintar(); });
+  // Regla de aislamiento: el usuario solo ve los elementos de la máquina activa.
+  // El administrador puede ver también todos o los que no tienen máquina.
+  const maq = maquinaActivaId();
+  let todos = [];
+  const aplicarFiltro = () => {
+    const modo = $('.selector-maquina') ? $('.selector-maquina').value : 'activa';
+    elementos = modo === 'todas' ? todos : modo === 'sin' ? todos.filter((e) => !e.maquinaId) : todos.filter((e) => e.maquinaId === maq);
+    $('.filtro-maquina').textContent = modo === 'activa' ? `Máquina activa: ${maq}` : modo === 'todas' ? 'Todas las máquinas' : 'Elementos sin máquina';
+    pintar();
+  };
+  $('.selector-maquina')?.addEventListener('change', aplicarFiltro);
+  listarElementos().then((l) => { todos = l; if (activo) aplicarFiltro(); });
 
   return () => {
     activo = false;

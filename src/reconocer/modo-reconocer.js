@@ -6,6 +6,7 @@
 import { listarHuellas, mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarReconocedor, huellaDe, comparar, ajustarGuia } from './huella.js';
 import { bloqueLidar } from '../ar/quicklook.js';
+import { maquinaActivaId } from '../maquinas.js';
 
 const CADA_MS = 500;
 const MINIMO = 0.45;      // por debajo: "no reconozco nada"
@@ -41,9 +42,12 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       mensaje('No se pudo cargar el reconocimiento: ' + (e.message || e) + '. Conéctate a internet y prueba otra vez.');
       return false;
     }
+    // Solo elementos de la MÁQUINA ACTIVA: nunca se reconoce uno de otra máquina, aunque sea igual
+    const maq = maquinaActivaId();
+    elementos = new Map([...elementos].filter(([, e]) => e.maquinaId === maq));
     huellas = huellas.filter((h) => elementos.has(h.elementoId));
     if (!huellas.length) {
-      mensaje('Ningún elemento tiene huella todavía. El administrador la graba desde el detalle de cada elemento.');
+      mensaje('Ningún elemento de esta máquina tiene huella todavía. El administrador la graba desde el detalle de cada elemento.');
       return false;
     }
     return true;

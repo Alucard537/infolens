@@ -3,8 +3,12 @@
 // se dibuja en una imagen. Archivo ligero (sin three.js): se usa también en la pantalla de inicio.
 
 export function hayQuickLook() {
-  const a = document.createElement('a');
-  return !!(a.relList && a.relList.supports && a.relList.supports('ar'));
+  try {
+    const a = document.createElement('a');
+    return !!(a.relList && a.relList.supports && a.relList.supports('ar'));
+  } catch {
+    return false; // algunos navegadores lanzan un error en vez de responder "no"
+  }
 }
 
 /** Dibuja un botón con texto y devuelve su imagen (data URL). */

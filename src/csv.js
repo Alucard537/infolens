@@ -1,11 +1,12 @@
 // Lectura de la hoja de elementos exportada desde Excel (formato CSV).
 // Acepta separador ";" (Excel en español) o ",", y textos en UTF-8 o en la codificación de Windows.
 
-export const COLUMNAS = ['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'pdfconexion', 'modelo3d'];
+export const COLUMNAS = ['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'pdfconexion', 'modelo3d', 'maquina'];
 
 // Nombres alternativos de columnas que también se aceptan
 const ALIAS = {
   id: 'id', codigo: 'id', qr: 'id',
+  maquina: 'maquina', machine: 'maquina', maquinaid: 'maquina',
   nombre: 'nombre', name: 'nombre',
   referencia: 'referencia', ref: 'referencia', reference: 'referencia',
   tipo: 'tipo', type: 'tipo',

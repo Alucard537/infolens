@@ -6,6 +6,7 @@ import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { crearZip, leerIndiceZip, leerEntradaZip } from './zip.js';
 import { serializarHuella, deserializarHuella } from './reconocer/vectores.js';
 import { claveParaCopia, aplicarClaveDeCopia } from './permisos.js';
+import { archivosDeGuia, migrarDatosAntiguos } from './maquinas.js';
 
 const FORMATO = 'infolens-copia';
 const JSON_COPIA = 'infolens.json';
@@ -50,6 +51,16 @@ export async function exportarCopia(alAvanzar = () => {}) {
     filasCsv.push([el.id, el.nombre, el.referencia, el.tipo === 'COMPUESTO' ? 'compuesto' : 'sencillo', el.descripcion || '',
       ruta('imagenId'), ruta('pdfId'), ruta('pdfConexionId'), ruta('modelo3dId')]);
   }
+  // Máquinas, anclas, localizaciones y guías (y los archivos de las guías en su propia carpeta)
+  const [maquinas, anclas, localizaciones, guias] = await Promise.all([
+    db.maquinas.toArray(), db.anclas.toArray(), db.localizaciones.toArray(), db.guias.toArray(),
+  ]);
+  for (const g of guias) {
+    const carpeta = `guias/${sanear(g.maquinaId)} - ${sanear(g.id)} - ${sanear(g.nombre).slice(0, 50).trim()}`;
+    archivosDeGuia(g).forEach((fid, i) => {
+      if (porId.has(fid) && !rutaDe.has(fid)) rutaDe.set(fid, `${carpeta}/${String(i + 1).padStart(2, '0')} - ${sanear(porId.get(fid).nombre)}`);
+    });
+  }
   const meta = archivos.map((a) => ({
     id: a.id, nombre: a.nombre, tipoMime: a.tipoMime,
     ruta: rutaDe.get(a.id) || `archivos/${a.id}/${sanear(a.nombre)}`,
@@ -66,6 +77,7 @@ export async function exportarCopia(alAvanzar = () => {}) {
   const indice = {
     formato: FORMATO, version: 1, app: APP_NAME, fecha: Date.now(),
     elementos, archivos: meta, huellas: metaHuellas, ajustes: { qrCm, fovGrados, posModelo },
+    maquinas, anclas, localizaciones, guias,
     adminClave: claveParaCopia(), // contraseña de administrador cifrada (nunca en texto normal)
   };
   // Lista de elementos para abrir con Excel (separador ";" y BOM para los acentos)
@@ -136,7 +148,17 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
   // 2) Elementos
   alAvanzar('Guardando elementos…', 1);
   const idsCopia = new Set();
-  await db.transaction('rw', db.elementos, db.archivos, db.huellas, async () => {
+  const tablas = ['maquinas', 'anclas', 'localizaciones', 'guias'];
+  await db.transaction('rw', [db.elementos, db.archivos, db.huellas, ...tablas.map((t) => db[t])], async () => {
+    // Máquinas, anclas, localizaciones y guías
+    for (const t of tablas) {
+      const filas = Array.isArray(indice[t]) ? indice[t].filter((x) => x && x.id) : [];
+      if (filas.length) await db[t].bulkPut(filas);
+      if (modo === 'sustituir' && Array.isArray(indice[t])) {
+        const ids = new Set(filas.map((x) => x.id));
+        await db[t].bulkDelete((await db[t].toCollection().primaryKeys()).filter((id) => !ids.has(id)));
+      }
+    }
     for (const el of indice.elementos) {
       if (!el || !el.id) continue;
       idsCopia.add(el.id);
@@ -147,9 +169,10 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
       const sobran = (await db.elementos.toCollection().primaryKeys()).filter((id) => !idsCopia.has(id));
       await db.elementos.bulkDelete(sobran);
     }
-    // 3) Borrar archivos que ya no usa ningún elemento
+    // 3) Borrar archivos que ya no usa ningún elemento ni ninguna guía
     const usados = new Set();
     await db.elementos.each((el) => CAMPOS_ARCHIVO.forEach((c) => el[c] && usados.add(el[c])));
+    await db.guias.each((g) => archivosDeGuia(g).forEach((fid) => usados.add(fid)));
     const huerfanos = (await db.archivos.toCollection().primaryKeys()).filter((id) => !usados.has(id));
     await db.archivos.bulkDelete(huerfanos);
     // ...y huellas de elementos que ya no existen
@@ -163,6 +186,7 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
   // Si la copia trae contraseña de administrador, este teléfono pasa a usar la misma
   aplicarClaveDeCopia(indice.adminClave);
   guardarAjustes({ ejemploCreado: true });
+  await migrarDatosAntiguos(); // copias de antes de las máquinas: todo va a la máquina GENERAL
   return { elementos: idsCopia.size, archivos: importados.size, faltan };
 }
 

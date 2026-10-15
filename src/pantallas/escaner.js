@@ -8,7 +8,9 @@ import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
 import { crearSeguidor } from '../reconocer/seguimiento.js';
 import { prepararQuickLookEnQR } from '../ar/quicklook.js';
 import { gravedadEnQR } from '../ar/navegacion.js';
-import { crearNavegacion } from '../ar/modo-navegacion.js';
+import { crearCapaRecorrido, crearModoAncla } from '../ar/modo-navegacion.js';
+import { crearModoGuia } from '../ar/modo-guia.js';
+import { mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia } from '../maquinas.js';
 import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
@@ -24,23 +26,28 @@ const SEPARACION_ICONO = 0.15;    // hueco entre el borde del QR y la "i" (respe
 // Tamaño del modelo 3D en realidad aumentada: unas 2,5 veces el QR, entre 12 y 30 cm
 const tamanoModelo = (lado) => Math.min(0.3, Math.max(0.12, lado * 2.5));
 
-export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
+// modo: 'escaner' (identificar elementos), 'ancla' (localizar componentes) o 'guia' (ejecutar una guía)
+export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId = null, abrirDetalle, darDeAlta, volver, abrirImagen }) {
   let ajustes = leerAjustes();
-  // Todos los elementos en memoria para encontrarlos al instante al leer un QR
-  let elementos = null;
-  mapaElementos().then((m) => { elementos = m; navegacion.recalcular(); }).catch(() => { elementos = new Map(); });
+  const maquinaId = maquinaActivaId();
+  // Todos los elementos y anclas en memoria para clasificar al instante cada QR leído.
+  // OJO: la clasificación siempre compara con la MÁQUINA ACTIVA (aislamiento entre máquinas).
+  let elementos = null, anclas = null;
+  let modulo = null; // modo ANCLA o GUÍA (se crea al cargar los datos)
+  const NOMBRE_MODO = { escaner: 'ESCÁNER', ancla: 'ANCLA', guia: 'GUÍA' };
   app.innerHTML = `
     <div class="escaner">
       <video class="esc-video" playsinline muted autoplay></video>
       <canvas class="esc-3d"></canvas>
       <canvas class="esc-debug"></canvas>
       <div class="esc-etiquetas"></div>
+      <div class="esc-maquina">MÁQUINA ACTIVA: <b>${maquinaId || '—'}</b> · ${NOMBRE_MODO[modo] || ''}</div>
       <div class="esc-barra">
         <button class="esc-btn" data-accion="volver" aria-label="Volver">‹</button>
         <div class="esc-estado">Iniciando cámara…</div>
         <button class="esc-btn" data-accion="nivel" aria-label="Activar sensor de inclinación" hidden>📐</button>
-        <button class="esc-btn" data-accion="reconocer" aria-label="Reconocer sin QR">🔍</button>
-        ${esAdmin() ? '<button class="esc-btn" data-accion="posicionar" aria-label="Posicionar componentes">📍</button>' : ''}
+        ${modo === 'escaner' ? '<button class="esc-btn" data-accion="reconocer" aria-label="Reconocer sin QR">🔍</button>' : ''}
+        ${modo === 'ancla' && esAdmin() ? '<button class="esc-btn" data-accion="posicionar" aria-label="Posicionar componentes">📍</button>' : ''}
         <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
@@ -130,12 +137,37 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   // ---------- seguimiento de cada QR ----------
   const seguidos = new Map(); // id del elemento -> datos de seguimiento
 
+  // Qué es cada QR, SIEMPRE respecto a la máquina activa:
+  //  modo ESCÁNER: 'elemento' (de esta máquina), 'ajeno' (elemento de otra máquina),
+  //                'ancla' / 'ancla-ajena' (QR de ancla), 'desconocido'
+  //  modos ANCLA y GUÍA: 'ancla-activa' (ancla válida), 'ancla-ajena', 'ancla-otra' (de esta máquina
+  //                pero no la de la guía), 'oculto' (elementos y otros: no se dibujan)
+  function clasificar(id) {
+    const el = elementos.get(id) || null;
+    const an = anclas.get(id) || null;
+    if (modo === 'escaner') {
+      if (el && el.maquinaId === maquinaId) return { tipo: 'elemento', el };
+      if (el) return { tipo: 'ajeno', el };
+      if (an) return { tipo: an.maquinaId === maquinaId ? 'ancla' : 'ancla-ajena', an };
+      return { tipo: 'desconocido' };
+    }
+    if (an && an.maquinaId === maquinaId) {
+      if (modo === 'guia' && guiaActual && an.id !== guiaActual.anclaId) return { tipo: 'ancla-otra', an, el };
+      return { tipo: 'ancla-activa', an, el };
+    }
+    if (an) return { tipo: 'ancla-ajena', an, el };
+    return { tipo: 'oculto', el };
+  }
+
   function crearSeguido(id) {
-    const elemento = elementos.get(id) || null;
+    const { tipo, el: elDetectado, an } = clasificar(id);
+    const elemento = tipo === 'elemento' ? elDetectado : null; // solo los de la máquina activa
+    const conIcono = tipo === 'elemento' || tipo === 'desconocido' || tipo === 'ajeno';
     const raiz = new THREE.Group();
     raiz.matrixAutoUpdate = false;
     const flotar = new THREE.Group();
     const icono = crearIcono(!!elemento);
+    icono.visible = conIcono;
     flotar.add(icono);
     flotar.matrixAutoUpdate = false; // se coloca a mano: posición del QR + vertical del mundo
     flotar.visible = false;
@@ -153,8 +185,22 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       ${elemento
         ? '<button class="et-mas" aria-label="Más información">+</button>'
         : (esAdmin() ? '<button class="et-alta">➕ Dar de alta</button>' : '')}`;
-    etiqueta.querySelector('.et-nombre').textContent = elemento ? elemento.nombre : 'Elemento no registrado';
-    etiqueta.querySelector('.et-ref').textContent = elemento ? elemento.referencia : `ID: ${id}`;
+    // Textos según lo que es el QR (y SIEMPRE respecto a la máquina activa)
+    const textos = {
+      elemento: [elemento?.nombre, elemento?.referencia],
+      desconocido: ['Elemento no registrado', `ID: ${id}`],
+      ajeno: ['Este elemento no pertenece a la máquina seleccionada.', esAdmin() ? `ID: ${id} · máquina: ${elDetectado?.maquinaId || 'ninguna'}` : `ID: ${id}`],
+      ancla: [`⚓ Ancla: ${an?.nombre || id}`, 'Para localizar componentes, entra en ANCLA.'],
+      'ancla-ajena': ['Este ancla no pertenece a la máquina seleccionada.', `⚓ ${id}`],
+      'ancla-activa': [`⚓ Ancla: ${an?.nombre || id}`, `Máquina ${maquinaId}`],
+      'ancla-otra': [`⚓ ${an?.nombre || id}`, `Esta guía usa el ancla ${guiaActual?.anclaId || ''}`],
+      oculto: ['', ''],
+    }[tipo];
+    etiqueta.classList.toggle('etiqueta-aviso', tipo === 'ajeno' || tipo === 'ancla-ajena' || tipo === 'ancla-otra');
+    etiqueta.querySelector('.et-nombre').textContent = textos[0];
+    etiqueta.querySelector('.et-ref').textContent = textos[1];
+    if (tipo !== 'desconocido') etiqueta.querySelector('.et-alta')?.remove();
+    if (tipo === 'ancla-activa') etiqueta.classList.add('etiqueta-ancla');
     etiqueta.querySelector('.et-mas')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-foto')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-alta')?.addEventListener('click', () => darDeAlta(id));
@@ -167,7 +213,8 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     capaEtiquetas.appendChild(etiqueta);
 
     const seguido = {
-      id, elemento, raiz, flotar, icono, etiqueta, modelo: null, lidar: lidarQR, lidarPreparado: false, aparecio: 0,
+      id, tipo, ancla: an || null, elementoDetectado: elDetectado || null, oculto: tipo === 'oculto',
+      elemento, raiz, flotar, icono, etiqueta, modelo: null, lidar: lidarQR, lidarPreparado: false, aparecio: 0,
       filtros: Array.from({ length: 8 }, () => new OneEuro()),
       visto: 0, visible: false, esquinas: null, distancia: 0,
       objetivoPos: new THREE.Vector3(), objetivoRot: new THREE.Quaternion(),
@@ -203,7 +250,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   const urlsFotos = [];
 
   function procesarDeteccion(qrs, k, tiempo) {
-    if (!elementos) return; // la base de datos aún no ha cargado (tarda milisegundos)
+    if (!elementos || !anclas) return; // la base de datos aún no ha cargado (tarda milisegundos)
     const g = geometria();
     const lado = ajustes.qrCm / 100;
     for (const qr of qrs) {
@@ -290,12 +337,58 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     alFijar: (fijo) => { if (ancla) ancla.fijo = fijo; },
   });
 
-  // ---------- navegación con QR (flechas hasta un componente) ----------
-  const navegacion = crearNavegacion({
-    escena, camara, capaEtiquetas, panel: $('.nav-panel'), panelPos: $('.pos-panel'), sensor, seguidos,
-    elementos: () => elementos, abrirDetalle, esAdmin, ladoCm: () => ajustes.qrCm,
-    ocupado: () => reconocimiento.encendido,
-  });
+  // ---------- datos y modos ANCLA / GUÍA ----------
+  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor });
+  let guiaActual = null;
+  const avisar = (t) => { estado.hidden = false; estado.textContent = t; avisoHasta = performance.now() + 4000; };
+  let avisoHasta = 0;
+  (async () => {
+    try {
+      const [els, ans, guia, maquina] = await Promise.all([
+        mapaElementos(), mapaAnclas(), modo === 'guia' ? obtenerGuia(guiaId) : null, obtenerMaquina(maquinaId),
+      ]);
+      if (!activo) return;
+      if (!maquina) { avisar('No hay ninguna máquina seleccionada.'); elementos = new Map(); anclas = new Map(); return; }
+      if (modo === 'guia') {
+        // La guía tiene que ser de la máquina activa, estar publicada (salvo para el administrador) y tener ancla de esa máquina
+        const anc = guia && ans.get(guia.anclaId);
+        const motivo = !guia ? 'La guía no existe.'
+          : guia.maquinaId !== maquinaId ? 'Esta guía no pertenece a la máquina seleccionada.'
+            : guia.estado !== 'publicada' && !esAdmin() ? 'Esta guía no está publicada.'
+              : !anc || anc.maquinaId !== maquinaId ? 'La guía no tiene un ancla válida de esta máquina.'
+                : !(guia.pasos || []).length ? 'La guía no tiene pasos.' : null;
+        if (motivo) {
+          const p = $('.nav-panel');
+          p.hidden = false;
+          p.innerHTML = '<p class="rec-msg"></p><button class="boton secundario">Volver</button>';
+          p.querySelector('p').textContent = '❌ ' + motivo;
+          p.querySelector('button').addEventListener('click', volver);
+          elementos = new Map(); anclas = new Map();
+          return;
+        }
+        guiaActual = {
+          ...guia, anclaNombre: anc.nombre,
+          // Solo elementos de la máquina activa (nunca de otra, aunque coincida el ID)
+          elementos: new Map([...els].filter(([, e]) => e.maquinaId === maquinaId)),
+        };
+      }
+      elementos = els; anclas = ans;
+      if (modo === 'ancla') {
+        modulo = crearModoAncla({
+          capa, panel: $('.nav-panel'), panelPos: $('.pos-panel'), seguidos, abrirDetalle, maquinaId,
+          ladoCm: () => ajustes.qrCm, esAdmin, avisar, verLocId,
+        });
+      } else if (modo === 'guia') {
+        modulo = crearModoGuia({
+          capa, panel: $('.nav-panel'), seguidos, guia: guiaActual, maquinaId, abrirDetalle,
+          abrirImagen: abrirImagen || (() => {}), alSalir: volver,
+        });
+      }
+    } catch (e) {
+      console.warn('Escáner:', e);
+      elementos = elementos || new Map(); anclas = anclas || new Map();
+    }
+  })();
 
   // ---------- "ancla" del elemento reconocido sin QR ----------
   // La "i" se coloca en el centro del recuadro y, si tiene modelo 3D, el modelo justo encima (sin taparse).
@@ -427,7 +520,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       hayAlguno = true;
       if (!s.visible) {               // recién aparecido: colocar directamente, sin animación
         s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
-        s.visible = true; s.raiz.visible = true; s.flotar.visible = true; s.etiqueta.hidden = false;
+        s.visible = true; s.raiz.visible = true; s.flotar.visible = !s.oculto; s.etiqueta.hidden = s.oculto;
         s.aparecio = ahora;
       } else {
         s.pos.lerp(s.objetivoPos, suav); s.rot.slerp(s.objetivoRot, suav);
@@ -461,13 +554,13 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
           .catch((e) => { console.warn('LiDAR en QR:', e); s.lidar.texto('❌ AR'); });
       }
     }
-    navegacion.actualizar(dt, arriba, ahora);
+    if (modulo) modulo.actualizar(dt, arriba, ahora);
     renderer.render(escena, camara);
 
     // Etiquetas HTML: encima de la "i" o, si no cabe, debajo del QR. Nunca tapan la "i" ni el QR.
     const margenSuperior = $('.esc-barra').offsetHeight + 8;
     for (const s of seguidos.values()) {
-      if (!s.visible) continue;
+      if (!s.visible || s.oculto) continue;
       const caja = cajaEnPantalla(s, lado, g);
       if (!caja) { s.etiqueta.hidden = true; continue; }
       s.etiqueta.hidden = false;
@@ -482,11 +575,12 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       if (debug) deb.textContent = `Distancia: ${(s.distancia * 100).toFixed(0)} cm · Sensor de inclinación: ${sensor.activo ? 'sí' : 'no'}`;
     }
 
-    navegacion.etiquetas(g);
+    if (modulo) modulo.etiquetas(g);
     dibujarDebug(g);
     if (stream) {
       estado.hidden = hayAlguno;
-      if (!hayAlguno && !estado.textContent.startsWith('Error')) estado.textContent = 'Apunta a un código QR';
+      if (performance.now() < avisoHasta) estado.hidden = false;
+      else if (!hayAlguno && !estado.textContent.startsWith('Error')) estado.textContent = modo === 'escaner' ? 'Apunta a un código QR' : 'Apunta al QR del ancla';
     }
   }
 
@@ -578,8 +672,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   function tocado(x, y) {
     const ndc = new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camara);
-    const idNav = navegacion.tocado(raycaster);
-    if (idNav) return { s: { id: idNav }, esModelo: false };
+    if (modulo && modulo.tocado(raycaster)) return null; // icono de destino: ya abre su ficha
     // Luego, el objeto anclado del reconocimiento sin QR
     if (ancla && ancla.objeto) {
       const t = raycaster.intersectObject(ancla.objeto, true)[0];
@@ -589,7 +682,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
         return { s: { id: ancla.id, modelo: ancla.modelo }, esModelo, esAncla: true };
       }
     }
-    const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento)
+    const objetivos = [...seguidos.values()].filter((s) => s.visible && s.tipo === 'elemento' && s.elemento)
       .flatMap((s) => (s.modelo ? [s.icono, s.modelo] : [s.icono]));
     const t = raycaster.intersectObjects(objetivos, true)[0];
     if (!t) return null;
@@ -732,7 +825,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     if (accion === 'ajustes') panel.hidden = !panel.hidden;
     if (accion === 'nivel') pedirPermisoSensor().then((r) => { btnNivel.hidden = r === 'granted'; });
     if (accion === 'posicionar') {
-      const on = navegacion.alternarPosicionar();
+      const on = modulo ? modulo.alternarPosicionar() : false;
       e.target.closest('[data-accion]').classList.toggle('activo', on);
     }
     if (accion === 'reconocer') {
@@ -780,7 +873,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     cancelAnimationFrame(rafId);
     sensor.detener();
     reconocimiento.detener();
-    navegacion.detener();
+    if (modulo) modulo.detener();
     quitarAncla();
     detenerCamara();
     worker.terminate();
