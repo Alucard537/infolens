@@ -6,6 +6,8 @@ import { APP_NAME } from './src/config.js';
 export default defineConfig({
   // './' para que funcione igual en local y en GitHub Pages
   base: './',
+  // Número de versión que se ve en la pantalla de inicio (fecha y hora de compilación)
+  define: { __VERSION__: JSON.stringify(new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'short' })) },
   plugins: [
     basicSsl(),
     // Pone el nombre de la app (src/config.js) en index.html

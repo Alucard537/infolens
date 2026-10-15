@@ -4,7 +4,7 @@ import { obtenerElemento, obtenerArchivo } from '../db.js';
 // El visor (con pdf.js, que es grande) se carga solo cuando hace falta
 const visor = () => import('../ui/visor.js');
 
-export function pantallaDetalle(app, id, { volver, editar, darDeAlta }) {
+export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR }) {
   let activo = true;
   const urls = [];
   app.innerHTML = '<div class="pagina"><p class="nota">Cargando…</p></div>';
@@ -40,9 +40,9 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta }) {
         ${modelo ? '<p class="nota">🧊 Tiene modelo 3D (se verá en el escáner a partir de la Fase 4).</p>' : ''}
         <div class="det-botones">
           <button class="boton secundario" data-accion="editar">✏️ Editar</button>
-          <button class="boton secundario" disabled>🖨️ Imprimir QR</button>
+          <button class="boton secundario" data-accion="qr">🖨️ Imprimir QR</button>
         </div>
-        <p class="nota">ID del QR: <b class="det-id"></b>. Imprimir QR llega en la Fase 5.</p>
+        <p class="nota">ID: <b class="det-id"></b> · Su QR contiene el texto <b class="det-qr"></b></p>
       </div>`;
     const $ = (s) => app.querySelector(s);
     $('.det-nombre').textContent = el.nombre;
@@ -50,8 +50,10 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta }) {
     $('.det-tipo').textContent = 'Tipo: ' + (el.tipo === 'COMPUESTO' ? 'Compuesto' : 'Sencillo');
     $('.det-desc').textContent = el.descripcion || '';
     $('.det-id').textContent = el.id;
+    $('.det-qr').textContent = 'INFOLENS:' + el.id;
     $('.volver').addEventListener('click', volver);
     $('[data-accion="editar"]').addEventListener('click', () => editar(el.id));
+    $('[data-accion="qr"]').addEventListener('click', () => imprimirQR(el.id));
 
     if (foto) {
       const u = URL.createObjectURL(foto.blob);

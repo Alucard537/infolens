@@ -10,6 +10,7 @@ import { pantallaLista } from './pantallas/lista.js';
 import { pantallaFormulario } from './pantallas/formulario.js';
 import { pantallaCopia } from './pantallas/copia.js';
 import { pantallaImportar } from './pantallas/importar.js';
+import { pantallaQR, pantallaHojaQR } from './pantallas/qr.js';
 
 document.title = APP_NAME;
 
@@ -45,7 +46,7 @@ function pantallaInicio() {
       <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
       <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>
       <button class="boton secundario" disabled>⚙️ Ajustes</button>
-      <p class="nota">Fase 3: base de datos y copia de seguridad. Ajustes llega en la Fase 6.</p>
+      <p class="nota">Versión ${__VERSION__}</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => ir(b.dataset.ir)));
@@ -75,14 +76,20 @@ async function mostrar() {
     limpiar = pantallaDetalle(app, id, {
       volver,
       editar: (i) => ir('#/editar/' + enc(i)),
+      imprimirQR: (i) => ir('#/qr/' + enc(i)),
       darDeAlta: (i) => ir('#/nuevo/' + enc(i)),
     });
   } else if (pantalla === 'elementos') {
     limpiar = pantallaLista(app, {
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
       nuevo: () => ir('#/nuevo'),
+      hojaQR: () => ir('#/hoja'),
       volver: () => ir('#/'),
     });
+  } else if (pantalla === 'qr' && id) {
+    limpiar = pantallaQR(app, id, { volver });
+  } else if (pantalla === 'hoja') {
+    limpiar = pantallaHojaQR(app, { volver });
   } else if (pantalla === 'copia') {
     limpiar = pantallaCopia(app, { volver: () => ir('#/'), irImportarExcel: () => ir('#/importar') });
   } else if (pantalla === 'importar') {
