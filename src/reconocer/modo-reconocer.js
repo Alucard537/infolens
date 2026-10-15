@@ -8,7 +8,7 @@ import { cargarReconocedor, huellaDe, comparar, ajustarGuia } from './huella.js'
 
 const CADA_MS = 500;
 const MINIMO = 0.45;      // por debajo: "no reconozco nada"
-const PROBABLE = 0.64;    // a partir de aquí, y con ventaja sobre el 2º, cuenta como positivo
+const PROBABLE = 0.68;    // a partir de aquí, y con ventaja sobre el 2º, cuenta como positivo
 const VENTAJA = 0.025;
 const SEGUIDAS = 2;       // positivos seguidos del mismo elemento para darlo por reconocido (~1 s)
 const PESO_NUEVO = 0.5;   // suavizado: cuánto cuenta cada comparación nueva (menos = más estable)
