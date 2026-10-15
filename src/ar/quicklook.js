@@ -36,15 +36,33 @@ async function crearUsdz(blobGlb) {
   modelo.position.sub(new THREE.Vector3(centro.x, caja.min.y, centro.z));
   raiz.add(modelo);
   const bytes = await new USDZExporter().parseAsync(raiz);
-  return URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+  return new Blob([bytes], { type: 'model/vnd.usdz+zip' });
+}
+
+// Con una dirección temporal (blob:) Quick Look abre el modelo pero SIN realidad aumentada.
+// Por eso el .usdz se guarda en el almacén de la app (Cache Storage) con una dirección web normal
+// (…/ar-generado/<id>.usdz); el service worker la sirve desde ahí, igual que la prueba del inicio.
+export const CACHE_AR = 'ar-generado';
+async function direccionWeb(id, blob) {
+  try {
+    if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) throw new Error('sin SW');
+    const url = new URL(`${import.meta.env.BASE_URL}ar-generado/${encodeURIComponent(id)}.usdz`, location.href).href;
+    const almacen = await caches.open(CACHE_AR);
+    await almacen.put(url, new Response(blob, {
+      headers: { 'Content-Type': 'model/vnd.usdz+zip', 'Content-Length': String(blob.size) },
+    }));
+    return url;
+  } catch {
+    return URL.createObjectURL(blob); // último recurso (por ejemplo en desarrollo, sin service worker)
+  }
 }
 
 /** Prepara (una vez) el .usdz del modelo de un elemento. Devuelve Promise<URL>. */
 export function prepararQuickLook(elemento) {
   if (!cache.has(elemento.modelo3dId)) {
-    const p = obtenerArchivo(elemento.modelo3dId).then((a) => {
+    const p = obtenerArchivo(elemento.modelo3dId).then(async (a) => {
       if (!a) throw new Error('No se encuentra el modelo 3D.');
-      return crearUsdz(a.blob);
+      return direccionWeb(elemento.modelo3dId, await crearUsdz(a.blob));
     });
     p.catch(() => cache.delete(elemento.modelo3dId)); // si falla, se podrá reintentar
     cache.set(elemento.modelo3dId, p);
@@ -83,7 +101,7 @@ export function bloqueLidar(elemento, { alPulsar } = {}) {
     return div;
   }
   const { enlace, poner, texto } = crearEnlaceAR({
-    texto: '⏳ Preparando AR con LiDAR…', titulo: elemento.nombre, subtitulo: `${elemento.referencia} · ${elemento.id}`, alPulsar,
+    texto: '⏳ Preparando AR con LiDAR…', alPulsar,
   });
   div.appendChild(enlace);
   prepararQuickLook(elemento)

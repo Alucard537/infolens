@@ -156,8 +156,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     // Botón para anclar el modelo con el LiDAR (visor de Apple), si tiene modelo 3D
     if (elemento && elemento.modelo3dId && hayQuickLook()) {
       const l = crearEnlaceAR({
-        texto: '⏳ AR…', tamano: 'pequeno', titulo: elemento.nombre,
-        subtitulo: `${elemento.referencia} · ${elemento.id}`, alPulsar: () => abrirDetalle(id),
+        texto: '⏳ AR…', tamano: 'pequeno', alPulsar: () => abrirDetalle(id),
       });
       etiqueta.querySelector('.et-textos').appendChild(l.enlace);
       prepararQuickLook(elemento).then((u) => l.poner(u, '🧊 Anclar con LiDAR')).catch(() => l.texto('❌ AR'));

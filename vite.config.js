@@ -41,6 +41,11 @@ export default defineConfig({
         // Lo mismo con el reconocimiento sin QR (MediaPipe + modelo, unos 18 MB)
         globIgnores: ['**/occt-import-js-*.wasm', '**/mediapipe/**', '**/modelos/**'],
         runtimeCaching: [{
+          // Modelos de los elementos convertidos a .usdz en el teléfono (para el AR de Apple con LiDAR)
+          urlPattern: /\/ar-generado\/[^/]+\.usdz$/,
+          handler: 'CacheOnly',
+          options: { cacheName: 'ar-generado' },
+        }, {
           urlPattern: /occt-import-js-.*\.wasm$/,
           handler: 'CacheFirst',
           options: { cacheName: 'conversor-3d', expiration: { maxEntries: 2 } },
