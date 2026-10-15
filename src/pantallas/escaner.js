@@ -6,6 +6,7 @@ import { mapaElementos } from '../db.js';
 import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
 import { crearIcono, crearLuces } from '../ar/icono.js';
+import { crearSensorVertical, pedirPermisoSensor, faltaPermiso } from '../ar/vertical.js';
 
 const TIEMPO_OCULTAR_MS = 1000;   // si no se ve el QR durante 1 s, se oculta el icono
 const MAX_LADO_CAPTURA = 1920;    // resolución máxima que se pasa al lector de QR
@@ -26,6 +27,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       <div class="esc-barra">
         <button class="esc-btn" data-accion="volver" aria-label="Volver">‹</button>
         <div class="esc-estado">Iniciando cámara…</div>
+        <button class="esc-btn" data-accion="nivel" aria-label="Activar sensor de inclinación" hidden>📐</button>
         <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
@@ -111,9 +113,11 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     const flotar = new THREE.Group();
     const icono = crearIcono(!!elemento);
     flotar.add(icono);
-    raiz.add(flotar);
+    flotar.matrixAutoUpdate = false; // se coloca a mano: posición del QR + vertical del mundo
+    flotar.visible = false;
     raiz.visible = false;
     escena.add(raiz);
+    escena.add(flotar);
     icono.traverse((o) => { o.userData.id = id; });
 
     const etiqueta = document.createElement('div');
@@ -214,6 +218,13 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   let rafId = 0;
   const v = new THREE.Vector3();
   const ESCALA1 = new THREE.Vector3(1, 1, 1);
+  const pIcono = new THREE.Vector3(), haciaCamara = new THREE.Vector3(), ejeX = new THREE.Vector3();
+  const escalaIcono = new THREE.Vector3();
+
+  // Sensor de inclinación (para que la "i" esté siempre de pie)
+  const sensor = crearSensorVertical();
+  const btnNivel = $('[data-accion="nivel"]');
+  setTimeout(() => { if (activo && !sensor.activo && faltaPermiso()) btnNivel.hidden = false; }, 1200);
 
   function bucle() {
     if (!activo) return;
@@ -227,13 +238,14 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     actualizarProyeccion(g);
     const lado = ajustes.qrCm / 100;
     const suav = 1 - Math.exp(-dt * 18);
+    const arriba = sensor.leer(dt);
     let hayAlguno = false;
 
     for (const s of seguidos.values()) {
       const reciente = ahora - s.visto < TIEMPO_OCULTAR_MS;
       if (!reciente) {
         if (s.visible) {
-          s.visible = false; s.raiz.visible = false; s.etiqueta.hidden = true;
+          s.visible = false; s.raiz.visible = false; s.flotar.visible = false; s.etiqueta.hidden = true;
           s.filtros.forEach((f) => f.reset());
         }
         continue;
@@ -241,19 +253,25 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       hayAlguno = true;
       if (!s.visible) {               // recién aparecido: colocar directamente, sin animación
         s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
-        s.visible = true; s.raiz.visible = true; s.etiqueta.hidden = false;
+        s.visible = true; s.raiz.visible = true; s.flotar.visible = true; s.etiqueta.hidden = false;
       } else {
         s.pos.lerp(s.objetivoPos, suav); s.rot.slerp(s.objetivoRot, suav);
       }
       s.raiz.matrix.compose(s.pos, s.rot, ESCALA1);
       s.raiz.matrixWorldNeedsUpdate = true;
-      // La "i" va justo encima del QR (sin taparlo), flotando un poco hacia delante
-      s.flotar.scale.setScalar(lado * DIAMETRO_ICONO);
-      s.flotar.position.set(
-        0,
-        lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO),
-        lado * (0.08 + 0.04 * Math.sin(ahora / 450)),
-      );
+      // La "i": SIEMPRE DE PIE (vertical del mundo, con el sensor) y mirando hacia la cámara.
+      // Del QR solo se usa la posición; su inclinación no afecta a la "i".
+      const altura = lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO + 0.04 * Math.sin(ahora / 450));
+      pIcono.copy(s.pos).addScaledVector(arriba, altura);           // encima del QR, hacia el techo
+      haciaCamara.copy(pIcono).negate();                              // la cámara está en el origen
+      haciaCamara.addScaledVector(arriba, -haciaCamara.dot(arriba));  // solo giro horizontal
+      if (haciaCamara.lengthSq() < 1e-8) haciaCamara.set(0, 0, 1).addScaledVector(arriba, -arriba.z);
+      haciaCamara.normalize();
+      ejeX.crossVectors(arriba, haciaCamara).normalize();
+      s.flotar.matrix.makeBasis(ejeX, arriba, haciaCamara)
+        .scale(escalaIcono.setScalar(lado * DIAMETRO_ICONO))
+        .setPosition(pIcono);
+      s.flotar.matrixWorldNeedsUpdate = true;
       s.icono.rotation.y = 0.15 * Math.sin(ahora / 900);
     }
     renderer.render(escena, camara);
@@ -273,7 +291,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       s.etiqueta.style.transform = `translate(${x}px, ${y}px)`;
       const deb = s.etiqueta.querySelector('.et-debug');
       deb.hidden = !debug;
-      if (debug) deb.textContent = `Distancia: ${(s.distancia * 100).toFixed(0)} cm`;
+      if (debug) deb.textContent = `Distancia: ${(s.distancia * 100).toFixed(0)} cm · Sensor de inclinación: ${sensor.activo ? 'sí' : 'no'}`;
     }
 
     dibujarDebug(g);
@@ -404,6 +422,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     const accion = e.target.closest('[data-accion]')?.dataset.accion;
     if (accion === 'volver') volver();
     if (accion === 'ajustes') panel.hidden = !panel.hidden;
+    if (accion === 'nivel') pedirPermisoSensor().then((r) => { btnNivel.hidden = r === 'granted'; });
     if (accion === 'linterna' && stream) {
       linternaOn = !linternaOn;
       try {
@@ -441,6 +460,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   return () => {
     activo = false;
     cancelAnimationFrame(rafId);
+    sensor.detener();
     detenerCamara();
     worker.terminate();
     window.removeEventListener('resize', ajustarTamano);

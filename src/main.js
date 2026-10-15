@@ -11,6 +11,7 @@ import { pantallaFormulario } from './pantallas/formulario.js';
 import { pantallaCopia } from './pantallas/copia.js';
 import { pantallaImportar } from './pantallas/importar.js';
 import { pantallaQR, pantallaHojaQR } from './pantallas/qr.js';
+import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 
 document.title = APP_NAME;
 
@@ -49,7 +50,10 @@ function pantallaInicio() {
       <p class="nota">Versión ${__VERSION__}</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
-  app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => ir(b.dataset.ir)));
+  app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.ir === '#/escaner') pedirPermisoSensor(); // iPhone: el permiso se pide en el mismo toque
+    ir(b.dataset.ir);
+  }));
   contarElementos().then((n) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${n})`; });
   cargarEscaner(); // ir cargando el escáner en segundo plano
 }
