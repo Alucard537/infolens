@@ -124,7 +124,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .visor-cargando { color: #fff; padding: 20px; }
 
 /* ---------- Fase 3: lista y formulario ---------- */
-.buscador, .formulario input:not([type="radio"]), .formulario textarea {
+.buscador, .formulario input:not([type="radio"]):not([type="checkbox"]), .formulario textarea {
   display: block; width: 100%; min-height: 56px; margin-top: 6px; padding: 12px 14px;
   font-size: 18px; border-radius: 12px; border: 1px solid #3a5468;
   background: #0b141b; color: #fff; -webkit-appearance: none; appearance: none;
@@ -395,3 +395,5 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .editor-guia label.boton-mini { margin: 6px 0; color: #fff; font-size: 15px; }
 .punto-fila .eje { display: flex; align-items: center; gap: 4px; flex: 1; margin: 0; font-size: 15px; color: var(--texto2); }
 .punto-fila .eje input { width: 100%; }
+/* Casillas de verificación siempre visibles (marcadas con ✓) */
+input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: var(--azul); margin: 0; }

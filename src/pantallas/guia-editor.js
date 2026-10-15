@@ -234,6 +234,14 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         <button type="button" class="boton-mini" data-m="punto">➕ Añadir punto</button>
         <button type="button" class="boton-mini" data-m="copiar-ruta">↪️ Copiar los puntos del componente</button>
       </div>
+      <div class="titulo-archivo">📍 Posición final propia (opcional, cm)</div>
+      <p class="nota">Para llevar a un punto concreto, o si el componente no está localizado respecto al ancla de la guía.
+        Vacío = la posición guardada del componente; y si no la tiene, el <b>último punto intermedio</b>.</p>
+      <div class="punto-fila destino-fila">
+        <label class="eje">X<input inputmode="decimal" data-d="0"></label>
+        <label class="eje">Y<input inputmode="decimal" data-d="1"></label>
+        <label class="eje">Z<input inputmode="decimal" data-d="2"></label>
+      </div>
       <label>⚠️ Advertencia de seguridad (si se rellena, hay que aceptarla para continuar)
         <textarea data-c="advertencia" rows="2"></textarea></label>
       <label>☑️ Comprobaciones (una por línea; hay que marcarlas todas para continuar)
@@ -270,6 +278,11 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           else if (a === 'quita') p._puntos.splice(k, 1);
           else return;
           pintarPuntos();
+    if (!p._destino) p._destino = p.destinoPropio ? p.destinoPropio.map(cm) : ['', '', ''];
+    d.querySelectorAll('[data-d]').forEach((inp) => {
+      inp.value = p._destino[+inp.dataset.d] ?? '';
+      inp.addEventListener('input', () => { p._destino[+inp.dataset.d] = inp.value; estadoLoc(); });
+    });
         });
         ol.appendChild(li);
       });
@@ -285,9 +298,13 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     const estadoLoc = () => {
       const t = q('.estado-loc');
       if (!p.elementoId) { t.textContent = ''; return; }
+      const conDestino = p._destino && p._destino.some((v) => String(v ?? '').trim() !== '');
+      const conPuntos = p._puntos && p._puntos.some((pt) => pt.some((v) => String(v ?? '').trim() !== ''));
       t.textContent = !g.anclaId ? 'Elige el ancla de la guía para usar las coordenadas del componente.'
         : locs.has(p.elementoId) ? '✅ Tiene coordenadas respecto al ancla de la guía: se reutilizan.'
-          : '⚠️ No tiene localización respecto al ancla de la guía: configúrala en Localizaciones (no se verán flechas).';
+          : conDestino ? '📍 No está localizado: se usará la "Posición final propia" de este paso.'
+            : conPuntos ? '📍 No está localizado: las flechas llegarán al último punto intermedio de este paso.'
+              : '⚠️ No está localizado respecto al ancla de la guía: pon su "Posición final propia" abajo o configúrala en Localizaciones.';
     };
     estadoLoc();
     d.addEventListener('input', (e) => {
@@ -370,7 +387,14 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           return v.map((n) => n / 100);
         }) : null;
       }
-      const datos = { ...g, pasos: g.pasos.map(({ _puntos, elemento, sinLocalizacion, ...resto }) => resto) };
+      for (const [i, p] of g.pasos.entries()) {
+        if (!p._destino) continue;
+        if (!p._destino.some((v) => String(v ?? '').trim() !== '')) { p.destinoPropio = null; continue; }
+        const v = p._destino.map(num);
+        if (v.some((n) => !Number.isFinite(n))) throw new Error(`Paso ${i + 1}: la posición final propia necesita X, Y y Z (en cm).`);
+        p.destinoPropio = v.map((n) => n / 100);
+      }
+      const datos = { ...g, pasos: g.pasos.map(({ _puntos, _destino, elemento, sinLocalizacion, ...resto }) => resto) };
       const r = await guardarGuia(datos);
       g.id = r.id;
       guardado = true;

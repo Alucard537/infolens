@@ -267,7 +267,7 @@ export function pasoVacio() {
   return {
     id: Math.random().toString(36).slice(2, 10),
     titulo: '', texto: '', imagenes: [], videos: [],
-    elementoId: null, flechas: true, icono: true, rutaPropia: null,
+    elementoId: null, flechas: true, icono: true, rutaPropia: null, destinoPropio: null,
     advertencia: '', confirmar: false, comprobaciones: [],
   };
 }

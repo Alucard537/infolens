@@ -192,19 +192,28 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
   function cargarPaso() {
     const p = guia.pasos[paso];
     p.elemento = p.elementoId ? guia.elementos.get(p.elementoId) || null : null;
-    const loc = p.elementoId ? locs.get(p.elementoId) : null;
-    if (p.elemento && loc && (p.flechas || p.icono)) {
-      capa.mostrar(loc, {
-        rutaPropia: Array.isArray(p.rutaPropia) && p.rutaPropia.length ? p.rutaPropia : null,
-        conFlechas: !!p.flechas, conIcono: !!p.icono,
-        titulo: p.elemento.nombre, subtitulo: `${p.elemento.referencia} · ${p.elemento.id}`,
-        descripcion: guia.tipo === 'localizacion' ? p.elemento.descripcion || '' : '',
-        alTocar: () => abrirDetalle(p.elemento.id),
+    const propios = Array.isArray(p.rutaPropia) && p.rutaPropia.length ? p.rutaPropia : null;
+    // ¿Adónde se va en este paso? Por orden:
+    //  1. "Posición final propia" del paso (un punto concreto, haya o no componente)
+    //  2. la localización guardada del componente respecto al ancla de la guía
+    //  3. si el componente no está localizado: el último punto intermedio del paso
+    let destino = null;
+    if (Array.isArray(p.destinoPropio)) destino = { pos: p.destinoPropio, ruta: propios || [], posIcono: null };
+    else if (p.elementoId && locs.get(p.elementoId)) destino = { ...locs.get(p.elementoId), ruta: propios || locs.get(p.elementoId).ruta };
+    else if (propios) destino = { pos: propios[propios.length - 1], ruta: propios.slice(0, -1), posIcono: null };
+    const flechas = p.flechas !== false, icono = p.icono !== false; // por defecto, sí
+    if (destino && (flechas || icono)) {
+      capa.mostrar(destino, {
+        conFlechas: flechas, conIcono: icono,
+        titulo: p.elemento ? p.elemento.nombre : (p.titulo || `Paso ${paso + 1}`),
+        subtitulo: p.elemento ? `${p.elemento.referencia} · ${p.elemento.id}` : '',
+        descripcion: p.elemento && guia.tipo === 'localizacion' ? p.elemento.descripcion || '' : '',
+        alTocar: p.elemento ? () => abrirDetalle(p.elemento.id) : null,
       });
       p.sinLocalizacion = false;
     } else {
       capa.ocultar();
-      p.sinLocalizacion = !!p.elementoId && !loc;
+      p.sinLocalizacion = !!p.elementoId && !destino;
     }
     pintarPaso();
   }
@@ -247,7 +256,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       const p = guia.pasos[paso];
       const est = capa.actualizar(dt, arriba, ahora, sa);
       if (p.sinLocalizacion) {
-        infoAR.textContent = 'Este componente no tiene localización respecto al ancla de la guía.';
+        infoAR.textContent = 'Este componente no tiene localización respecto al ancla de la guía (ni posición final propia en el paso).';
       } else if (!est) {
         infoAR.textContent = '';
       } else if (est.esperandoAncla) {
