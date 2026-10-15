@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <rect width="800" height="600" fill="#f4f7fa"/>
+  <g stroke="#1d3c52" stroke-width="6" fill="#9cc9e6">
+    <rect x="40" y="250" width="200" height="100" rx="8"/>
+    <rect x="560" y="250" width="200" height="100" rx="8"/>
+    <rect x="20" y="220" width="40" height="160" rx="6" fill="#6f9fbf"/>
+    <rect x="740" y="220" width="40" height="160" rx="6" fill="#6f9fbf"/>
+    <circle cx="400" cy="300" r="170" fill="#7ec8f2"/>
+    <circle cx="400" cy="300" r="90" fill="#e8f4fb"/>
+    <rect x="380" y="60" width="40" height="80" fill="#6f9fbf"/>
+    <rect x="300" y="30" width="260" height="40" rx="18" fill="#e04b3c"/>
+  </g>
+  <g font-family="Arial, sans-serif" fill="#1d3c52">
+    <text x="400" y="560" font-size="34" text-anchor="middle" font-weight="bold">Válvula de bola DN50 · PN16</text>
+    <text x="400" y="310" font-size="22" text-anchor="middle">Detalle: asiento</text>
+    <text x="140" y="410" font-size="18" text-anchor="middle">Entrada</text>
+    <text x="660" y="410" font-size="18" text-anchor="middle">Salida</text>
+    <text x="580" y="58" font-size="18">Palanca</text>
+  </g>
+</svg>
