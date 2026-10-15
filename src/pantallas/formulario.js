@@ -67,10 +67,11 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
         </div>
 
         <div class="bloque-archivo" data-campo="modelo">
-          <div class="titulo-archivo">🧊 Modelo 3D .glb (opcional)</div>
+          <div class="titulo-archivo">🧊 Modelo 3D (opcional)</div>
           <div class="nombre-archivo" data-nombre="modelo">Sin modelo 3D</div>
-          <label class="boton secundario">Elegir .glb (Archivos)
+          <label class="boton secundario">Elegir modelo 3D (Archivos)
             <input type="file" data-entrada="modelo" class="entrada-oculta"></label>
+          <p class="nota">Acepta .glb, STEP (.stp), IGES (.igs) y STL: se convierten solos a .glb. Los .sat no se pueden convertir (descarga el STEP del fabricante).</p>
           <button type="button" class="quitar" data-quitar="modelo" hidden>Quitar modelo</button>
         </div>
 
@@ -164,13 +165,21 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
         cambios.pdfId = { blob: new Blob([archivo], { type: 'application/pdf' }), nombre: archivo.name };
         verNombre('pdf', archivo.name, archivo.size);
       } else if (tipo === 'modelo') {
-        const cabecera = new Uint8Array(await archivo.slice(0, 4).arrayBuffer());
-        if (String.fromCharCode(...cabecera) !== 'glTF') {
-          throw new Error('El archivo elegido no es un modelo .glb. Conviértelo primero (ver guía de la Fase 4).');
+        const nombreModelo = $('[data-nombre="modelo"]');
+        const guardar = form.querySelector('[type="submit"]');
+        guardar.disabled = true; // no guardar a medias mientras se convierte
+        try {
+          const { prepararModelo } = await import('../modelo3d.js');
+          const m = await prepararModelo(archivo, (t) => { nombreModelo.textContent = '⏳ ' + t; });
+          cambios.modelo3dId = { blob: m.blob, nombre: m.nombre };
+          verNombre('modelo', m.nombre, m.blob.size);
+          if (m.aviso) nombreModelo.textContent += ' · ' + m.aviso;
+        } catch (err) {
+          verNombre('modelo', null);
+          throw err;
+        } finally {
+          guardar.disabled = false;
         }
-        if (archivo.size > 50 * MB) throw new Error('El modelo pesa más de 50 MB. Redúcelo en Blender (Decimate).');
-        cambios.modelo3dId = { blob: new Blob([archivo], { type: 'model/gltf-binary' }), nombre: archivo.name };
-        verNombre('modelo', archivo.name, archivo.size);
       }
     } catch (err) {
       mostrarError(err.message);

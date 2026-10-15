@@ -98,7 +98,7 @@ export function pantallaImportar(app, { volver, irCopia }) {
       vistos.add(id);
       const foto = buscarArchivo(f.foto, id, EXT_FOTO);
       const pdf = buscarArchivo(f.pdf, id, ['pdf']);
-      const modelo = buscarArchivo(f.modelo3d, id, ['glb']);
+      const modelo = buscarArchivo(f.modelo3d, id, ['glb', 'stp', 'step', 'igs', 'iges', 'stl']);
       if (f.foto && !foto) avisos.push(`Fila ${f.fila} (${id}): no encuentro la foto "${f.foto}".`);
       if (f.pdf && !pdf) avisos.push(`Fila ${f.fila} (${id}): no encuentro el PDF "${f.pdf}".`);
       if (f.modelo3d && !modelo) avisos.push(`Fila ${f.fila} (${id}): no encuentro el modelo "${f.modelo3d}".`);
@@ -174,7 +174,15 @@ export function pantallaImportar(app, { volver, irCopia }) {
           }
         }
         if (p.pdf) cambios.pdfId = { blob: new Blob([p.pdf], { type: 'application/pdf' }), nombre: p.pdf.name };
-        if (p.modelo) cambios.modelo3dId = { blob: new Blob([p.modelo], { type: 'model/gltf-binary' }), nombre: p.modelo.name };
+        if (p.modelo) {
+          try {
+            const { prepararModelo } = await import('../modelo3d.js');
+            const m = await prepararModelo(p.modelo, (t) => { $('.progreso-texto').textContent = `${p.datos.nombre}: ${t}`; });
+            cambios.modelo3dId = { blob: m.blob, nombre: m.nombre };
+          } catch (err) {
+            fallos.push(`${p.id}: modelo 3D "${p.modelo.name}": ${err.message}`);
+          }
+        }
         await guardarElemento(p.datos, cambios, false);
         hechos++;
       } catch (err) {

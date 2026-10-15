@@ -37,6 +37,13 @@ export default defineConfig({
         // Guardar TODO en el móvil para que funcione en modo avión
         globPatterns: ['**/*.{js,mjs,css,html,wasm,svg,png,ico,pdf,webmanifest,bcmap,pfb,ttf}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        // El conversor de STEP (7,6 MB) no se descarga al instalar: se guarda la primera vez que se usa
+        globIgnores: ['**/occt-import-js-*.wasm'],
+        runtimeCaching: [{
+          urlPattern: /occt-import-js-.*\.wasm$/,
+          handler: 'CacheFirst',
+          options: { cacheName: 'conversor-3d', expiration: { maxEntries: 2 } },
+        }],
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
       },
