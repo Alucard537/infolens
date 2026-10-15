@@ -228,3 +228,26 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
   overflow: hidden; background: #fff;
 }
 .et-foto img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* ---------- reconocer sin QR ---------- */
+.guia-recorte {
+  position: absolute; border: 3px dashed rgba(255, 214, 10, 0.9); border-radius: 18px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25); pointer-events: none;
+}
+.guia-recorte[hidden] { display: none; }
+.huella-panel, .rec-panel {
+  position: absolute; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+  padding: 14px; border-radius: 18px; background: rgba(15, 27, 36, 0.92);
+}
+.rec-panel[hidden] { display: none; }
+.huella-titulo { font-size: 18px; font-weight: 700; color: var(--azul); }
+.huella-panel .barra { margin: 10px 0; }
+.rec-msg { margin: 4px 0; font-size: 17px; color: var(--texto2); }
+.rec-titulo { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.rec-candidato {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; margin: 6px 0; padding: 6px;
+  text-align: left; background: var(--tarjeta); border: 2px solid transparent; border-radius: 12px;
+}
+.rec-candidato.destacado { border-color: #34c759; }
+.rec-candidato .mini { width: 52px; height: 52px; }
+.rec-pct { margin-left: auto; font-size: 18px; font-weight: 700; color: var(--azul); flex: none; }

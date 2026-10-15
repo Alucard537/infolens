@@ -11,6 +11,7 @@ import { pantallaFormulario } from './pantallas/formulario.js';
 import { pantallaCopia } from './pantallas/copia.js';
 import { pantallaImportar } from './pantallas/importar.js';
 import { pantallaQR, pantallaHojaQR } from './pantallas/qr.js';
+import { pantallaHuella } from './pantallas/huella.js';
 import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 
 document.title = APP_NAME;
@@ -65,7 +66,7 @@ async function mostrar() {
   const ruta = location.hash.replace(/^#/, '') || '/';
   const [pantalla, param] = ruta.split('/').filter(Boolean);
   const id = param ? decodeURIComponent(param) : '';
-  document.body.classList.toggle('modo-escaner', pantalla === 'escaner');
+  document.body.classList.toggle('modo-escaner', pantalla === 'escaner' || pantalla === 'huella');
   window.scrollTo(0, 0);
 
   if (pantalla === 'escaner') {
@@ -81,6 +82,7 @@ async function mostrar() {
       volver,
       editar: (i) => ir('#/editar/' + enc(i)),
       imprimirQR: (i) => ir('#/qr/' + enc(i)),
+      huella: (i) => ir('#/huella/' + enc(i)),
       darDeAlta: (i) => ir('#/nuevo/' + enc(i)),
     });
   } else if (pantalla === 'elementos') {
@@ -90,6 +92,8 @@ async function mostrar() {
       hojaQR: () => ir('#/hoja'),
       volver: () => ir('#/'),
     });
+  } else if (pantalla === 'huella' && id) {
+    limpiar = pantallaHuella(app, id, { volver });
   } else if (pantalla === 'qr' && id) {
     limpiar = pantallaQR(app, id, { volver });
   } else if (pantalla === 'hoja') {

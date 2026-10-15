@@ -1,10 +1,10 @@
 // Pantalla de detalle de un elemento (datos de la base de datos del móvil).
-import { obtenerElemento, obtenerArchivo } from '../db.js';
+import { obtenerElemento, obtenerArchivo, obtenerHuella } from '../db.js';
 
 // El visor (con pdf.js, que es grande) se carga solo cuando hace falta
 const visor = () => import('../ui/visor.js');
 
-export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR }) {
+export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR, huella }) {
   let activo = true;
   const urls = [];
   app.innerHTML = '<div class="pagina"><p class="nota">Cargando…</p></div>';
@@ -22,8 +22,8 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       return;
     }
 
-    const [foto, pdf, modelo] = await Promise.all([
-      obtenerArchivo(el.imagenId), obtenerArchivo(el.pdfId), obtenerArchivo(el.modelo3dId),
+    const [foto, pdf, modelo, hu] = await Promise.all([
+      obtenerArchivo(el.imagenId), obtenerArchivo(el.pdfId), obtenerArchivo(el.modelo3dId), obtenerHuella(el.id),
     ]);
     if (!activo) return;
 
@@ -37,11 +37,12 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
         ${foto ? '<button class="det-imagen" aria-label="Ver imagen ampliada"><img alt=""></button>' : ''}
         ${pdf ? '<button class="boton" data-accion="pdf">📄 Ver PDF</button>' : ''}
         ${!foto && !pdf ? '<p class="nota">Este elemento no tiene foto ni PDF. Pulsa Editar para añadirlos.</p>' : ''}
-        ${modelo ? '<p class="nota">🧊 Tiene modelo 3D (se verá en el escáner a partir de la Fase 4).</p>' : ''}
+        ${modelo ? '<p class="nota">🧊 Tiene modelo 3D: se ve en el escáner encima de su QR.</p>' : ''}
         <div class="det-botones">
           <button class="boton secundario" data-accion="editar">✏️ Editar</button>
           <button class="boton secundario" data-accion="qr">🖨️ Imprimir QR</button>
         </div>
+        <button class="boton secundario" data-accion="huella">🎯 Reconocer sin QR ${hu ? '(huella: ' + hu.n + ' imágenes)' : '(sin huella)'}</button>
         <p class="nota">ID: <b class="det-id"></b> · Su QR contiene el texto <b class="det-qr"></b></p>
       </div>`;
     const $ = (s) => app.querySelector(s);
@@ -62,6 +63,7 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
     $('.volver').addEventListener('click', volver);
     $('[data-accion="editar"]').addEventListener('click', () => editar(el.id));
     $('[data-accion="qr"]').addEventListener('click', () => imprimirQR(el.id));
+    $('[data-accion="huella"]').addEventListener('click', () => huella(el.id));
 
     if (foto) {
       const u = URL.createObjectURL(foto.blob);

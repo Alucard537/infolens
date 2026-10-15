@@ -4,6 +4,7 @@ import { QR_PREFIX } from '../config.js';
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
 import { mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarModeloAR } from '../ar/modelo-ar.js';
+import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
 import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
 import { crearIcono, crearLuces } from '../ar/icono.js';
@@ -31,9 +32,12 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
         <button class="esc-btn" data-accion="volver" aria-label="Volver">‹</button>
         <div class="esc-estado">Iniciando cámara…</div>
         <button class="esc-btn" data-accion="nivel" aria-label="Activar sensor de inclinación" hidden>📐</button>
+        <button class="esc-btn" data-accion="reconocer" aria-label="Reconocer sin QR">🔍</button>
         <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
+      <div class="guia-recorte" hidden></div>
+      <div class="rec-panel" hidden></div>
       <div class="esc-panel" hidden>
         <h3>Ajuste fino</h3>
         <label>Tamaño del QR impreso (cm, solo la zona negra)
@@ -263,6 +267,10 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   // Sensor de inclinación (para que la "i" esté siempre de pie)
   const sensor = crearSensorVertical();
   const btnNivel = $('[data-accion="nivel"]');
+  // Reconocer sin QR (prueba): compara lo que hay en el recuadro con las huellas guardadas
+  const reconocimiento = crearReconocimiento({
+    video, guia: $('.guia-recorte'), panel: $('.rec-panel'), abrirDetalle, estaActivo: () => activo,
+  });
   setTimeout(() => { if (activo && !sensor.activo && faltaPermiso()) btnNivel.hidden = false; }, 1200);
 
   function bucle() {
@@ -555,6 +563,10 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     if (accion === 'volver') volver();
     if (accion === 'ajustes') panel.hidden = !panel.hidden;
     if (accion === 'nivel') pedirPermisoSensor().then((r) => { btnNivel.hidden = r === 'granted'; });
+    if (accion === 'reconocer') {
+      const on = reconocimiento.alternar();
+      e.target.closest('[data-accion]').classList.toggle('activo', on);
+    }
     if (accion === 'linterna' && stream) {
       linternaOn = !linternaOn;
       try {
@@ -595,6 +607,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     activo = false;
     cancelAnimationFrame(rafId);
     sensor.detener();
+    reconocimiento.detener();
     detenerCamara();
     worker.terminate();
     window.removeEventListener('resize', ajustarTamano);

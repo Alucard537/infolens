@@ -38,11 +38,16 @@ export default defineConfig({
         globPatterns: ['**/*.{js,mjs,css,html,wasm,svg,png,ico,pdf,webmanifest,bcmap,pfb,ttf}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         // El conversor de STEP (7,6 MB) no se descarga al instalar: se guarda la primera vez que se usa
-        globIgnores: ['**/occt-import-js-*.wasm'],
+        // Lo mismo con el reconocimiento sin QR (MediaPipe + modelo, unos 18 MB)
+        globIgnores: ['**/occt-import-js-*.wasm', '**/mediapipe/**', '**/modelos/**'],
         runtimeCaching: [{
           urlPattern: /occt-import-js-.*\.wasm$/,
           handler: 'CacheFirst',
           options: { cacheName: 'conversor-3d', expiration: { maxEntries: 2 } },
+        }, {
+          urlPattern: /\/(mediapipe|modelos)\/[^/]+$/,
+          handler: 'CacheFirst',
+          options: { cacheName: 'reconocimiento', expiration: { maxEntries: 6 } },
         }],
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',

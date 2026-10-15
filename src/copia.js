@@ -28,8 +28,10 @@ export async function exportarCopia(alAvanzar = () => {}) {
   const rutaDe = new Map();
   const ext = (n, def) => { const m = /\.([a-z0-9]{1,5})$/i.exec(n || ''); return m ? m[1].toLowerCase() : def; };
   const filasCsv = [['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'modelo3d']];
+  const carpetaDe = new Map();
   for (const el of elementos) {
     const carpeta = `elementos/${sanear(el.id)} - ${sanear(el.nombre).slice(0, 60).trim()}`;
+    carpetaDe.set(el.id, carpeta);
     const nombres = {
       imagenId: `foto.${ext(porId.get(el.imagenId)?.nombre, 'jpg')}`,
       miniaturaId: `miniatura.${ext(porId.get(el.miniaturaId)?.nombre, 'jpg')}`,
@@ -46,10 +48,16 @@ export async function exportarCopia(alAvanzar = () => {}) {
     id: a.id, nombre: a.nombre, tipoMime: a.tipoMime,
     ruta: rutaDe.get(a.id) || `archivos/${a.id}/${sanear(a.nombre)}`,
   }));
-  const { qrCm, fovGrados } = leerAjustes();
+  // Huellas para reconocer sin QR: un archivo binario por elemento (vectores y después escalas)
+  const huellas = (await db.huellas.toArray()).filter((h) => carpetaDe.has(h.elementoId));
+  const metaHuellas = huellas.map((h) => ({
+    elementoId: h.elementoId, modelo: h.modelo, dim: h.dim, n: h.n, fecha: h.fecha,
+    ruta: `${carpetaDe.get(h.elementoId)}/huella-reconocimiento.bin`,
+  }));
+  const { qrCm, fovGrados, posModelo } = leerAjustes();
   const indice = {
     formato: FORMATO, version: 1, app: APP_NAME, fecha: Date.now(),
-    elementos, archivos: meta, ajustes: { qrCm, fovGrados },
+    elementos, archivos: meta, huellas: metaHuellas, ajustes: { qrCm, fovGrados, posModelo },
   };
   // Lista de elementos para abrir con Excel (separador ";" y BOM para los acentos)
   const celda = (v) => { const t = String(v ?? ''); return /[;"\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
@@ -57,8 +65,10 @@ export async function exportarCopia(alAvanzar = () => {}) {
   const entradas = [
     { nombre: JSON_COPIA, blob: new Blob([JSON.stringify(indice, null, 1)], { type: 'application/json' }) },
     { nombre: 'elementos.csv', blob: new Blob([csv], { type: 'text/csv' }) },
-    ...archivos.map((a, i) => ({ nombre: meta[i].ruta, blob: a.blob }))
-      .sort((x, y) => x.nombre.localeCompare(y.nombre)),
+    ...[
+      ...archivos.map((a, i) => ({ nombre: meta[i].ruta, blob: a.blob })),
+      ...huellas.map((h, i) => ({ nombre: metaHuellas[i].ruta, blob: new Blob([h.vectores, h.escalas]) })),
+    ].sort((x, y) => x.nombre.localeCompare(y.nombre)),
   ];
   const zip = await crearZip(entradas, (i, n) => alAvanzar(`Preparando archivos ${i} de ${n}…`, n ? i / n : 1));
   guardarAjustes({ ultimaCopia: Date.now() });
@@ -105,10 +115,23 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
     importados.add(m.id);
   }
 
+  // 1b) Huellas para reconocer sin QR
+  for (const h of indice.huellas || []) {
+    const e = porRuta.get(h.ruta);
+    if (!e || !h.dim || !h.n) continue;
+    const buf = await (await leerEntradaZip(archivoZip, e)).arrayBuffer();
+    const tamV = h.n * h.dim;
+    if (buf.byteLength !== tamV + h.n * 4) continue; // archivo incompleto
+    await db.huellas.put({
+      elementoId: h.elementoId, modelo: h.modelo, dim: h.dim, n: h.n, fecha: h.fecha || Date.now(),
+      vectores: new Int8Array(buf.slice(0, tamV)), escalas: new Float32Array(buf.slice(tamV)),
+    });
+  }
+
   // 2) Elementos
   alAvanzar('Guardando elementos…', 1);
   const idsCopia = new Set();
-  await db.transaction('rw', db.elementos, db.archivos, async () => {
+  await db.transaction('rw', db.elementos, db.archivos, db.huellas, async () => {
     for (const el of indice.elementos) {
       if (!el || !el.id) continue;
       idsCopia.add(el.id);
@@ -124,6 +147,10 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
     await db.elementos.each((el) => CAMPOS_ARCHIVO.forEach((c) => el[c] && usados.add(el[c])));
     const huerfanos = (await db.archivos.toCollection().primaryKeys()).filter((id) => !usados.has(id));
     await db.archivos.bulkDelete(huerfanos);
+    // ...y huellas de elementos que ya no existen
+    const ids = new Set(await db.elementos.toCollection().primaryKeys());
+    const huellasSobran = (await db.huellas.toCollection().primaryKeys()).filter((id) => !ids.has(id));
+    await db.huellas.bulkDelete(huellasSobran);
   });
 
   if (indice.ajustes && modo === 'sustituir') {

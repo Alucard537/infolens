@@ -8,6 +8,11 @@ db.version(1).stores({
   archivos: 'id',                                         // { id, nombre, tipoMime, blob }
   ajustes: 'clave',                                       // { clave, valor }
 });
+// Versión 2: "huellas visuales" para reconocer elementos sin QR
+// { elementoId, modelo, dim, n, vectores: Int8Array (n × dim), escalas: Float32Array (n), fecha }
+db.version(2).stores({
+  huellas: 'elementoId',
+});
 
 const nuevoIdArchivo = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -88,12 +93,31 @@ export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
 }
 
 export async function borrarElemento(id) {
-  return db.transaction('rw', db.elementos, db.archivos, async () => {
+  return db.transaction('rw', db.elementos, db.archivos, db.huellas, async () => {
     const el = await db.elementos.get(id);
     if (!el) return;
     for (const campo of CAMPOS_ARCHIVO) if (el[campo]) await db.archivos.delete(el[campo]);
+    await db.huellas.delete(id);
     await db.elementos.delete(id);
   });
+}
+
+// ---------- huellas visuales (reconocimiento sin QR) ----------
+
+export async function guardarHuella(huella) {
+  await db.huellas.put({ ...huella, fecha: Date.now() });
+}
+
+export async function obtenerHuella(elementoId) {
+  return (await db.huellas.get(elementoId)) || null;
+}
+
+export async function borrarHuella(elementoId) {
+  await db.huellas.delete(elementoId);
+}
+
+export async function listarHuellas() {
+  return db.huellas.toArray();
 }
 
 // ---------- archivos ----------
