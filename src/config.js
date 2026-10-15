@@ -7,4 +7,5 @@ export const DEFAULTS = {
   qrCm: 10,        // lado del QR impreso (solo la zona negra, sin el margen blanco)
   fovGrados: 65,   // campo de visión del lado largo del vídeo de la cámara principal
   camaraId: '',    // cámara elegida ('' = automática)
+  posModelo: 'encima', // modelo 3D en el escáner: 'encima' de la "i" o 'debajo' del QR
 };

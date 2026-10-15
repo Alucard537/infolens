@@ -39,8 +39,8 @@ export async function cargarModeloAR(blob, tamMax) {
   raiz.add(pivote);
   raiz.matrixAutoUpdate = false;
   raiz.userData.altura = altura;
-  // Radio que ocupa en horizontal, girado como sea (para que la "i" no lo tape)
-  raiz.userData.radio = 0.5 * Math.hypot(tam.x * k, tam.y * k, tam.z * k);
+  // Medio tamaño en cada eje (para saber cuánto sobresale al girarlo y no tapar la "i" ni el QR)
+  raiz.userData.medio = new THREE.Vector3(tam.x * k / 2, altura / 2, tam.z * k / 2);
   raiz.userData.pivote = pivote;
   return raiz;
 }

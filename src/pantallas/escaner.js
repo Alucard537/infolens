@@ -45,6 +45,12 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
         <label>Cámara
           <select data-ajuste="camaraId"><option value="">Automática</option></select>
         </label>
+        <label>Posición del modelo 3D
+          <select data-ajuste="posModelo">
+            <option value="encima">Encima de la "i"</option>
+            <option value="debajo">Debajo del QR</option>
+          </select>
+        </label>
         <label class="fila"><input type="checkbox" data-ajuste="debug"> Mostrar esquinas y distancia</label>
         <p class="nota">Para afinar: pon el móvil a una distancia conocida del QR (por ejemplo 1 m) y mueve
           el campo de visión hasta que la distancia mostrada coincida.</p>
@@ -60,6 +66,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   const estado = $('.esc-estado');
   const btnLinterna = $('[data-accion="linterna"]');
   const panel = $('.esc-panel');
+  panel.querySelector('[data-ajuste="posModelo"]').value = ajustes.posModelo === 'debajo' ? 'debajo' : 'encima';
   let debug = false;
   let activo = true;
   let stream = null;
@@ -300,16 +307,10 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       haciaCamara.normalize();
       ejeX.crossVectors(arriba, haciaCamara).normalize();
       const flota = 0.04 * Math.sin(ahora / 450);
-      if (s.modelo) {
-        // Con modelo 3D: el modelo va encima del QR y la "i" a su derecha, fuera del modelo
-        // (la distancia depende del tamaño del modelo, para que no lo tape aunque se gire)
-        const separacion = Math.max(lado * 0.5, s.modelo.userData.radio) + lado * (DIAMETRO_ICONO / 2 + SEPARACION_ICONO);
-        pIcono.copy(s.pos).addScaledVector(ejeX, separacion)
-          .addScaledVector(arriba, lado * 0.6 + s.modelo.userData.altura / 2 + lado * flota);
-        colocarModelo(s, lado, arriba);
-      } else {
-        pIcono.copy(s.pos).addScaledVector(arriba, lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO + flota));
-      }
+      // La "i" SIEMPRE justo encima del QR
+      pIcono.copy(s.pos).addScaledVector(arriba, lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO + flota));
+      // El modelo 3D, si lo hay: encima de la "i" o debajo del QR (según el ajuste)
+      if (s.modelo) colocarModelo(s, lado, arriba);
       s.flotar.matrix.makeBasis(ejeX, arriba, haciaCamara)
         .scale(escalaIcono.setScalar(lado * DIAMETRO_ICONO))
         .setPosition(pIcono);
@@ -346,6 +347,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   // Modelo 3D de pie (vertical del mundo), apoyado justo encima del QR.
   // Su giro horizontal sigue al QR (no a la cámara), para poder rodearlo y verlo por los lados.
   const frenteModelo = new THREE.Vector3(), lateralModelo = new THREE.Vector3(), baseModelo = new THREE.Vector3();
+  const matrizGiro = new THREE.Matrix4();
   function colocarModelo(s, lado, arriba) {
     frenteModelo.set(0, 0, 1).applyQuaternion(s.rot);                 // hacia fuera del QR
     frenteModelo.addScaledVector(arriba, -frenteModelo.dot(arriba));
@@ -356,7 +358,22 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     if (frenteModelo.lengthSq() < 1e-8) frenteModelo.copy(haciaCamara);
     frenteModelo.normalize();
     lateralModelo.crossVectors(arriba, frenteModelo).normalize();
-    baseModelo.copy(s.pos).addScaledVector(arriba, lado * 0.6);
+
+    // Cuánto sobresale el modelo hacia arriba/abajo desde su centro, tal como esté girado con el dedo
+    // (así nunca se mete encima de la "i" ni del QR, aunque se gire)
+    const { medio, pivote } = s.modelo.userData;
+    matrizGiro.makeRotationFromEuler(pivote.rotation);
+    const e = matrizGiro.elements; // fila "y" de la rotación: e[1], e[5], e[9]
+    const semiAlto = Math.abs(e[1]) * medio.x + Math.abs(e[5]) * medio.y + Math.abs(e[9]) * medio.z;
+    const hueco = lado * SEPARACION_ICONO;
+    let centro;
+    if (ajustes.posModelo === 'debajo') {
+      centro = -(lado * 0.5 + hueco + semiAlto);                                 // debajo del QR
+    } else {
+      centro = lado * (0.5 + DIAMETRO_ICONO + SEPARACION_ICONO) + hueco + semiAlto; // encima de la "i"
+    }
+    // El origen del modelo está en su base sin girar (el centro queda medio.y más arriba)
+    baseModelo.copy(s.pos).addScaledVector(arriba, centro - medio.y);
     s.modelo.matrix.makeBasis(lateralModelo, arriba, frenteModelo).setPosition(baseModelo);
     s.modelo.matrixWorldNeedsUpdate = true;
     s.modelo.visible = true;
@@ -557,6 +574,8 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     } else if (campo === 'fovGrados') {
       ajustes = guardarAjustes({ fovGrados: parseFloat(e.target.value) });
       panel.querySelector('[data-valor="fov"]').textContent = ajustes.fovGrados + '°';
+    } else if (campo === 'posModelo') {
+      ajustes = guardarAjustes({ posModelo: e.target.value });
     } else if (campo === 'debug') {
       debug = e.target.checked;
     }
