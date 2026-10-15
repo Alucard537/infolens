@@ -52,6 +52,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
       <div class="guia-recorte" hidden></div>
+      <button class="aviso-sensor" hidden>📐 Toca aquí para activar el sensor de movimiento.<br><small>Sin él no se sabe dónde está el suelo y las flechas no se pueden orientar.</small></button>
       <div class="rec-panel" hidden></div>
       <div class="nav-panel" hidden></div>
       <div class="pos-panel" hidden></div>
@@ -331,6 +332,11 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   // Sensor de inclinación (para que la "i" esté siempre de pie)
   const sensor = crearSensorVertical();
   const btnNivel = $('[data-accion="nivel"]');
+  const inicioEscaner = performance.now();
+  const avisoSensor = $('.aviso-sensor');
+  avisoSensor.addEventListener('click', () => pedirPermisoSensor().then((r) => {
+    if (r !== 'granted') avisar('Permiso denegado. Cierra la app del todo, vuelve a abrirla y pulsa "Permitir" cuando lo pida.');
+  }));
   // Reconocer sin QR (prueba): compara lo que hay en el recuadro con las huellas guardadas
   const reconocimiento = crearReconocimiento({
     video, guia: $('.guia-recorte'), panel: $('.rec-panel'), abrirDetalle, estaActivo: () => activo,
@@ -556,7 +562,10 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
           .catch((e) => { console.warn('LiDAR en QR:', e); s.lidar.texto('❌ AR'); });
       }
     }
-    if (modulo) modulo.actualizar(dt, arriba, ahora);
+    // En ANCLA y GUÍA la orientación depende del sensor de movimiento: sin él no se dibuja nada
+    const sinSensor = modo !== 'escaner' && !sensor.activo && ahora - inicioEscaner > 800;
+    avisoSensor.hidden = !sinSensor;
+    if (modulo && !sinSensor && (modo === 'escaner' || sensor.activo)) modulo.actualizar(dt, arriba, ahora);
     renderer.render(escena, camara);
 
     // Etiquetas HTML: encima de la "i" o, si no cabe, debajo del QR. Nunca tapan la "i" ni el QR.

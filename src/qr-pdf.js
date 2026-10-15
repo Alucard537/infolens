@@ -80,6 +80,18 @@ export function generarPdfQR(elementos, ladoCm) {
     doc.setLineDashPattern([], 0);
 
     dibujarQR(doc, textoQR(el.id), x + margen, y + margen, lado);
+    // QR de ANCLA: flechas impresas para colocarlo siempre igual (definen "adelante" y "derecha")
+    if (el.ancla) {
+      const mx = x + margen + lado / 2, arribaQR = y + margen;
+      const t = Math.max(2.2, margen * 0.4);
+      doc.setFillColor(0, 0, 0);
+      doc.triangle(mx - t, arribaQR - 1, mx + t, arribaQR - 1, mx, arribaQR - 1 - t * 1.2, 'F');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(Math.max(6, t * 2.6)); doc.setTextColor(0);
+      doc.text('ADELANTE', mx + t + 1.5, arribaQR - 1.3);
+      const rx = x + margen + lado + 1, my = y + margen + lado / 2;
+      doc.triangle(rx, my - t, rx, my + t, rx + t * 1.2, my, 'F');
+      doc.text('DERECHA', rx + t * 0.6, my + t + 1.5, { angle: -90 });
+    }
 
     // Nombre, referencia e ID debajo
     const cx = x + celdaAncho / 2;

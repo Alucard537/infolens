@@ -412,3 +412,16 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
   text-shadow: 0 0 3px #000, 0 0 6px #000;
 }
 .etiqueta-eje[hidden] { display: none; }
+.aviso-sensor {
+  position: absolute; left: 16px; right: 16px; top: 38%; padding: 18px; border: 3px solid #ffd60a; border-radius: 18px;
+  background: rgba(58, 42, 16, 0.95); color: #fff; font-size: 19px; font-weight: 700; line-height: 1.35; z-index: 3;
+}
+.aviso-sensor small { font-weight: 400; font-size: 15px; color: #ffe7a8; }
+.aviso-sensor[hidden] { display: none; }
+.tramo-fila { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; align-items: end; margin: 10px 0; padding: 8px; border-radius: 12px; background: #0f1b24; }
+.tramo-n { grid-column: 1 / -1; font-weight: 700; color: var(--azul); font-size: 15px; }
+.tramo-fila .eje { flex-direction: column; align-items: stretch; font-size: 13px; }
+.tramo-fila input { width: 100%; min-height: 46px; padding: 0 8px; font-size: 17px; border-radius: 10px; border: 1px solid #3a5468; background: #0b141b; color: #fff; }
+.tramo-botones { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
+.tramos { padding-left: 0; list-style: none; margin: 6px 0; }
+.destino-tramos { font-weight: 700; color: #7CFC9A; }

@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { marcoQR, gravedadEnQR, puntosRecorrido, crearFlechas } from './navegacion.js';
 import { crearIcono } from './icono.js';
 import { obtenerArchivo } from '../db.js';
+import { deG, describir } from '../coordenadas.js';
 import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
 import { prepararRecorridoQuickLook } from './quicklook.js';
 import {
@@ -363,7 +364,7 @@ export function crearModoAncla({
     }
     const lab = document.createElement('p');
     lab.className = 'nota';
-    lab.textContent = `Ancla: ${sa.ancla.nombre}. Coordenadas en cm (X derecha, Y arriba, Z hacia fuera del QR):`;
+    lab.textContent = `Ancla: ${sa.ancla.nombre}. Posición de cada componente desde el QR del ancla (adelante = hacia donde miras al leerlo derecho):`;
     panelPos.appendChild(lab);
     marcoQR(sa.pos, sa.rot, arriba, matG);
     const inversa = matG.clone().invert();
@@ -374,7 +375,7 @@ export function crearModoAncla({
       fila.innerHTML = '<span class="pos-txt"></span><button class="boton-mini">💾 Guardar</button>';
       const deEsta = s.elementoDetectado.maquinaId === maquinaId;
       fila.querySelector('.pos-txt').textContent = deEsta
-        ? `${s.elementoDetectado.nombre}: X ${fmtCm(p.x)} · Y ${fmtCm(p.y)} · Z ${fmtCm(p.z)}`
+        ? `${s.elementoDetectado.nombre}: ${describir(deG([p.x, p.y, p.z]))}`
         : `${s.elementoDetectado.nombre}: es de otra máquina (${s.elementoDetectado.maquinaId || 'sin máquina'})`;
       const btn = fila.querySelector('button');
       btn.disabled = !deEsta;

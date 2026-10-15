@@ -244,7 +244,7 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
     li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
     li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
       const { generarPdfQR } = await import('../qr-pdf.js');
-      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.nombre} (${m.id})` }], leerAjustes().qrCm);
+      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.id}`, ancla: true }], leerAjustes().qrCm);
       guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
     });
     li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));

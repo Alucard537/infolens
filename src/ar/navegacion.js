@@ -60,7 +60,7 @@ function geometriaFlecha() {
 
 /** Puntos del recorrido en G: QR -> puntos intermedios -> destino. */
 export function puntosRecorrido(nav) {
-  const p = [new THREE.Vector3(0, 0, 0.15)]; // salida: 15 cm delante del QR
+  const p = [new THREE.Vector3(0, 0, 0)]; // salida: el centro del QR del ancla
   for (const q of nav.ruta || []) p.push(new THREE.Vector3(q[0], q[1], q[2]));
   p.push(new THREE.Vector3(nav.pos[0], nav.pos[1], nav.pos[2]));
   return p;

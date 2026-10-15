@@ -9,6 +9,7 @@ import { localizacionesDeAncla, TIPOS_GUIA } from '../maquinas.js';
 import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
 import { prepararRecorridoQuickLook } from './quicklook.js';
 import { gravedadEnQR } from './navegacion.js';
+import { deG, describir } from '../coordenadas.js';
 
 const fmtM = (m) => m.toFixed(1).replace('.', ',');
 
@@ -204,18 +205,15 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     p.elemento = p.elementoId ? guia.elementos.get(p.elementoId) || null : null;
     const propios = Array.isArray(p.rutaPropia) && p.rutaPropia.length ? p.rutaPropia : null;
     // ¿Adónde se va en este paso? Por orden:
-    //  1. "Posición final propia" del paso (un punto concreto, haya o no componente)
-    //  2. la localización guardada del componente respecto al ancla de la guía
-    //  3. si el componente no está localizado: el último punto intermedio del paso
-    let destino = null;
-    if (Array.isArray(p.destinoPropio)) destino = { pos: p.destinoPropio, ruta: propios || [], posIcono: null };
-    else if (p.elementoId && locs.get(p.elementoId)) destino = { ...locs.get(p.elementoId), ruta: propios || locs.get(p.elementoId).ruta };
-    else if (propios) destino = { pos: propios[propios.length - 1], ruta: propios.slice(0, -1), posIcono: null };
+    //  1. los TRAMOS del paso (desde el QR del ancla): el destino es el final del último tramo
+    //  2. una posición final suelta (guías antiguas)
+    //  3. la localización guardada del componente respecto al ancla de la guía
+    let destino = null, origen = '';
+    if (propios) { destino = { pos: propios[propios.length - 1], ruta: propios.slice(0, -1), posIcono: null }; origen = `${propios.length} tramo(s) del paso`; }
+    else if (Array.isArray(p.destinoPropio)) { destino = { pos: p.destinoPropio, ruta: [], posIcono: null }; origen = 'posición final del paso'; }
+    else if (p.elementoId && locs.get(p.elementoId)) { destino = locs.get(p.elementoId); origen = 'localización del componente'; }
     const flechas = p.flechas !== false, icono = p.icono !== false; // por defecto, sí
-    const cm = (v) => v.map((n) => Math.round(n * 100)).join(' ; ');
-    p.diagnostico = !destino ? null
-      : `Recorrido: ${(destino.ruta || []).length} punto(s) intermedio(s) → destino ${cm(destino.pos)} cm `
-        + (Array.isArray(p.destinoPropio) ? '(posición final propia)' : p.elementoId && locs.get(p.elementoId) ? '(localización del componente)' : '(último punto intermedio)');
+    p.diagnostico = destino ? `destino: ${describir(deG(destino.pos))} desde el QR (${origen})` : null;
     p.sinFlechas = !!destino && !flechas;
     p._destinoAR = destino;
     if (destino && (flechas || icono)) {
