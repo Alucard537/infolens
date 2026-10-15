@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { QR_PREFIX } from '../config.js';
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
-import { buscarElemento } from '../datos-prueba.js';
+import { mapaElementos } from '../db.js';
 import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
 import { crearIcono, crearLuces } from '../ar/icono.js';
@@ -12,8 +12,11 @@ const MAX_LADO_CAPTURA = 1920;    // resolución máxima que se pasa al lector d
 const DIAMETRO_ICONO = 0.7;       // tamaño de la "i" respecto al lado del QR
 const SEPARACION_ICONO = 0.15;    // hueco entre el borde del QR y la "i" (respecto al lado del QR)
 
-export function pantallaEscaner(app, { abrirDetalle, volver }) {
+export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   let ajustes = leerAjustes();
+  // Todos los elementos en memoria para encontrarlos al instante al leer un QR
+  let elementos = null;
+  mapaElementos().then((m) => { elementos = m; }).catch(() => { elementos = new Map(); });
   app.innerHTML = `
     <div class="escaner">
       <video class="esc-video" playsinline muted autoplay></video>
@@ -102,7 +105,7 @@ export function pantallaEscaner(app, { abrirDetalle, volver }) {
   const seguidos = new Map(); // id del elemento -> datos de seguimiento
 
   function crearSeguido(id) {
-    const elemento = buscarElemento(id);
+    const elemento = elementos.get(id) || null;
     const raiz = new THREE.Group();
     raiz.matrixAutoUpdate = false;
     const flotar = new THREE.Group();
@@ -118,10 +121,13 @@ export function pantallaEscaner(app, { abrirDetalle, volver }) {
     etiqueta.hidden = true;
     etiqueta.innerHTML = `
       <div class="et-textos"><div class="et-nombre"></div><div class="et-ref"></div><div class="et-debug"></div></div>
-      ${elemento ? '<button class="et-mas" aria-label="Más información">+</button>' : ''}`;
+      ${elemento
+        ? '<button class="et-mas" aria-label="Más información">+</button>'
+        : '<button class="et-alta">➕ Dar de alta</button>'}`;
     etiqueta.querySelector('.et-nombre').textContent = elemento ? elemento.nombre : 'Elemento no registrado';
     etiqueta.querySelector('.et-ref').textContent = elemento ? elemento.referencia : `ID: ${id}`;
     etiqueta.querySelector('.et-mas')?.addEventListener('click', () => abrirDetalle(id));
+    etiqueta.querySelector('.et-alta')?.addEventListener('click', () => darDeAlta(id));
     capaEtiquetas.appendChild(etiqueta);
 
     return {
@@ -134,6 +140,7 @@ export function pantallaEscaner(app, { abrirDetalle, volver }) {
   }
 
   function procesarDeteccion(qrs, k, tiempo) {
+    if (!elementos) return; // la base de datos aún no ha cargado (tarda milisegundos)
     const g = geometria();
     const lado = ajustes.qrCm / 100;
     for (const qr of qrs) {

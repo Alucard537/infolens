@@ -19,6 +19,7 @@
     "vite-plugin-pwa": "^2.0.0"
   },
   "dependencies": {
+    "dexie": "^4.4.6",
     "jspdf": "^4.2.1",
     "pdfjs-dist": "^4.10.38",
     "qrcode": "^1.5.4",
