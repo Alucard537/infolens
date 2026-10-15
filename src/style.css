@@ -51,6 +51,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: absolute; inset: 0; width: 100%; height: 100%;
 }
 .esc-video { object-fit: cover; }
+.esc-3d { touch-action: none; }
 .esc-debug { pointer-events: none; }
 .esc-etiquetas { position: absolute; inset: 0; pointer-events: none; }
 .esc-barra {

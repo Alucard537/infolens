@@ -301,9 +301,11 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       ejeX.crossVectors(arriba, haciaCamara).normalize();
       const flota = 0.04 * Math.sin(ahora / 450);
       if (s.modelo) {
-        // Con modelo 3D: el modelo va encima del QR y la "i" a su derecha, a la altura del QR
-        pIcono.copy(s.pos).addScaledVector(ejeX, lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO))
-          .addScaledVector(arriba, lado * flota);
+        // Con modelo 3D: el modelo va encima del QR y la "i" a su derecha, fuera del modelo
+        // (la distancia depende del tamaño del modelo, para que no lo tape aunque se gire)
+        const separacion = Math.max(lado * 0.5, s.modelo.userData.radio) + lado * (DIAMETRO_ICONO / 2 + SEPARACION_ICONO);
+        pIcono.copy(s.pos).addScaledVector(ejeX, separacion)
+          .addScaledVector(arriba, lado * 0.6 + s.modelo.userData.altura / 2 + lado * flota);
         colocarModelo(s, lado, arriba);
       } else {
         pIcono.copy(s.pos).addScaledVector(arriba, lado * (0.5 + DIAMETRO_ICONO / 2 + SEPARACION_ICONO + flota));
@@ -408,14 +410,59 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
 
   // Tocar el icono también abre el detalle
   const raycaster = new THREE.Raycaster();
-  lienzo3d.addEventListener('click', (e) => {
-    const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  // Tocar la "i" o el modelo abre el detalle. Arrastrar sobre el modelo lo gira:
+  // en horizontal gira sobre sí mismo y en vertical se inclina. Doble toque en el modelo: posición inicial.
+  function tocado(x, y) {
+    const ndc = new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camara);
     const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento)
       .flatMap((s) => (s.modelo ? [s.icono, s.modelo] : [s.icono]));
-    const toque = raycaster.intersectObjects(objetivos, true)[0];
-    if (toque) abrirDetalle(toque.object.userData.id);
+    const t = raycaster.intersectObjects(objetivos, true)[0];
+    if (!t) return null;
+    const s = seguidos.get(t.object.userData.id);
+    if (!s) return null;
+    let o = t.object, esModelo = false;
+    while (o) { if (o === s.modelo) { esModelo = true; break; } o = o.parent; }
+    return { s, esModelo };
+  }
+
+  let arrastre = null;
+  let toqueEnEspera = null; // para distinguir un toque de un doble toque en el modelo
+  lienzo3d.addEventListener('pointerdown', (e) => {
+    const t = tocado(e.clientX, e.clientY);
+    if (!t) return;
+    const piv = t.esModelo ? t.s.modelo.userData.pivote : null;
+    arrastre = {
+      ...t, piv, x0: e.clientX, y0: e.clientY, movido: false,
+      giro0: piv ? piv.rotation.y : 0, inclinacion0: piv ? piv.rotation.x : 0,
+    };
+    lienzo3d.setPointerCapture(e.pointerId);
   });
+  lienzo3d.addEventListener('pointermove', (e) => {
+    if (!arrastre || !arrastre.piv) return;
+    const dx = e.clientX - arrastre.x0, dy = e.clientY - arrastre.y0;
+    if (!arrastre.movido && Math.hypot(dx, dy) > 8) arrastre.movido = true;
+    if (!arrastre.movido) return;
+    arrastre.piv.rotation.y = arrastre.giro0 + dx * 0.012;
+    arrastre.piv.rotation.x = Math.max(-1.4, Math.min(1.4, arrastre.inclinacion0 + dy * 0.012));
+  });
+  lienzo3d.addEventListener('pointerup', () => {
+    const a = arrastre;
+    arrastre = null;
+    if (!a || a.movido) return;
+    if (!a.esModelo) { abrirDetalle(a.s.id); return; }
+    if (toqueEnEspera && toqueEnEspera.id === a.s.id) {   // doble toque: volver a la posición inicial
+      clearTimeout(toqueEnEspera.temporizador);
+      toqueEnEspera = null;
+      a.piv.rotation.set(0, 0, 0);
+      return;
+    }
+    toqueEnEspera = {
+      id: a.s.id,
+      temporizador: setTimeout(() => { toqueEnEspera = null; if (activo) abrirDetalle(a.s.id); }, 320),
+    };
+  });
+  lienzo3d.addEventListener('pointercancel', () => { arrastre = null; });
 
   // ---------- cámara ----------
   const TAM = { width: { ideal: 1920 }, height: { ideal: 1080 } };
