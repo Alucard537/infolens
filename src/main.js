@@ -189,7 +189,8 @@ async function mostrar() {
     // El administrador puede gestionar las guías de cualquier máquina; el usuario, solo las de la activa
     const maq = (esAdmin() && params.get('maquina')) || maquinaActivaId();
     limpiar = pantallaGuias(app, maq, {
-      volver,
+      // Volver a un sitio fijo (no "atrás"): si se vino desde la gestión de una máquina, a ella; si no, al inicio
+      volver: () => ir(params.get('maquina') ? '#/maquina/' + enc(params.get('maquina')) : '#/'),
       abrir: (g) => ir('#/guia/' + enc(g)),
       editar: (g) => ir('#/guia-editar/' + enc(g)),
       nueva: (m) => ir('#/guia-nueva?maquina=' + enc(m)),
@@ -204,7 +205,7 @@ async function mostrar() {
     limpiar = pantallaGuiaEditor(app, {
       id: pantalla === 'guia-editar' ? id : null,
       maquinaId: params.get('maquina') || maquinaActivaId(),
-      volver,
+      volver: () => ir('#/guias' + (params.get('maquina') ? '?maquina=' + enc(params.get('maquina')) : '')),
       // Actualizar la dirección sin recargar el editor
       alGuardar: (g) => history.replaceState(null, '', '#/guia-editar/' + enc(g)),
       probar: (g) => {
