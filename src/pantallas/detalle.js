@@ -23,8 +23,8 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       return;
     }
 
-    const [foto, pdf, modelo, hu] = await Promise.all([
-      obtenerArchivo(el.imagenId), obtenerArchivo(el.pdfId), obtenerArchivo(el.modelo3dId), obtenerHuella(el.id),
+    const [foto, pdf, conexion, modelo, hu] = await Promise.all([
+      obtenerArchivo(el.imagenId), obtenerArchivo(el.pdfId), obtenerArchivo(el.pdfConexionId), obtenerArchivo(el.modelo3dId), obtenerHuella(el.id),
     ]);
     if (!activo) return;
 
@@ -36,8 +36,9 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
         <p class="det-tipo"></p>
         <p class="det-desc"></p>
         ${foto ? '<button class="det-imagen" aria-label="Ver imagen ampliada"><img alt=""></button>' : ''}
-        ${pdf ? '<button class="boton" data-accion="pdf">📄 Ver PDF</button>' : ''}
-        ${!foto && !pdf ? '<p class="nota">Este elemento no tiene foto ni PDF. Pulsa Editar para añadirlos.</p>' : ''}
+        ${pdf ? '<button class="boton" data-accion="pdf">📄 Ficha técnica</button>' : ''}
+        ${conexion ? '<button class="boton" data-accion="conexion">🔌 Conexión</button>' : ''}
+        ${!foto && !pdf && !conexion ? '<p class="nota">Este elemento no tiene foto ni PDF.</p>' : ''}
         ${modelo ? '<p class="nota">🧊 Tiene modelo 3D: se ve en el escáner encima de su QR.</p>' : ''}
         ${esAdmin() ? `<div class="det-botones">
           <button class="boton secundario" data-accion="editar">✏️ Editar</button>
@@ -72,10 +73,12 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       $('.det-imagen img').src = u;
       $('.det-imagen').addEventListener('click', async () => (await visor()).abrirImagen(u, el.nombre));
     }
-    if (pdf) {
-      const u = URL.createObjectURL(pdf.blob);
+    // Los dos PDF posibles: ficha técnica y conexión
+    for (const [archivo, accion, titulo] of [[pdf, 'pdf', 'Ficha técnica'], [conexion, 'conexion', 'Conexión']]) {
+      if (!archivo) continue;
+      const u = URL.createObjectURL(archivo.blob);
       urls.push(u);
-      $('[data-accion="pdf"]').addEventListener('click', async () => (await visor()).abrirPdf(u, el.nombre));
+      $(`[data-accion="${accion}"]`).addEventListener('click', async () => (await visor()).abrirPdf(u, `${titulo} · ${el.nombre}`));
     }
     visor(); // ir cargando el visor en segundo plano para que abra rápido
   })();

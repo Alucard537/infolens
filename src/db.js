@@ -18,7 +18,8 @@ const nuevoIdArchivo = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 // Campos de un elemento que apuntan a la tabla "archivos"
-export const CAMPOS_ARCHIVO = ['imagenId', 'miniaturaId', 'pdfId', 'modelo3dId'];
+// pdfId = ficha técnica, pdfConexionId = esquema de conexión (cada uno opcional)
+export const CAMPOS_ARCHIVO = ['imagenId', 'miniaturaId', 'pdfId', 'pdfConexionId', 'modelo3dId'];
 
 // ---------- elementos ----------
 

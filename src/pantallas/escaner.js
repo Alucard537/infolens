@@ -271,7 +271,63 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   // Reconocer sin QR (prueba): compara lo que hay en el recuadro con las huellas guardadas
   const reconocimiento = crearReconocimiento({
     video, guia: $('.guia-recorte'), panel: $('.rec-panel'), abrirDetalle, estaActivo: () => activo,
+    alBloquear: (idRec) => anclar(idRec), alDesbloquear: () => quitarAncla(),
   });
+
+  // ---------- "ancla" del elemento reconocido sin QR ----------
+  // Su modelo 3D (o la "i" si no tiene) se coloca delante, en el centro del recuadro y de pie.
+  // Con el giro del móvil se queda quieto en su sitio aunque gires el teléfono (no sigue si andas).
+  const DISTANCIA_ANCLA = 0.55; // metros delante de la cámara
+  let ancla = null;
+  async function anclar(idRec) {
+    quitarAncla();
+    const el = elementos && elementos.get(idRec);
+    if (!el) return;
+    const a = { id: idRec, objeto: null, modelo: null, mundo: null };
+    ancla = a;
+    let obj = null;
+    if (el.modelo3dId) {
+      try {
+        const arch = await obtenerArchivo(el.modelo3dId);
+        if (arch) { obj = await cargarModeloAR(arch.blob, 0.22); a.modelo = obj; }
+      } catch (e) { console.warn('Modelo del ancla:', e); }
+    }
+    if (ancla !== a || !activo) return;
+    if (!obj) {
+      obj = new THREE.Group();
+      const ic = crearIcono(true);
+      ic.scale.setScalar(0.09);
+      obj.add(ic);
+      obj.matrixAutoUpdate = false;
+    }
+    obj.traverse((o) => { o.userData.id = idRec; });
+    const arribaAhora = sensor.leer(1).clone();
+    const centro = new THREE.Vector3(0, 0, -DISTANCIA_ANCLA);
+    const frente = centro.clone().negate();
+    frente.addScaledVector(arribaAhora, -frente.dot(arribaAhora)).normalize();
+    const lateral = new THREE.Vector3().crossVectors(arribaAhora, frente).normalize();
+    const base = centro.clone().addScaledVector(arribaAhora, -(obj.userData.altura || 0) / 2);
+    const local = new THREE.Matrix4().makeBasis(lateral, arribaAhora, frente).setPosition(base);
+    const q = sensor.giro(100); // giro actual del móvil, sin suavizar
+    if (q) a.mundo = new THREE.Matrix4().makeRotationFromQuaternion(q).multiply(local);
+    obj.matrix.copy(local);
+    obj.matrixWorldNeedsUpdate = true;
+    escena.add(obj);
+    a.objeto = obj;
+  }
+  function quitarAncla() {
+    if (ancla && ancla.objeto) escena.remove(ancla.objeto);
+    ancla = null;
+  }
+  const giroInverso = new THREE.Matrix4();
+  function actualizarAncla(dt) {
+    if (!ancla || !ancla.objeto || !ancla.mundo) return;
+    const q = sensor.giro(dt);
+    if (!q) return;
+    giroInverso.makeRotationFromQuaternion(q).invert();
+    ancla.objeto.matrix.multiplyMatrices(giroInverso, ancla.mundo);
+    ancla.objeto.matrixWorldNeedsUpdate = true;
+  }
   setTimeout(() => { if (activo && !sensor.activo && faltaPermiso()) btnNivel.hidden = false; }, 1200);
 
   function bucle() {
@@ -326,6 +382,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       s.flotar.matrixWorldNeedsUpdate = true;
       s.icono.rotation.y = 0.15 * Math.sin(ahora / 900);
     }
+    actualizarAncla(dt);
     renderer.render(escena, camara);
 
     // Etiquetas HTML: encima de la "i" o, si no cabe, debajo del QR. Nunca tapan la "i" ni el QR.
@@ -441,6 +498,10 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   function tocado(x, y) {
     const ndc = new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camara);
+    // Primero, el objeto anclado del reconocimiento sin QR
+    if (ancla && ancla.objeto && raycaster.intersectObject(ancla.objeto, true).length) {
+      return { s: { id: ancla.id, modelo: ancla.modelo }, esModelo: !!ancla.modelo };
+    }
     const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento)
       .flatMap((s) => (s.modelo ? [s.icono, s.modelo] : [s.icono]));
     const t = raycaster.intersectObjects(objetivos, true)[0];
@@ -609,6 +670,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     cancelAnimationFrame(rafId);
     sensor.detener();
     reconocimiento.detener();
+    quitarAncla();
     detenerCamara();
     worker.terminate();
     window.removeEventListener('resize', ajustarTamano);

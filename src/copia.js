@@ -29,22 +29,26 @@ export async function exportarCopia(alAvanzar = () => {}) {
   // (así, al abrir el .zip en el PC, se ve qué archivo es de cada elemento)
   const rutaDe = new Map();
   const ext = (n, def) => { const m = /\.([a-z0-9]{1,5})$/i.exec(n || ''); return m ? m[1].toLowerCase() : def; };
-  const filasCsv = [['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'modelo3d']];
+  const filasCsv = [['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'pdf_conexion', 'modelo3d']];
   const carpetaDe = new Map();
   for (const el of elementos) {
     const carpeta = `elementos/${sanear(el.id)} - ${sanear(el.nombre).slice(0, 60).trim()}`;
     carpetaDe.set(el.id, carpeta);
+    // Cada tipo de archivo con su prefijo, para que nunca coincidan dos nombres en la misma carpeta
+    const original = (c, def) => sanear(porId.get(el[c])?.nombre || def);
     const nombres = {
       imagenId: `foto.${ext(porId.get(el.imagenId)?.nombre, 'jpg')}`,
       miniaturaId: `miniatura.${ext(porId.get(el.miniaturaId)?.nombre, 'jpg')}`,
-      pdfId: sanear(porId.get(el.pdfId)?.nombre || 'ficha.pdf'),
-      modelo3dId: sanear(porId.get(el.modelo3dId)?.nombre || 'modelo.glb'),
+      pdfId: `ficha-tecnica - ${original('pdfId', 'ficha.pdf')}`,
+      pdfConexionId: `conexion - ${original('pdfConexionId', 'conexion.pdf')}`,
+      modelo3dId: `modelo-3d - ${original('modelo3dId', 'modelo.glb')}`,
     };
     for (const c of CAMPOS_ARCHIVO) {
       if (el[c] && porId.has(el[c]) && !rutaDe.has(el[c])) rutaDe.set(el[c], `${carpeta}/${nombres[c]}`);
     }
+    const ruta = (c) => (el[c] ? rutaDe.get(el[c]) || '' : '');
     filasCsv.push([el.id, el.nombre, el.referencia, el.tipo === 'COMPUESTO' ? 'compuesto' : 'sencillo', el.descripcion || '',
-      el.imagenId ? rutaDe.get(el.imagenId) : '', el.pdfId ? rutaDe.get(el.pdfId) : '', el.modelo3dId ? rutaDe.get(el.modelo3dId) : '']);
+      ruta('imagenId'), ruta('pdfId'), ruta('pdfConexionId'), ruta('modelo3dId')]);
   }
   const meta = archivos.map((a) => ({
     id: a.id, nombre: a.nombre, tipoMime: a.tipoMime,

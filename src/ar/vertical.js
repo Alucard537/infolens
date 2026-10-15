@@ -10,6 +10,9 @@ import { pedirPermisoSensor, faltaPermiso } from './permiso-sensor.js';
 
 export { pedirPermisoSensor, faltaPermiso };
 
+const Q_CAMARA_TRASERA = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2); // -90° en X
+const EJE_Z = new THREE.Vector3(0, 0, 1);
+
 export function crearSensorVertical() {
   const arriba = new THREE.Vector3(0, 1, 0);   // valor suavizado que se usa
   const objetivo = new THREE.Vector3(0, 1, 0); // última lectura del sensor
@@ -29,10 +32,27 @@ export function crearSensorVertical() {
     const ys = Math.sin(angulo) * x + Math.cos(angulo) * y;
     objetivo.set(xs, ys, z).normalize();
     recibido = true;
+    // Giro completo de la cámara respecto al mundo (para el "ancla": que un objeto se quede quieto
+    // en su sitio aunque se gire el móvil). Mismo cálculo que DeviceOrientationControls de three.js.
+    if (e.alpha != null) {
+      euler.set(b, (e.alpha * Math.PI) / 180, -g, 'YXZ');
+      giroObjetivo.setFromEuler(euler).multiply(Q_CAMARA_TRASERA).multiply(qPantalla.setFromAxisAngle(EJE_Z, -angulo));
+      if (!tieneGiro) giro.copy(giroObjetivo);
+      tieneGiro = true;
+    }
   };
+  const euler = new THREE.Euler();
+  const giro = new THREE.Quaternion(), giroObjetivo = new THREE.Quaternion(), qPantalla = new THREE.Quaternion();
+  let tieneGiro = false;
   window.addEventListener('deviceorientation', alGirar);
 
   return {
+    /** Giro de la cámara (cámara -> mundo), suavizado. null si el móvil no da ese dato. */
+    giro(dt) {
+      if (!tieneGiro) return null;
+      giro.slerp(giroObjetivo, 1 - Math.exp(-dt * 25));
+      return giro;
+    },
     /** Devuelve el vector "arriba" suavizado (dt en segundos). Sin sensor: arriba de la pantalla. */
     leer(dt) {
       if (!recibido) return arriba.set(0, 1, 0);

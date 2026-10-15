@@ -13,7 +13,8 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
   const blobUrl = (b) => { const u = URL.createObjectURL(b); urls.push(u); return u; };
 
   // Cambios pendientes de archivos (undefined = sin cambios, null = quitar, objeto = nuevo)
-  const cambios = { imagenId: undefined, miniaturaId: undefined, pdfId: undefined, modelo3dId: undefined };
+  const cambios = { imagenId: undefined, miniaturaId: undefined, pdfId: undefined, pdfConexionId: undefined, modelo3dId: undefined };
+  const CAMPO_PDF = { pdf: 'pdfId', conexion: 'pdfConexionId' }; // los dos PDF posibles
   let actual = null; // elemento guardado (al editar)
 
   app.innerHTML = `
@@ -59,11 +60,19 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
         </div>
 
         <div class="bloque-archivo" data-campo="pdf">
-          <div class="titulo-archivo">📄 PDF</div>
+          <div class="titulo-archivo">📄 Ficha técnica (PDF, opcional)</div>
           <div class="nombre-archivo" data-nombre="pdf">Sin PDF</div>
           <label class="boton secundario">Elegir PDF (Archivos)
             <input type="file" accept="application/pdf,.pdf" data-entrada="pdf" class="entrada-oculta"></label>
-          <button type="button" class="quitar" data-quitar="pdf" hidden>Quitar PDF</button>
+          <button type="button" class="quitar" data-quitar="pdf" hidden>Quitar ficha técnica</button>
+        </div>
+
+        <div class="bloque-archivo" data-campo="conexion">
+          <div class="titulo-archivo">🔌 Conexión (PDF, opcional)</div>
+          <div class="nombre-archivo" data-nombre="conexion">Sin PDF</div>
+          <label class="boton secundario">Elegir PDF (Archivos)
+            <input type="file" accept="application/pdf,.pdf" data-entrada="conexion" class="entrada-oculta"></label>
+          <button type="button" class="quitar" data-quitar="conexion" hidden>Quitar conexión</button>
         </div>
 
         <div class="bloque-archivo" data-campo="modelo">
@@ -100,7 +109,7 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
     $('[data-quitar="foto"]').hidden = !blob;
   }
   function verNombre(tipo, nombre, tamano) {
-    const vacio = tipo === 'pdf' ? 'Sin PDF' : 'Sin modelo 3D';
+    const vacio = tipo === 'modelo' ? 'Sin modelo 3D' : 'Sin PDF';
     $(`[data-nombre="${tipo}"]`).textContent = nombre ? `${nombre}${tamano ? ` (${(tamano / MB).toFixed(1)} MB)` : ''}` : vacio;
     $(`[data-quitar="${tipo}"]`).hidden = !nombre;
   }
@@ -120,12 +129,13 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
     form.elements.referencia.value = actual.referencia || '';
     form.elements.tipo.value = actual.tipo || 'SENCILLO';
     form.elements.descripcion.value = actual.descripcion || '';
-    const [foto, pdf, modelo] = await Promise.all([
-      obtenerArchivo(actual.imagenId), obtenerArchivo(actual.pdfId), obtenerArchivo(actual.modelo3dId),
+    const [foto, pdf, conexion, modelo] = await Promise.all([
+      obtenerArchivo(actual.imagenId), obtenerArchivo(actual.pdfId), obtenerArchivo(actual.pdfConexionId), obtenerArchivo(actual.modelo3dId),
     ]);
     if (!activo) return;
     if (foto) verFoto(foto.blob);
     if (pdf) verNombre('pdf', pdf.nombre, pdf.blob.size);
+    if (conexion) verNombre('conexion', conexion.nombre, conexion.blob.size);
     if (modelo) verNombre('modelo', modelo.nombre, modelo.blob.size);
   })();
 
@@ -159,11 +169,11 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
         cambios.imagenId = { blob: imagen, nombre: 'foto.jpg' };
         cambios.miniaturaId = { blob: miniatura, nombre: 'foto-mini.jpg' };
         verFoto(imagen);
-      } else if (tipo === 'pdf') {
+      } else if (CAMPO_PDF[tipo]) {
         const cabecera = new Uint8Array(await archivo.slice(0, 5).arrayBuffer());
         if (String.fromCharCode(...cabecera) !== '%PDF-') throw new Error('El archivo elegido no es un PDF.');
-        cambios.pdfId = { blob: new Blob([archivo], { type: 'application/pdf' }), nombre: archivo.name };
-        verNombre('pdf', archivo.name, archivo.size);
+        cambios[CAMPO_PDF[tipo]] = { blob: new Blob([archivo], { type: 'application/pdf' }), nombre: archivo.name };
+        verNombre(tipo, archivo.name, archivo.size);
       } else if (tipo === 'modelo') {
         const nombreModelo = $('[data-nombre="modelo"]');
         const guardar = form.querySelector('[type="submit"]');
@@ -190,7 +200,7 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
     const quitar = e.target.dataset.quitar;
     if (!quitar) return;
     if (quitar === 'foto') { cambios.imagenId = null; cambios.miniaturaId = null; verFoto(null); }
-    if (quitar === 'pdf') { cambios.pdfId = null; verNombre('pdf', null); }
+    if (CAMPO_PDF[quitar]) { cambios[CAMPO_PDF[quitar]] = null; verNombre(quitar, null); }
     if (quitar === 'modelo') { cambios.modelo3dId = null; verNombre('modelo', null); }
   });
 

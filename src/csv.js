@@ -1,7 +1,7 @@
 // Lectura de la hoja de elementos exportada desde Excel (formato CSV).
 // Acepta separador ";" (Excel en español) o ",", y textos en UTF-8 o en la codificación de Windows.
 
-export const COLUMNAS = ['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'modelo3d'];
+export const COLUMNAS = ['id', 'nombre', 'referencia', 'tipo', 'descripcion', 'foto', 'pdf', 'pdfconexion', 'modelo3d'];
 
 // Nombres alternativos de columnas que también se aceptan
 const ALIAS = {
@@ -11,7 +11,8 @@ const ALIAS = {
   tipo: 'tipo', type: 'tipo',
   descripcion: 'descripcion', description: 'descripcion', notas: 'descripcion',
   foto: 'foto', imagen: 'foto', image: 'foto', fotografia: 'foto',
-  pdf: 'pdf', documento: 'pdf', ficha: 'pdf',
+  pdf: 'pdf', documento: 'pdf', ficha: 'pdf', fichatecnica: 'pdf', pdfficha: 'pdf',
+  pdfconexion: 'pdfconexion', conexion: 'pdfconexion', conexiones: 'pdfconexion', esquema: 'pdfconexion', pdf2: 'pdfconexion',
   modelo3d: 'modelo3d', modelo: 'modelo3d', glb: 'modelo3d', '3d': 'modelo3d',
 };
 
@@ -70,9 +71,9 @@ export function filasAElementos(filas) {
 /** Plantilla para abrir con Excel (con BOM para que Excel lea bien los acentos). */
 export function plantillaCSV() {
   const filas = [
-    'id;nombre;referencia;tipo;descripcion;foto;pdf;modelo3d',
-    'V-0001;Válvula de bola DN50;REF-0001-A;sencillo;Válvula de entrada principal;V-0001.jpg;V-0001.pdf;',
-    'CV-0001;Cuerpo de válvulas línea 2;REF-CV-200;compuesto;Conjunto de 4 válvulas;cuerpo2.jpg;cuerpo2.pdf;cuerpo2.glb',
+    'id;nombre;referencia;tipo;descripcion;foto;pdf;pdf_conexion;modelo3d',
+    'V-0001;Válvula de bola DN50;REF-0001-A;sencillo;Válvula de entrada principal;V-0001.jpg;V-0001.pdf;V-0001-conexion.pdf;',
+    'CV-0001;Cuerpo de válvulas línea 2;REF-CV-200;compuesto;Conjunto de 4 válvulas;cuerpo2.jpg;cuerpo2.pdf;;cuerpo2.stp',
   ];
   return new Blob(['﻿' + filas.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
 }

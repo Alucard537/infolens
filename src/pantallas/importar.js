@@ -11,6 +11,11 @@ const base = (ruta) => String(ruta || '').split(/[\\/]/).pop().toLowerCase();
 const normId = (t) => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const extDe = (nombre) => nombre.split('.').pop();
 const EXT_MODELO = ['glb', 'stp', 'step', 'igs', 'iges', 'stl'];
+// Un PDF es "de conexión" si su nombre lo dice; si no, se toma como ficha técnica
+const ES_CONEXION = /conex|esquema|cablead|wiring|connect|pinout|bornas|terminal/i;
+const SIEMPRE = () => true;
+const esConexion = (a) => ES_CONEXION.test(a.base);
+const esFicha = (a) => !ES_CONEXION.test(a.base);
 
 export function pantallaImportar(app, { volver, irCopia }) {
   let filas = null;            // filas leídas de la hoja
@@ -37,7 +42,7 @@ export function pantallaImportar(app, { volver, irCopia }) {
       <h2>1. Prepara la hoja</h2>
       <p class="nota">Descarga la plantilla, ábrela con Excel y rellena una fila por elemento. Columnas:
         <b>id</b> (opcional: si lo dejas vacío se pone V-0001, V-0002…), <b>nombre</b>, <b>referencia</b>,
-        <b>tipo</b> (sencillo o compuesto), <b>descripcion</b>, y los nombres de archivo de <b>foto</b>, <b>pdf</b> y <b>modelo3d</b>.
+        <b>tipo</b> (sencillo o compuesto), <b>descripcion</b>, y los nombres de archivo de <b>foto</b>, <b>pdf</b> (ficha técnica), <b>pdf_conexion</b> y <b>modelo3d</b>.
         Si dejas vacías las columnas de archivos, se buscan solos por el ID (por ejemplo V-0001.jpg, V-0001.pdf, V-0001.glb).
         Guárdala con "Guardar como" → <b>CSV (delimitado por comas)</b>.</p>
       <button class="boton secundario" data-accion="plantilla">⬇️ Descargar plantilla</button>
@@ -76,8 +81,9 @@ export function pantallaImportar(app, { volver, irCopia }) {
   //     mismo nombre, se usa el que está en la carpeta del elemento; si no se puede saber, se avisa.
   //  2. Si no lo indica: un archivo llamado como el ID (V-0001.jpg) o, si no, el que haya dentro
   //     de una carpeta con el nombre del ID (por ejemplo V0002/UIT501.png).
-  function buscarArchivo(valor, id, extensiones) {
-    const lista = [...archivos.values()];
+  // filtro: para separar la ficha técnica del PDF de conexión cuando se buscan solos
+  function buscarArchivo(valor, id, extensiones, filtro = SIEMPRE) {
+    const lista = [...archivos.values()].filter((a) => valor || filtro(a));
     const idN = normId(id);
     const enSuCarpeta = (a) => idN && a.carpetas.includes(idN);
     const extOk = (a) => extensiones.includes(extDe(a.base));
@@ -91,7 +97,8 @@ export function pantallaImportar(app, { volver, irCopia }) {
       return { aviso: `no encuentro "${valor}"` };
     }
     if (!idN) return {};
-    const porNombre = lista.filter((a) => extOk(a) && normId(a.base.replace(/\.[^.]+$/, '')) === idN);
+    const porNombre = lista.filter((a) => extOk(a) && (normId(a.base.replace(/\.[^.]+$/, '')) === idN
+      || (filtro !== SIEMPRE && normId(a.base).startsWith(idN))));
     if (porNombre.length) return { archivo: porNombre[0].file };
     const enCarpeta = lista.filter((a) => extOk(a) && enSuCarpeta(a)).sort((x, y) =>
       extensiones.indexOf(extDe(x.base)) - extensiones.indexOf(extDe(y.base)) || x.ruta.localeCompare(y.ruta));
@@ -123,14 +130,15 @@ export function pantallaImportar(app, { volver, irCopia }) {
       if (vistos.has(id)) { avisos.push(`Fila ${f.fila}: el ID ${id} está repetido en la hoja (se salta).`); continue; }
       vistos.add(id);
       const rFoto = buscarArchivo(f.foto, id, EXT_FOTO);
-      const rPdf = buscarArchivo(f.pdf, id, ['pdf']);
+      const rPdf = buscarArchivo(f.pdf, id, ['pdf'], esFicha);
+      const rConexion = buscarArchivo(f.pdfconexion, id, ['pdf'], esConexion);
       const rModelo = buscarArchivo(f.modelo3d, id, EXT_MODELO);
-      for (const [r, que] of [[rFoto, 'foto'], [rPdf, 'PDF'], [rModelo, 'modelo 3D']]) {
+      for (const [r, que] of [[rFoto, 'foto'], [rPdf, 'ficha técnica'], [rConexion, 'PDF de conexión'], [rModelo, 'modelo 3D']]) {
         if (r.aviso) avisos.push(`Fila ${f.fila} (${id}), ${que}: ${r.aviso}.`);
       }
-      const foto = rFoto.archivo || null, pdf = rPdf.archivo || null, modelo = rModelo.archivo || null;
+      const foto = rFoto.archivo || null, pdf = rPdf.archivo || null, conexion = rConexion.archivo || null, modelo = rModelo.archivo || null;
       plan.push({
-        id, existe: existentes.has(id), foto, pdf, modelo,
+        id, existe: existentes.has(id), foto, pdf, conexion, modelo,
         datos: {
           id, nombre: f.nombre, referencia: f.referencia,
           tipo: /^c/i.test(f.tipo || '') ? 'COMPUESTO' : 'SENCILLO',
@@ -141,11 +149,12 @@ export function pantallaImportar(app, { volver, irCopia }) {
     const nuevos = plan.filter((p) => !p.existe).length;
     const conFoto = plan.filter((p) => p.foto).length;
     const conPdf = plan.filter((p) => p.pdf).length;
+    const conConexion = plan.filter((p) => p.conexion).length;
     const conModelo = plan.filter((p) => p.modelo).length;
     $('.resumen').innerHTML = `
       <div class="tarjeta-info">
         <div>Elementos a importar: <b>${plan.length}</b> (${nuevos} nuevos, ${plan.length - nuevos} se actualizarán)</div>
-        <div>Con foto: <b>${conFoto}</b> · con PDF: <b>${conPdf}</b> · con modelo 3D: <b>${conModelo}</b></div>
+        <div>Con foto: <b>${conFoto}</b> · con ficha técnica: <b>${conPdf}</b> · con PDF de conexión: <b>${conConexion}</b> · con modelo 3D: <b>${conModelo}</b></div>
       </div>
       ${avisos.length ? `<details class="avisos" open><summary>⚠️ ${avisos.length} avisos</summary><ul></ul></details>` : ''}`;
     const ul = $('.avisos ul');
@@ -207,6 +216,7 @@ export function pantallaImportar(app, { volver, irCopia }) {
           }
         }
         if (p.pdf) cambios.pdfId = { blob: new Blob([p.pdf], { type: 'application/pdf' }), nombre: p.pdf.name };
+        if (p.conexion) cambios.pdfConexionId = { blob: new Blob([p.conexion], { type: 'application/pdf' }), nombre: p.conexion.name };
         if (p.modelo) {
           try {
             const { prepararModelo } = await import('../modelo3d.js');
