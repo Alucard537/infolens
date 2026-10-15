@@ -25,13 +25,59 @@ const fmtM = (m) => m.toFixed(1).replace('.', ',');
 // ======================================================================
 // Capa de recorrido (la usan el modo ANCLA y las GUÍAS)
 // ======================================================================
-export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor }) {
+export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes = () => false }) {
   let r = null; // recorrido actual
   const matG = new THREE.Matrix4(), giroInv = new THREE.Matrix4();
   const v = new THREE.Vector3(), hacia = new THREE.Vector3(), lateral = new THREE.Vector3();
+  const destinoCam = new THREE.Vector3();
+
+  // Flecha en el borde de la pantalla que señala el destino cuando no se ve
+  const indicador = document.createElement('div');
+  indicador.className = 'indicador-destino';
+  indicador.innerHTML = '<span class="ind-flecha">➤</span><span class="ind-texto"></span>';
+  indicador.hidden = true;
+  capaEtiquetas.appendChild(indicador);
+
+  // Ejes del ancla (X rojo, Y amarillo, Z azul), para saber hacia dónde va cada coordenada
+  const LARGO_EJE = 0.3;
+  const ejes = new THREE.Group();
+  ejes.matrixAutoUpdate = false;
+  ejes.visible = false;
+  const etiquetasEjes = [];
+  for (const [nombre, color, dir] of [['X+', 0xff453a, [1, 0, 0]], ['Y+', 0xffd60a, [0, 1, 0]], ['Z+', 0x0a84ff, [0, 0, 1]]]) {
+    const mat = new THREE.MeshBasicMaterial({ color });
+    const d = new THREE.Vector3(...dir);
+    const palo = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, LARGO_EJE, 8), mat);
+    palo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+    palo.position.copy(d).multiplyScalar(LARGO_EJE / 2);
+    const punta = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.05, 12), mat);
+    punta.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d);
+    punta.position.copy(d).multiplyScalar(LARGO_EJE);
+    ejes.add(palo, punta);
+    const et = document.createElement('div');
+    et.className = 'etiqueta-eje';
+    et.textContent = nombre;
+    et.style.color = '#' + color.toString(16).padStart(6, '0');
+    et.hidden = true;
+    capaEtiquetas.appendChild(et);
+    etiquetasEjes.push({ et, punta: d.clone().multiplyScalar(LARGO_EJE + 0.05) });
+  }
+  escena.add(ejes);
+  const matEjes = new THREE.Matrix4();
+
+  /** Cada fotograma (aunque no haya recorrido): coloca los ejes sobre el QR del ancla si se ve. */
+  function actualizarEjes(arriba, seguidoAncla) {
+    const ver = mostrarEjes() && seguidoAncla && seguidoAncla.visible;
+    ejes.visible = !!ver;
+    if (!ver) return;
+    marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matEjes);
+    ejes.matrix.copy(matEjes);
+    ejes.matrixWorldNeedsUpdate = true;
+  }
   const escalaI = new THREE.Vector3(TAM_I, TAM_I, TAM_I);
 
   function ocultar() {
+    indicador.hidden = true;
     if (!r) return;
     if (r.flechas) escena.remove(r.flechas);
     if (r.destino) escena.remove(r.destino);
@@ -53,8 +99,8 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor }) {
       r.flechas = crearFlechas(puntos);
       r.flechas.matrixAutoUpdate = false;
       r.flechas.visible = false;
-      r.materialFlechas = r.flechas.children[0]?.material || null;
-      if (r.materialFlechas) r.materialFlechas.transparent = true;
+      r.materiales = r.flechas.userData.materiales || [];
+      r.materiales.forEach((m) => { m.transparent = true; m.userData.opacidad = m.opacity; });
       escena.add(r.flechas);
     }
     if (conIcono) {
@@ -104,9 +150,11 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor }) {
       r.flechas.visible = true;
       r.flechas.matrix.copy(matG);
       r.flechas.matrixWorldNeedsUpdate = true;
-      if (r.materialFlechas) r.materialFlechas.opacity = fiable ? 1 : 0.3;
+      (r.materiales || []).forEach((m) => { m.opacity = (m.userData.opacidad ?? 1) * (fiable ? 1 : 0.3); });
     }
     const d = v.copy(r.destinoG).applyMatrix4(matG).addScaledVector(arriba, TAM_I * 0.8 + 0.01 * Math.sin(ahora / 400));
+    destinoCam.copy(d);
+    r.hayDestino = true;
     if (r.destino) {
       r.destino.visible = true;
       hacia.copy(d).negate();
@@ -122,6 +170,31 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor }) {
   }
 
   function etiquetas(g) {
+    // Nombres de los ejes del ancla
+    for (const { et, punta } of etiquetasEjes) {
+      if (!ejes.visible) { et.hidden = true; continue; }
+      const p = v.copy(punta).applyMatrix4(ejes.matrixWorld).project(camara);
+      et.hidden = p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1;
+      if (!et.hidden) et.style.transform = `translate(${((p.x + 1) / 2) * g.W - 12}px, ${((1 - p.y) / 2) * g.H - 12}px)`;
+    }
+    // Destino fuera de la pantalla: flecha en el borde señalando hacia dónde girar el móvil
+    if (r && r.hayDestino) {
+      const p = v.copy(destinoCam).project(camara);
+      const detras = destinoCam.z > 0; // la cámara mira hacia -Z: z > 0 es detrás
+      const fuera = detras || Math.abs(p.x) > 0.92 || Math.abs(p.y) > 0.92;
+      indicador.hidden = !fuera;
+      if (fuera) {
+        let dx = p.x, dy = p.y;
+        if (detras) { dx = -dx; dy = -dy; }
+        if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1; // justo detrás: "gírate"
+        const ang = Math.atan2(-dy, dx); // en pantalla (y hacia abajo)
+        const radio = Math.min(g.W, g.H) / 2 - 60;
+        const cx = g.W / 2 + Math.cos(ang) * radio, cy = g.H / 2 + Math.sin(ang) * radio;
+        indicador.style.transform = `translate(${cx - 40}px, ${cy - 30}px)`;
+        indicador.querySelector('.ind-flecha').style.transform = `rotate(${ang}rad)`;
+        indicador.querySelector('.ind-texto').textContent = `Destino · ${fmtM(destinoCam.length())} m${detras ? ' (detrás)' : ''}`;
+      }
+    }
     if (!r || !r.destino || !r.destino.visible) { if (r && r.etiqueta) r.etiqueta.hidden = true; return; }
     v.set(0, 0.75, 0).applyMatrix4(r.destino.matrixWorld).project(camara);
     if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) { r.etiqueta.hidden = true; return; }
@@ -142,7 +215,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor }) {
   /** Olvidar el sistema de referencia (al cambiar de ancla). */
   function reiniciarReferencia() { if (r) { r.mundo = null; r.visto = false; r.perdido = 0; } }
 
-  return { mostrar, ocultar, actualizar, etiquetas, tocado, reiniciarReferencia, get activo() { return !!r; } };
+  return { mostrar, ocultar, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, get activo() { return !!r; } };
 }
 
 // ======================================================================
@@ -323,6 +396,7 @@ export function crearModoAncla({
 
   return {
     actualizar(dt, arriba, ahora) {
+      capa.actualizarEjes(arriba, anclaId ? seguidos.get(anclaId) : [...seguidos.values()].find((s) => s.visible && s.tipo === 'ancla-activa'));
       if (!anclaId && !cargando) {
         const vista = [...seguidos.values()].find((s) => s.visible && s.tipo === 'ancla-activa');
         if (vista) activar(vista.id);

@@ -305,6 +305,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           : conDestino ? '📍 No está localizado: se usará la "Posición final propia" de este paso.'
             : conPuntos ? '📍 No está localizado: las flechas llegarán al último punto intermedio de este paso.'
               : '⚠️ No está localizado respecto al ancla de la guía: pon su "Posición final propia" abajo o configúrala en Localizaciones.';
+      if (p.flechas === false && p.icono === false) t.textContent += ' ⚠️ Las flechas y el icono están desactivados: márcalos para verlos.';
     };
     estadoLoc();
     d.addEventListener('input', (e) => {
@@ -360,6 +361,8 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     };
     pintarMedios();
     d.addEventListener('change', async (e) => {
+      // Casillas (Safari no siempre avisa con "input" en las casillas de verificación)
+      if (e.target.type === 'checkbox' && e.target.dataset.c) { p[e.target.dataset.c] = e.target.checked; estadoLoc(); return; }
       const t = e.target.dataset.e;
       if (!t) return;
       const lista = [...e.target.files]; e.target.value = '';

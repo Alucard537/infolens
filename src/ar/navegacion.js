@@ -70,10 +70,21 @@ export function puntosRecorrido(nav) {
  * Grupo con las flechas a lo largo del recorrido (en coordenadas G).
  * separacion: metros entre flechas.
  */
-export function crearFlechas(puntos, separacion = 0.3) {
+export function crearFlechas(puntos, separacion = 0.22, { conLinea = true } = {}) {
   const grupo = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x0b3d1a, roughness: 0.4, metalness: 0.1 });
+  const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, roughness: 0.4, metalness: 0.1 });
+  const materialLinea = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, transparent: true, opacity: 0.7 });
+  grupo.userData.materiales = [material, materialLinea];
   const arriba = new THREE.Vector3(0, 1, 0);
+  const ESCALA_FLECHA = new THREE.Vector3(1.4, 1.4, 1.4);
+  if (conLinea && puntos.length) {
+    // Marca de salida junto al QR del ancla (un aro en el suelo del recorrido)
+    const aro = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 32), materialLinea);
+    aro.rotation.x = Math.PI / 2;
+    aro.position.copy(puntos[0]);
+    aro.userData.linea = true;
+    grupo.add(aro);
+  }
   for (let i = 0; i < puntos.length - 1; i++) {
     const a = puntos[i], b = puntos[i + 1];
     const tramo = b.clone().sub(a);
@@ -86,12 +97,20 @@ export function crearFlechas(puntos, separacion = 0.3) {
     up.normalize();
     const lateral = new THREE.Vector3().crossVectors(up, dir).normalize();
     const giro = new THREE.Matrix4().makeBasis(lateral, up, dir);
+    // Línea continua del tramo (un tubo fino), para ver el camino completo
+    if (conLinea) {
+      const tubo = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, largo, 8, 1), materialLinea);
+      tubo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      tubo.position.copy(a).addScaledVector(tramo, 0.5);
+      tubo.userData.linea = true;
+      grupo.add(tubo);
+    }
     const n = Math.max(1, Math.floor(largo / separacion));
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
       const f = new THREE.Mesh(geometriaFlecha(), material);
       f.matrixAutoUpdate = false;
-      f.matrix.copy(giro).setPosition(a.clone().addScaledVector(tramo, t));
+      f.matrix.copy(giro).scale(ESCALA_FLECHA).setPosition(a.clone().addScaledVector(tramo, t));
       f.userData.tramo = { i, t };
       grupo.add(f);
     }
@@ -129,7 +148,7 @@ function placaTexto(lineas, anchoM = 0.3) {
 export function escenaRecorrido(nav, componente, { conEtiqueta = true } = {}) {
   const grupo = new THREE.Group();
   const puntos = puntosRecorrido(nav);
-  grupo.add(crearFlechas(puntos));
+  grupo.add(crearFlechas(puntos, 0.3, { conLinea: false }));
   const destino = puntos[puntos.length - 1];
   const previo = puntos[puntos.length - 2];
   const mira = previo.clone().sub(destino); mira.y = 0;

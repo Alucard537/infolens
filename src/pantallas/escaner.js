@@ -338,7 +338,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   });
 
   // ---------- datos y modos ANCLA / GUÍA ----------
-  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor });
+  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes: esAdmin });
   let guiaActual = null;
   const avisar = (t) => { estado.hidden = false; estado.textContent = t; avisoHasta = performance.now() + 4000; };
   let avisoHasta = 0;

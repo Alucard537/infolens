@@ -202,6 +202,11 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     else if (p.elementoId && locs.get(p.elementoId)) destino = { ...locs.get(p.elementoId), ruta: propios || locs.get(p.elementoId).ruta };
     else if (propios) destino = { pos: propios[propios.length - 1], ruta: propios.slice(0, -1), posIcono: null };
     const flechas = p.flechas !== false, icono = p.icono !== false; // por defecto, sí
+    const cm = (v) => v.map((n) => Math.round(n * 100)).join(' ; ');
+    p.diagnostico = !destino ? null
+      : `Recorrido: ${(destino.ruta || []).length} punto(s) intermedio(s) → destino ${cm(destino.pos)} cm `
+        + (Array.isArray(p.destinoPropio) ? '(posición final propia)' : p.elementoId && locs.get(p.elementoId) ? '(localización del componente)' : '(último punto intermedio)');
+    p.sinFlechas = !!destino && !flechas && !icono;
     if (destino && (flechas || icono)) {
       capa.mostrar(destino, {
         conFlechas: flechas, conIcono: icono,
@@ -245,6 +250,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     actualizar(dt, arriba, ahora) {
       if (terminada) return;
       const sa = seguidos.get(guia.anclaId);
+      capa.actualizarEjes(arriba, sa);
       if (!iniciada && sa && sa.visible && sa.tipo === 'ancla-activa') {
         iniciada = true;
         localizacionesDeAncla(maquinaId, guia.anclaId).then((l) => {
@@ -255,16 +261,18 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       if (!iniciada || !infoAR) return;
       const p = guia.pasos[paso];
       const est = capa.actualizar(dt, arriba, ahora, sa);
-      if (p.sinLocalizacion) {
+      if (p.sinFlechas) {
+        infoAR.textContent = 'Este paso tiene desactivadas las flechas y el icono (actívalas en el editor de la guía).';
+      } else if (p.sinLocalizacion) {
         infoAR.textContent = 'Este componente no tiene localización respecto al ancla de la guía (ni posición final propia en el paso).';
       } else if (!est) {
-        infoAR.textContent = '';
+        infoAR.textContent = p.elementoId || p.diagnostico ? '' : 'Este paso no tiene destino: solo instrucciones.';
       } else if (est.esperandoAncla) {
         infoAR.textContent = 'Apunta al QR del ancla para ver el recorrido.';
       } else {
         infoAR.className = 'nota guia-ar' + (est.fiable ? '' : ' aviso-recalibrar');
         infoAR.textContent = est.fiable
-          ? `🧭 Sigue las flechas · a ${fmtM(est.distancia)} m`
+          ? `🧭 Sigue las flechas · a ${fmtM(est.distancia)} m${p.diagnostico ? ' · ' + p.diagnostico : ''}`
           : '⚠️ Precisión perdida: vuelve a apuntar al QR del ancla para recalibrar.';
       }
     },
