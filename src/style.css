@@ -295,3 +295,8 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
   background: #34c759; color: #062b12; font-size: 15px; font-weight: 700;
 }
 .et-lidar:disabled, .boton-lidar:disabled { opacity: 0.6; }
+.enlace-ar { display: block; margin: 12px 0; -webkit-touch-callout: none; }
+.enlace-ar img { display: block; width: 100%; max-width: 560px; height: auto; margin: 0 auto; }
+.enlace-ar-pequeno { margin: 6px 0 0; }
+.enlace-ar-pequeno img { width: 200px; }
+.boton-fijar { background: #ffd60a; color: #2b2300; }

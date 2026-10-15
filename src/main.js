@@ -15,6 +15,7 @@ import { pantallaHuella } from './pantallas/huella.js';
 import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 import { esAdmin } from './permisos.js';
 import { pantallaAdmin } from './pantallas/admin.js';
+import { hayQuickLook, crearEnlaceAR } from './ar/boton-ar.js';
 
 document.title = APP_NAME;
 
@@ -54,6 +55,7 @@ function pantallaInicio() {
       <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>` : `
       <button class="boton secundario" data-ir="#/copia">📥 Recibir actualización</button>`}
       <button class="boton secundario" data-ir="#/admin">${admin ? '🚪 Salir del modo administrador' : '🔒 Entrar como administrador'}</button>
+      <div class="prueba-ar"></div>
       <p class="nota">Versión ${__VERSION__}</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
@@ -62,6 +64,18 @@ function pantallaInicio() {
     ir(b.dataset.ir);
   }));
   contarElementos().then((n) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${n})`; });
+  // Prueba del AR de Apple con LiDAR (modelo de ejemplo): sirve para saber si funciona en este iPhone
+  const prueba = app.querySelector('.prueba-ar');
+  if (hayQuickLook()) {
+    prueba.appendChild(crearEnlaceAR({ url: import.meta.env.BASE_URL + 'ejemplo/prueba-ar.usdz', texto: '🧪 Probar AR con LiDAR (ejemplo)' }).enlace);
+  } else {
+    const p = document.createElement('p');
+    p.className = 'nota';
+    p.textContent = /iPhone|iPad/.test(navigator.userAgent) && (navigator.standalone || matchMedia('(display-mode: standalone)').matches)
+      ? '🧊 El AR con LiDAR no está disponible desde la app instalada: ábrela en Safari para usarlo.'
+      : '🧊 El AR con LiDAR solo está disponible en iPhone o iPad.';
+    prueba.appendChild(p);
+  }
   cargarEscaner(); // ir cargando el escáner en segundo plano
 }
 

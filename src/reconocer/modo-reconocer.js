@@ -5,7 +5,7 @@
 //    un candidato), se "bloquea": deja de buscar y avisa al escáner para que ancle su modelo 3D.
 import { listarHuellas, mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarReconocedor, huellaDe, comparar, ajustarGuia } from './huella.js';
-import { botonQuickLook } from '../ar/quicklook.js';
+import { bloqueLidar } from '../ar/quicklook.js';
 
 const CADA_MS = 500;
 const MINIMO = 0.45;      // por debajo: "no reconozco nada"
@@ -14,7 +14,7 @@ const VENTAJA = 0.025;
 const SEGUIDAS = 2;       // positivos seguidos del mismo elemento para darlo por reconocido (~1 s)
 const PESO_NUEVO = 0.5;   // suavizado: cuánto cuenta cada comparación nueva (menos = más estable)
 
-export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActivo, alBloquear, alDesbloquear }) {
+export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActivo, alBloquear, alDesbloquear, alFijar }) {
   let encendido = false;
   let temporizador = 0;
   let huellas = null, elementos = null, embedder = null;
@@ -23,6 +23,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
   let ultimaLista = '';
   let racha = { id: null, n: 0 };
   let bloqueado = null;        // id del elemento reconocido
+  let estadoFijar = () => {};  // para que el escáner avise si se ha fijado arrastrando
 
   const mensaje = (texto) => {
     panel.innerHTML = '';
@@ -86,8 +87,21 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     fila.querySelector('[data-r="ver"]').addEventListener('click', () => abrirDetalle(el.id));
     fila.querySelector('[data-r="otro"]').addEventListener('click', desbloquear);
     panel.appendChild(fila);
-    const lidar = botonQuickLook(el, { clase: 'boton boton-lidar', alPulsar: () => abrirDetalle(el.id) });
-    if (lidar) panel.appendChild(lidar);
+    // Anclar: fijar la "i" y el modelo donde están (y corregir arrastrando la "i")
+    const fijar = document.createElement('button');
+    fijar.className = 'boton boton-fijar';
+    let fijo = false;
+    const textoFijar = () => { fijar.textContent = fijo ? '🔓 Soltar (volver a seguir el elemento)' : '📌 Fijar aquí'; };
+    textoFijar();
+    fijar.addEventListener('click', () => { fijo = !fijo; textoFijar(); alFijar && alFijar(fijo); });
+    panel.appendChild(fijar);
+    const ayudaFijar = document.createElement('p');
+    ayudaFijar.className = 'nota';
+    ayudaFijar.textContent = 'Si no está bien colocado, arrastra la "i" con el dedo hasta su sitio (se queda fijado).';
+    panel.appendChild(ayudaFijar);
+    // Anclar con LiDAR (visor de Apple) o explicación de por qué no se puede
+    panel.appendChild(bloqueLidar(el, { alPulsar: () => abrirDetalle(el.id) }));
+    estadoFijar = (f) => { fijo = f; textoFijar(); };
     if (el.modelo3dId) {
       const n = document.createElement('p');
       n.className = 'nota';
@@ -176,6 +190,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       return encendido;
     },
     get bloqueado() { return bloqueado; },
+    marcarFijado(f) { estadoFijar(f); },
     detener() {
       encendido = false;
       clearTimeout(temporizador);

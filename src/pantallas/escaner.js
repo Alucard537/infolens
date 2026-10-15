@@ -6,7 +6,8 @@ import { mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarModeloAR } from '../ar/modelo-ar.js';
 import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
 import { crearSeguidor } from '../reconocer/seguimiento.js';
-import { botonQuickLook } from '../ar/quicklook.js';
+import { prepararQuickLook } from '../ar/quicklook.js';
+import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
 import { calcularPose } from '../ar/pose.js';
@@ -153,8 +154,14 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     etiqueta.querySelector('.et-foto')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-alta')?.addEventListener('click', () => darDeAlta(id));
     // Botón para anclar el modelo con el LiDAR (visor de Apple), si tiene modelo 3D
-    const lidar = elemento && botonQuickLook(elemento, { clase: 'et-lidar', alPulsar: () => abrirDetalle(id) });
-    if (lidar) etiqueta.querySelector('.et-textos').appendChild(lidar);
+    if (elemento && elemento.modelo3dId && hayQuickLook()) {
+      const l = crearEnlaceAR({
+        texto: '⏳ AR…', tamano: 'pequeno', titulo: elemento.nombre,
+        subtitulo: `${elemento.referencia} · ${elemento.id}`, alPulsar: () => abrirDetalle(id),
+      });
+      etiqueta.querySelector('.et-textos').appendChild(l.enlace);
+      prepararQuickLook(elemento).then((u) => l.poner(u, '🧊 Anclar con LiDAR')).catch(() => l.texto('❌ AR'));
+    }
     capaEtiquetas.appendChild(etiqueta);
 
     const seguido = {
@@ -278,6 +285,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   const reconocimiento = crearReconocimiento({
     video, guia: $('.guia-recorte'), panel: $('.rec-panel'), abrirDetalle, estaActivo: () => activo,
     alBloquear: (idRec) => anclar(idRec), alDesbloquear: () => quitarAncla(),
+    alFijar: (fijo) => { if (ancla) ancla.fijo = fijo; },
   });
 
   // ---------- "ancla" del elemento reconocido sin QR ----------
@@ -297,7 +305,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     quitarAncla();
     const el = elementos && elementos.get(idRec);
     if (!el) return;
-    const a = { id: idRec, objeto: null, modelo: null, mundo: null, frenteMundo: null, centro: null, perdido: 0 };
+    const a = { id: idRec, objeto: null, modelo: null, mundo: null, frenteMundo: null, centro: null, perdido: 0, fijo: false };
     ancla = a;
     // Guardar YA cómo se ve el elemento (antes de que el usuario se mueva)
     a.sigue = seguidor.iniciar(video, Math.min(video.videoWidth, video.videoHeight) * PROPORCION_RECORTE);
@@ -344,7 +352,8 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     if (!a) return;
     const q = sensor.giro(dt);
     // 1) ¿Dónde está el elemento en la imagen?
-    const r = a.sigue ? seguidor.paso(video) : { ok: false };
+    // Fijado (con el botón o tras corregirlo con el dedo): no se sigue la imagen, solo el giro del móvil
+    const r = a.sigue && !a.fijo ? seguidor.paso(video) : { ok: false };
     let visto = false;
     if (r.ok) {
       const distancia = DISTANCIA_ANCLA / r.escala; // más grande en la imagen = más cerca
@@ -555,7 +564,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       if (t) {
         let o = t.object, esModelo = false;
         while (o) { if (o === ancla.modelo) { esModelo = true; break; } o = o.parent; }
-        return { s: { id: ancla.id, modelo: ancla.modelo }, esModelo };
+        return { s: { id: ancla.id, modelo: ancla.modelo }, esModelo, esAncla: true };
       }
     }
     const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento)
@@ -578,14 +587,33 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     arrastre = {
       ...t, piv, x0: e.clientX, y0: e.clientY, movido: false,
       giro0: piv ? piv.rotation.y : 0, inclinacion0: piv ? piv.rotation.x : 0,
+      // Arrastrar la "i" del ancla = moverla (corregir su sitio)
+      moverAncla: t.esAncla && !t.esModelo && ancla && ancla.objeto ? {
+        matriz: ancla.objeto.matrix.clone(), centro: ancla.centro.clone(),
+      } : null,
     };
     lienzo3d.setPointerCapture(e.pointerId);
   });
+  const desplazamiento = new THREE.Vector3(), matTraslado = new THREE.Matrix4();
   lienzo3d.addEventListener('pointermove', (e) => {
-    if (!arrastre || !arrastre.piv) return;
+    if (!arrastre || (!arrastre.piv && !arrastre.moverAncla)) return;
     const dx = e.clientX - arrastre.x0, dy = e.clientY - arrastre.y0;
     if (!arrastre.movido && Math.hypot(dx, dy) > 8) arrastre.movido = true;
     if (!arrastre.movido) return;
+    if (arrastre.moverAncla && ancla && ancla.objeto) {
+      // Mover el ancla en el plano de la pantalla, a su misma distancia (los píxeles se pasan a metros)
+      const g = geometria();
+      const m = arrastre.moverAncla;
+      const k = m.centro.length() / (g.f * g.s);
+      desplazamiento.set(dx * k, -dy * k, 0);
+      ancla.objeto.matrix.copy(m.matriz).premultiply(matTraslado.makeTranslation(desplazamiento.x, desplazamiento.y, 0));
+      ancla.objeto.matrixWorldNeedsUpdate = true;
+      ancla.centro.copy(m.centro).add(desplazamiento);
+      const q = sensor.giro(0);
+      if (q) (ancla.mundo ||= new THREE.Matrix4()).makeRotationFromQuaternion(q).multiply(ancla.objeto.matrix);
+      if (!ancla.fijo) { ancla.fijo = true; reconocimiento.marcarFijado(true); }
+      return;
+    }
     arrastre.piv.rotation.y = arrastre.giro0 + dx * 0.012;
     arrastre.piv.rotation.x = Math.max(-1.4, Math.min(1.4, arrastre.inclinacion0 + dy * 0.012));
   });

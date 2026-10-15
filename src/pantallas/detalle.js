@@ -83,8 +83,7 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
     // Ver el modelo con AR de Apple (LiDAR), si el iPhone lo permite
     if (modelo) {
       import('../ar/quicklook.js').then((m) => {
-        const b = activo && m.botonQuickLook(el);
-        if (b) $('.hueco-lidar').appendChild(b);
+        if (activo) $('.hueco-lidar').appendChild(m.bloqueLidar(el));
       });
     }
     visor(); // ir cargando el visor en segundo plano para que abra rápido

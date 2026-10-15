@@ -1,23 +1,22 @@
 // "Anclar con LiDAR": abre el modelo 3D en AR Quick Look, el visor de realidad aumentada de Apple.
 // Quick Look usa ARKit y el LiDAR del iPhone: coloca el modelo solo sobre la superficie que hay
-// delante (centro de la cámara) y lo deja perfectamente anclado; el usuario puede arrastrarlo,
-// girarlo o cambiar su tamaño para corregirlo. El modelo sale a tamaño real.
+// delante (centro de la cámara) y lo deja anclado; el usuario puede arrastrarlo, girarlo o cambiar
+// su tamaño para corregirlo. El modelo sale a tamaño real.
 //
 // El .usdz (formato de Apple) se crea en el propio teléfono a partir del .glb, sin internet.
-// IMPORTANTE: Safari solo abre Quick Look si se toca un enlace; por eso el .usdz se prepara antes
-// y el botón se activa cuando está listo.
+// El botón es un ENLACE <a rel="ar"> con una imagen dentro: es la forma que Apple exige para que
+// Safari abra Quick Look al tocarlo.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { obtenerArchivo } from '../db.js';
+import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
 
 const cache = new Map(); // id del archivo .glb -> Promise<blob: URL del .usdz>
 
-/** ¿Este dispositivo tiene AR Quick Look? (iPhone / iPad con Safari) */
-export function hayQuickLook() {
-  const a = document.createElement('a');
-  return !!(a.relList && a.relList.supports && a.relList.supports('ar'));
-}
+export { hayQuickLook };
+const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const esAppInstalada = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 
 async function crearUsdz(blobGlb) {
   const datos = await blobGlb.arrayBuffer();
@@ -40,9 +39,8 @@ async function crearUsdz(blobGlb) {
   return URL.createObjectURL(new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
 }
 
-/** Prepara (una vez) el .usdz del modelo de un elemento. Devuelve Promise<URL> o null si no tiene modelo. */
+/** Prepara (una vez) el .usdz del modelo de un elemento. Devuelve Promise<URL>. */
 export function prepararQuickLook(elemento) {
-  if (!elemento || !elemento.modelo3dId || !hayQuickLook()) return null;
   if (!cache.has(elemento.modelo3dId)) {
     const p = obtenerArchivo(elemento.modelo3dId).then((a) => {
       if (!a) throw new Error('No se encuentra el modelo 3D.');
@@ -54,46 +52,42 @@ export function prepararQuickLook(elemento) {
   return cache.get(elemento.modelo3dId);
 }
 
-/**
- * Abre Quick Look. Hay que llamarlo DIRECTAMENTE desde un toque del usuario y con la URL ya lista.
- * Arriba se ve una barra con el nombre del elemento y el botón "Ver detalle" (alPulsar).
- */
-export function abrirQuickLook(url, { titulo, subtitulo, alPulsar }) {
-  const a = document.createElement('a');
-  a.rel = 'ar';
-  const params = new URLSearchParams({
-    callToAction: 'Ver detalle',
-    checkoutTitle: titulo || '',
-    checkoutSubtitle: subtitulo || '',
-  });
-  a.href = `${url}#${params.toString().replace(/\+/g, '%20')}`;
-  a.appendChild(document.createElement('img')); // Safari exige una imagen dentro del enlace
-  a.style.display = 'none';
-  a.addEventListener('message', (e) => {
-    if (e.data === '_apple_ar_quicklook_button_tapped' && alPulsar) alPulsar();
-  });
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => a.remove(), 60_000);
+/** Nota que explica por qué no se puede usar el LiDAR aquí (o null si sí se puede). */
+export function motivoSinLidar(elemento) {
+  if (elemento && !elemento.modelo3dId) return 'Este elemento no tiene modelo 3D: el administrador puede añadírselo.';
+  if (hayQuickLook()) return null;
+  if (esIOS() && esAppInstalada()) return 'El AR con LiDAR no se abre desde la app instalada. Ábrela en Safari (botón de abajo) y usa el botón allí.';
+  if (esIOS()) return 'Este iPhone/iPad no permite el AR de Apple (necesita iOS 12 o más moderno).';
+  return 'El AR con LiDAR solo funciona en iPhone o iPad.';
 }
 
 /**
- * Crea el botón "🧊 Anclar con LiDAR" para un elemento (o null si no tiene modelo o no hay Quick Look).
- * El botón aparece desactivado mientras se prepara el modelo.
+ * Bloque para "anclar con LiDAR" un elemento: el botón (si se puede) o una explicación clara.
  */
-export function botonQuickLook(elemento, { clase = 'boton', alPulsar } = {}) {
-  const preparado = prepararQuickLook(elemento);
-  if (!preparado) return null;
-  const b = document.createElement('button');
-  b.className = clase;
-  b.disabled = true;
-  b.textContent = '⏳ Preparando AR…';
-  let url = null;
-  preparado.then((u) => { url = u; b.disabled = false; b.textContent = '🧊 Anclar con LiDAR'; })
-    .catch(() => { b.textContent = '❌ No se pudo preparar el AR'; });
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (url) abrirQuickLook(url, { titulo: elemento.nombre, subtitulo: `${elemento.referencia} · ${elemento.id}`, alPulsar });
+export function bloqueLidar(elemento, { alPulsar } = {}) {
+  const div = document.createElement('div');
+  div.className = 'bloque-lidar';
+  const motivo = motivoSinLidar(elemento);
+  if (motivo) {
+    const p = document.createElement('p');
+    p.className = 'nota';
+    p.textContent = '🧊 ' + motivo;
+    div.appendChild(p);
+    if (esIOS() && esAppInstalada() && elemento.modelo3dId) {
+      const b = document.createElement('a');
+      b.className = 'boton secundario enlace-boton';
+      b.href = location.href; b.target = '_blank'; b.rel = 'noopener';
+      b.textContent = '🧭 Abrir en Safari';
+      div.appendChild(b);
+    }
+    return div;
+  }
+  const { enlace, poner, texto } = crearEnlaceAR({
+    texto: '⏳ Preparando AR con LiDAR…', titulo: elemento.nombre, subtitulo: `${elemento.referencia} · ${elemento.id}`, alPulsar,
   });
-  return b;
+  div.appendChild(enlace);
+  prepararQuickLook(elemento)
+    .then((u) => poner(u, '🧊 Anclar con LiDAR'))
+    .catch((e) => { texto('❌ No se pudo preparar el AR'); console.warn('Quick Look:', e); });
+  return div;
 }
