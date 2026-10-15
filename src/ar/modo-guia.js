@@ -6,10 +6,13 @@
 //    confirmar). Una guía no sustituye al procedimiento técnico autorizado ni a las medidas de seguridad.
 import { obtenerArchivo } from '../db.js';
 import { localizacionesDeAncla, TIPOS_GUIA } from '../maquinas.js';
+import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
+import { prepararRecorridoQuickLook } from './quicklook.js';
+import { gravedadEnQR } from './navegacion.js';
 
 const fmtM = (m) => m.toFixed(1).replace('.', ',');
 
-export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDetalle, abrirImagen, alSalir }) {
+export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDetalle, abrirImagen, alSalir, ladoCm = () => 10 }) {
   let iniciada = false;
   let paso = 0;
   let locs = new Map();           // elementoId -> localización (de ESTA máquina y ESTA ancla)
@@ -65,7 +68,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     // Cabecera
     const cab = document.createElement('div');
     cab.className = 'guia-cab';
-    cab.innerHTML = '<div><div class="guia-nombre"></div><div class="guia-paso"></div></div><button class="boton-mini" data-g="plegar"></button>';
+    cab.innerHTML = '<div><div class="guia-nombre"></div><div class="guia-paso"></div><p class="nota guia-ar"></p></div><button class="boton-mini" data-g="plegar"></button>';
     cab.querySelector('.guia-nombre').textContent = `📘 ${guia.nombre}`;
     cab.querySelector('.guia-paso').textContent = `Paso ${paso + 1} de ${total} · ${TIPOS_GUIA[guia.tipo] || ''}`;
     cab.querySelector('[data-g="plegar"]').textContent = plegado ? '▴ Ver instrucciones' : '▾ Ocultar';
@@ -74,15 +77,22 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     const cuerpo = document.createElement('div');
     cuerpo.className = 'guia-cuerpo';
     panel.appendChild(cuerpo);
+    // Recorrido con LiDAR (AR de Apple anclado al QR del ancla): las flechas siguen fijas al andar
+    if (p._destinoAR && p.flechas !== false && hayQuickLook()) {
+      const enl = crearEnlaceAR({ texto: '⏳ Preparando recorrido con LiDAR…' });
+      cuerpo.appendChild(enl.enlace);
+      const comp = p.elemento || { id: 'paso-' + (paso + 1), nombre: p.titulo || `Paso ${paso + 1}`, referencia: guia.nombre };
+      prepararRecorridoQuickLook({ ...comp, nav: { pos: p._destinoAR.pos, ruta: p._destinoAR.ruta || [] } },
+        { id: guia.anclaId, anclaGravedad: guia.anclaGravedad || null }, ladoCm())
+        .then((u) => enl.poner(u, '🧭 Recorrido con LiDAR: flechas fijas al andar'))
+        .catch((e) => { console.warn('Recorrido LiDAR (guía):', e); enl.texto('❌ No se pudo preparar el recorrido'); });
+    }
     // Título e instrucciones
     const h = document.createElement('h3');
     h.className = 'guia-titulo';
     h.textContent = p.titulo || (p.elementoId && p.elemento ? `Localizar: ${p.elemento.nombre}` : `Paso ${paso + 1}`);
     cuerpo.appendChild(h);
-    const ar = document.createElement('p');
-    ar.className = 'nota guia-ar';
-    cuerpo.appendChild(ar);
-    infoAR = ar;
+    infoAR = cab.querySelector('.guia-ar');
     if (p.elemento) {
       const c = document.createElement('div');
       c.className = 'guia-componente';
@@ -206,7 +216,8 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     p.diagnostico = !destino ? null
       : `Recorrido: ${(destino.ruta || []).length} punto(s) intermedio(s) → destino ${cm(destino.pos)} cm `
         + (Array.isArray(p.destinoPropio) ? '(posición final propia)' : p.elementoId && locs.get(p.elementoId) ? '(localización del componente)' : '(último punto intermedio)');
-    p.sinFlechas = !!destino && !flechas && !icono;
+    p.sinFlechas = !!destino && !flechas;
+    p._destinoAR = destino;
     if (destino && (flechas || icono)) {
       capa.mostrar(destino, {
         conFlechas: flechas, conIcono: icono,
@@ -251,6 +262,11 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       if (terminada) return;
       const sa = seguidos.get(guia.anclaId);
       capa.actualizarEjes(arriba, sa);
+      // Cómo está colocado el QR del ancla (pared, mesa…): se mide con el sensor la primera vez que se ve
+      if (sa && sa.visible && !guia.anclaGravedad) {
+        const gL = gravedadEnQR(sa.rot, arriba);
+        guia.anclaGravedad = [gL.x, gL.y, gL.z];
+      }
       if (!iniciada && sa && sa.visible && sa.tipo === 'ancla-activa') {
         iniciada = true;
         localizacionesDeAncla(maquinaId, guia.anclaId).then((l) => {
@@ -262,7 +278,8 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       const p = guia.pasos[paso];
       const est = capa.actualizar(dt, arriba, ahora, sa);
       if (p.sinFlechas) {
-        infoAR.textContent = 'Este paso tiene desactivadas las flechas y el icono (actívalas en el editor de la guía).';
+        infoAR.className = 'nota guia-ar aviso-recalibrar';
+        infoAR.textContent = '⚠️ Este paso tiene las flechas desactivadas: márcalas en el editor de la guía (casilla "Mostrar flechas 3D").';
       } else if (p.sinLocalizacion) {
         infoAR.textContent = 'Este componente no tiene localización respecto al ancla de la guía (ni posición final propia en el paso).';
       } else if (!est) {

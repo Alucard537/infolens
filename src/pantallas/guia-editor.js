@@ -305,7 +305,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           : conDestino ? '📍 No está localizado: se usará la "Posición final propia" de este paso.'
             : conPuntos ? '📍 No está localizado: las flechas llegarán al último punto intermedio de este paso.'
               : '⚠️ No está localizado respecto al ancla de la guía: pon su "Posición final propia" abajo o configúrala en Localizaciones.';
-      if (p.flechas === false && p.icono === false) t.textContent += ' ⚠️ Las flechas y el icono están desactivados: márcalos para verlos.';
+      if (p.flechas === false) t.textContent += ' ⚠️ "Mostrar flechas 3D" está DESACTIVADO: márcalo para que se vea el camino.';
     };
     estadoLoc();
     d.addEventListener('input', (e) => {

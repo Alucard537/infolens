@@ -73,6 +73,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
           </select>
         </label>
         <label class="fila"><input type="checkbox" data-ajuste="debug"> Mostrar esquinas y distancia</label>
+        ${esAdmin() && modo !== 'escaner' ? '<label class="fila"><input type="checkbox" data-ajuste="ejes"> Mostrar los ejes X / Y / Z del ancla (para configurar coordenadas)</label>' : ''}
         <p class="nota">Para afinar: pon el móvil a una distancia conocida del QR (por ejemplo 1 m) y mueve
           el campo de visión hasta que la distancia mostrada coincida.</p>
         <button class="boton" data-accion="cerrar-panel">Cerrar</button>
@@ -338,7 +339,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   });
 
   // ---------- datos y modos ANCLA / GUÍA ----------
-  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes: esAdmin });
+  let verEjes = false; // ejes X/Y/Z del ancla: solo si el administrador los enciende en ⚙
+  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes: () => verEjes && esAdmin() });
   let guiaActual = null;
   const avisar = (t) => { estado.hidden = false; estado.textContent = t; avisoHasta = performance.now() + 4000; };
   let avisoHasta = 0;
@@ -367,7 +369,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
           return;
         }
         guiaActual = {
-          ...guia, anclaNombre: anc.nombre,
+          ...guia, anclaNombre: anc.nombre, anclaGravedad: anc.gravedad || null,
           // Solo elementos de la máquina activa (nunca de otra, aunque coincida el ID)
           elementos: new Map([...els].filter(([, e]) => e.maquinaId === maquinaId)),
         };
@@ -381,7 +383,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       } else if (modo === 'guia') {
         modulo = crearModoGuia({
           capa, panel: $('.nav-panel'), seguidos, guia: guiaActual, maquinaId, abrirDetalle,
-          abrirImagen: abrirImagen || (() => {}), alSalir: volver,
+          abrirImagen: abrirImagen || (() => {}), alSalir: volver, ladoCm: () => ajustes.qrCm,
         });
       }
     } catch (e) {
@@ -853,6 +855,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       panel.querySelector('[data-valor="fov"]').textContent = ajustes.fovGrados + '°';
     } else if (campo === 'posModelo') {
       ajustes = guardarAjustes({ posModelo: e.target.value });
+    } else if (campo === 'ejes') {
+      verEjes = e.target.checked;
     } else if (campo === 'debug') {
       debug = e.target.checked;
     }

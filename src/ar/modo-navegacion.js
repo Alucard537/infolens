@@ -242,10 +242,18 @@ export function crearModoAncla({
     return u;
   }
 
+  let arribaActual = null;
   async function activar(id) {
     cargando = true;
     anclaId = id;
     ancla = await obtenerAncla(id);
+    // Si no se sabe cómo está colocado su QR (pared, mesa…), se mide ahora con el sensor
+    const sa = seguidos.get(id);
+    if (ancla && !ancla.gravedad && sa && arribaActual) {
+      const gL = gravedadEnQR(sa.rot, arribaActual);
+      ancla.gravedad = [gL.x, gL.y, gL.z];
+      if (esAdmin()) guardarGravedadAncla(id, ancla.gravedad).catch(() => {});
+    }
     locs = await localizacionesDeAncla(maquinaId, id); // ya comprueba máquina–ancla–elemento
     cargando = false;
     capa.reiniciarReferencia();
@@ -396,6 +404,7 @@ export function crearModoAncla({
 
   return {
     actualizar(dt, arriba, ahora) {
+      arribaActual = arriba;
       capa.actualizarEjes(arriba, anclaId ? seguidos.get(anclaId) : [...seguidos.values()].find((s) => s.visible && s.tipo === 'ancla-activa'));
       if (!anclaId && !cargando) {
         const vista = [...seguidos.values()].find((s) => s.visible && s.tipo === 'ancla-activa');
