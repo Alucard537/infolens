@@ -8,6 +8,8 @@ import { crearEjemploSiHaceFalta } from './datos-prueba.js';
 import { pantallaDetalle } from './pantallas/detalle.js';
 import { pantallaLista } from './pantallas/lista.js';
 import { pantallaFormulario } from './pantallas/formulario.js';
+import { pantallaCopia } from './pantallas/copia.js';
+import { pantallaImportar } from './pantallas/importar.js';
 
 document.title = APP_NAME;
 
@@ -40,9 +42,10 @@ function pantallaInicio() {
       <button class="boton grande" data-ir="#/escaner">📷 Escanear</button>
       <button class="boton secundario" data-ir="#/elementos">📋 Elementos <span class="cuenta"></span></button>
       <button class="boton secundario" data-ir="#/nuevo">➕ Añadir elemento</button>
-      <button class="boton secundario" disabled>💾 Copia de seguridad</button>
+      <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
+      <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>
       <button class="boton secundario" disabled>⚙️ Ajustes</button>
-      <p class="nota">Fase 3: base de datos. Copia de seguridad y Ajustes llegan en la Fase 6.</p>
+      <p class="nota">Fase 3: base de datos y copia de seguridad. Ajustes llega en la Fase 6.</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => ir(b.dataset.ir)));
@@ -80,6 +83,10 @@ async function mostrar() {
       nuevo: () => ir('#/nuevo'),
       volver: () => ir('#/'),
     });
+  } else if (pantalla === 'copia') {
+    limpiar = pantallaCopia(app, { volver: () => ir('#/'), irImportarExcel: () => ir('#/importar') });
+  } else if (pantalla === 'importar') {
+    limpiar = pantallaImportar(app, { volver, irCopia: () => ir('#/copia') });
   } else if (pantalla === 'nuevo' || (pantalla === 'editar' && id)) {
     limpiar = pantallaFormulario(app, {
       id: pantalla === 'editar' ? id : null,

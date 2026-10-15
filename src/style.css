@@ -175,3 +175,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
   flex: none; min-height: 52px; padding: 0 14px; border-radius: 14px; border: none;
   background: var(--azul); color: #0f1b24; font-size: 17px; font-weight: 700;
 }
+
+/* ---------- copia de seguridad e importación ---------- */
+@media (min-width: 900px) { .pagina-ancha { max-width: 860px; } }
+.pagina h2 { color: var(--azul); font-size: 22px; margin: 32px 0 6px; }
+.tarjeta-info { background: var(--tarjeta); border-radius: 14px; padding: 14px 16px; line-height: 1.8; font-size: 17px; }
+label.boton { display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; }
+.progreso { margin: 16px 0; }
+.progreso[hidden] { display: none; }
+.progreso-texto { font-size: 16px; margin-bottom: 8px; color: var(--texto2); }
+.barra { height: 14px; border-radius: 7px; background: #0b141b; overflow: hidden; }
+.barra-relleno { height: 100%; width: 0; background: var(--azul); transition: width 0.2s; }
+.ok-form { background: #143a22; color: #c9f5d6; padding: 14px; border-radius: 12px; font-size: 17px; }
+.ok-form[hidden] { display: none; }
+.error-form { white-space: pre-wrap; }
+.avisos { margin-top: 12px; background: #3a3016; border-radius: 12px; padding: 10px 14px; color: #ffe7a8; }
+.avisos summary { font-weight: 700; cursor: pointer; min-height: 32px; }
+.avisos ul { margin: 6px 0; padding-left: 20px; font-size: 15px; }
+.desactivado { pointer-events: none; opacity: 0.5; }
