@@ -2,3 +2,6 @@ node_modules
 dist
 public/pdfjs
 dev-dist
+
+# Datos del usuario (no subir a GitHub)
+INFO/
