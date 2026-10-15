@@ -5,6 +5,8 @@ import { leerAjustes, guardarAjustes } from '../ajustes.js';
 import { mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarModeloAR } from '../ar/modelo-ar.js';
 import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
+import { crearSeguidor } from '../reconocer/seguimiento.js';
+import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
 import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
@@ -275,58 +277,103 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   });
 
   // ---------- "ancla" del elemento reconocido sin QR ----------
-  // Su modelo 3D (o la "i" si no tiene) se coloca delante, en el centro del recuadro y de pie.
-  // Con el giro del móvil se queda quieto en su sitio aunque gires el teléfono (no sigue si andas).
-  const DISTANCIA_ANCLA = 0.55; // metros delante de la cámara
+  // La "i" se coloca en el centro del recuadro y, si tiene modelo 3D, el modelo justo encima (sin taparse).
+  // Se mantiene encima del elemento de dos formas:
+  //  1. Seguimiento visual: busca el elemento en la imagen (sigue aunque te desplaces, acerques o alejes).
+  //  2. Si lo pierde de vista: el giro del móvil lo mantiene quieto en su sitio hasta que vuelva a verlo.
+  const DISTANCIA_ANCLA = 0.55; // metros delante de la cámara al reconocerlo (estimación)
+  const TAM_I_ANCLA = 0.08;     // diámetro de la "i" en metros
+  const HUECO_ANCLA = 0.02;     // separación entre la "i" y el modelo
+  const seguidor = crearSeguidor();
   let ancla = null;
+  const giroInverso = new THREE.Matrix4(), matGiro = new THREE.Matrix4(), qInversa = new THREE.Quaternion();
+  const centroAux = new THREE.Vector3(), frenteAux = new THREE.Vector3(), lateralAux = new THREE.Vector3();
+
   async function anclar(idRec) {
     quitarAncla();
     const el = elementos && elementos.get(idRec);
     if (!el) return;
-    const a = { id: idRec, objeto: null, modelo: null, mundo: null };
+    const a = { id: idRec, objeto: null, modelo: null, mundo: null, frenteMundo: null, centro: null, perdido: 0 };
     ancla = a;
-    let obj = null;
+    // Guardar YA cómo se ve el elemento (antes de que el usuario se mueva)
+    a.sigue = seguidor.iniciar(video, Math.min(video.videoWidth, video.videoHeight) * PROPORCION_RECORTE);
+    const q = sensor.giro(100);
+    const arribaAhora = sensor.leer(1);
+    frenteAux.set(0, 0, 1).addScaledVector(arribaAhora, -arribaAhora.z).normalize(); // mirando a la cámara
+    if (q) a.frenteMundo = frenteAux.clone().applyQuaternion(q);
+    a.centro = new THREE.Vector3(0, 0, -DISTANCIA_ANCLA);
+
+    let modelo = null;
     if (el.modelo3dId) {
       try {
         const arch = await obtenerArchivo(el.modelo3dId);
-        if (arch) { obj = await cargarModeloAR(arch.blob, 0.22); a.modelo = obj; }
+        if (arch) modelo = await cargarModeloAR(arch.blob, 0.22);
       } catch (e) { console.warn('Modelo del ancla:', e); }
     }
     if (ancla !== a || !activo) return;
-    if (!obj) {
-      obj = new THREE.Group();
-      const ic = crearIcono(true);
-      ic.scale.setScalar(0.09);
-      obj.add(ic);
-      obj.matrixAutoUpdate = false;
-    }
+    const obj = new THREE.Group();
+    obj.matrixAutoUpdate = false;
+    const icono = crearIcono(true);
+    icono.scale.setScalar(TAM_I_ANCLA);
+    obj.add(icono);
+    if (modelo) { obj.add(modelo); a.modelo = modelo; }
     obj.traverse((o) => { o.userData.id = idRec; });
-    const arribaAhora = sensor.leer(1).clone();
-    const centro = new THREE.Vector3(0, 0, -DISTANCIA_ANCLA);
-    const frente = centro.clone().negate();
-    frente.addScaledVector(arribaAhora, -frente.dot(arribaAhora)).normalize();
-    const lateral = new THREE.Vector3().crossVectors(arribaAhora, frente).normalize();
-    const base = centro.clone().addScaledVector(arribaAhora, -(obj.userData.altura || 0) / 2);
-    const local = new THREE.Matrix4().makeBasis(lateral, arribaAhora, frente).setPosition(base);
-    const q = sensor.giro(100); // giro actual del móvil, sin suavizar
-    if (q) a.mundo = new THREE.Matrix4().makeRotationFromQuaternion(q).multiply(local);
-    obj.matrix.copy(local);
-    obj.matrixWorldNeedsUpdate = true;
     escena.add(obj);
     a.objeto = obj;
   }
   function quitarAncla() {
     if (ancla && ancla.objeto) escena.remove(ancla.objeto);
     ancla = null;
+    seguidor.detener();
   }
-  const giroInverso = new THREE.Matrix4();
-  function actualizarAncla(dt) {
-    if (!ancla || !ancla.objeto || !ancla.mundo) return;
+
+  // Cuánto sobresale un modelo hacia arriba/abajo desde su centro, tal como esté girado con el dedo
+  function semiAltoModelo(m) {
+    const { medio, pivote } = m.userData;
+    matGiro.makeRotationFromEuler(pivote.rotation);
+    const e = matGiro.elements;
+    return Math.abs(e[1]) * medio.x + Math.abs(e[5]) * medio.y + Math.abs(e[9]) * medio.z;
+  }
+
+  function actualizarAncla(dt, g, arriba) {
+    const a = ancla;
+    if (!a) return;
     const q = sensor.giro(dt);
-    if (!q) return;
-    giroInverso.makeRotationFromQuaternion(q).invert();
-    ancla.objeto.matrix.multiplyMatrices(giroInverso, ancla.mundo);
-    ancla.objeto.matrixWorldNeedsUpdate = true;
+    // 1) ¿Dónde está el elemento en la imagen?
+    const r = a.sigue ? seguidor.paso(video) : { ok: false };
+    let visto = false;
+    if (r.ok) {
+      const distancia = DISTANCIA_ANCLA / r.escala; // más grande en la imagen = más cerca
+      centroAux.set((r.u - g.cx) / g.f, -(r.v - g.cy) / g.f, -1).normalize().multiplyScalar(distancia);
+      a.centro.lerp(centroAux, 1 - Math.exp(-dt * 15)); // suavizado
+      a.perdido = 0;
+      visto = true;
+    } else {
+      a.perdido += dt;
+    }
+    if (!a.objeto) return;
+    // 2) Orientación: de pie (vertical del mundo) y con el giro horizontal fijo en el mundo
+    if (q && a.frenteMundo) frenteAux.copy(a.frenteMundo).applyQuaternion(qInversa.copy(q).invert());
+    else frenteAux.copy(a.centro).negate();
+    frenteAux.addScaledVector(arriba, -frenteAux.dot(arriba));
+    if (frenteAux.lengthSq() < 1e-8) frenteAux.set(0, 0, 1);
+    frenteAux.normalize();
+    lateralAux.crossVectors(arriba, frenteAux).normalize();
+    if (visto || !a.mundo || !q) {
+      a.objeto.matrix.makeBasis(lateralAux, arriba, frenteAux).setPosition(a.centro);
+      if (q) (a.mundo ||= new THREE.Matrix4()).makeRotationFromQuaternion(q).multiply(a.objeto.matrix);
+    } else {
+      // Perdido de vista: quieto en su sitio usando solo el giro del móvil
+      giroInverso.makeRotationFromQuaternion(q).invert();
+      a.objeto.matrix.multiplyMatrices(giroInverso, a.mundo);
+    }
+    a.objeto.matrixWorldNeedsUpdate = true;
+    // 3) El modelo, encima de la "i" sin tocarla (aunque se gire con el dedo)
+    if (a.modelo) {
+      const m = a.modelo;
+      m.matrix.makeTranslation(0, TAM_I_ANCLA / 2 + HUECO_ANCLA + semiAltoModelo(m) - m.userData.medio.y, 0);
+      m.matrixWorldNeedsUpdate = true;
+    }
   }
   setTimeout(() => { if (activo && !sensor.activo && faltaPermiso()) btnNivel.hidden = false; }, 1200);
 
@@ -382,7 +429,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       s.flotar.matrixWorldNeedsUpdate = true;
       s.icono.rotation.y = 0.15 * Math.sin(ahora / 900);
     }
-    actualizarAncla(dt);
+    actualizarAncla(dt, g, arriba);
     renderer.render(escena, camara);
 
     // Etiquetas HTML: encima de la "i" o, si no cabe, debajo del QR. Nunca tapan la "i" ni el QR.
@@ -499,8 +546,13 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     const ndc = new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camara);
     // Primero, el objeto anclado del reconocimiento sin QR
-    if (ancla && ancla.objeto && raycaster.intersectObject(ancla.objeto, true).length) {
-      return { s: { id: ancla.id, modelo: ancla.modelo }, esModelo: !!ancla.modelo };
+    if (ancla && ancla.objeto) {
+      const t = raycaster.intersectObject(ancla.objeto, true)[0];
+      if (t) {
+        let o = t.object, esModelo = false;
+        while (o) { if (o === ancla.modelo) { esModelo = true; break; } o = o.parent; }
+        return { s: { id: ancla.id, modelo: ancla.modelo }, esModelo };
+      }
     }
     const objetivos = [...seguidos.values()].filter((s) => s.visible && s.elemento)
       .flatMap((s) => (s.modelo ? [s.icono, s.modelo] : [s.icono]));

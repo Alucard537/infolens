@@ -7,11 +7,11 @@ import { listarHuellas, mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarReconocedor, huellaDe, comparar, ajustarGuia } from './huella.js';
 
 const CADA_MS = 500;
-const MINIMO = 0.5;       // por debajo: "no reconozco nada"
-const PROBABLE = 0.72;    // a partir de aquí, y con ventaja sobre el 2º, cuenta como positivo
-const VENTAJA = 0.04;
-const SEGUIDAS = 3;       // positivos seguidos del mismo elemento para darlo por reconocido (~1,5 s)
-const PESO_NUEVO = 0.35;  // suavizado: cuánto cuenta cada comparación nueva (menos = más estable)
+const MINIMO = 0.45;      // por debajo: "no reconozco nada"
+const PROBABLE = 0.64;    // a partir de aquí, y con ventaja sobre el 2º, cuenta como positivo
+const VENTAJA = 0.025;
+const SEGUIDAS = 2;       // positivos seguidos del mismo elemento para darlo por reconocido (~1 s)
+const PESO_NUEVO = 0.5;   // suavizado: cuánto cuenta cada comparación nueva (menos = más estable)
 
 export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActivo, alBloquear, alDesbloquear }) {
   let encendido = false;
@@ -88,7 +88,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     if (el.modelo3dId) {
       const n = document.createElement('p');
       n.className = 'nota';
-      n.textContent = 'Arrastra el modelo para girarlo. Se queda en su sitio aunque gires el móvil.';
+      n.textContent = 'La "i" y el modelo siguen al elemento aunque te muevas. Arrastra el modelo para girarlo.';
       panel.appendChild(n);
     }
   }
