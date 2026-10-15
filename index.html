@@ -33,6 +33,8 @@
           d.textContent += 'Error: ' + msg + '\n';
         }
         window.addEventListener('error', function (e) {
+          // "Script error." sin archivo viene de extensiones o del propio Safari, no de la app: se ignora
+          if (!e.filename && /^script error\.?$/i.test(e.message || '')) return;
           mostrar((e.message || 'desconocido') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
         });
         window.addEventListener('unhandledrejection', function (e) {
