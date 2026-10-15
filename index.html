@@ -14,7 +14,36 @@
     <link rel="icon" type="image/svg+xml" href="./iconos/icono.svg" />
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <p id="cargando" style="font: 20px -apple-system, system-ui, sans-serif; color: #7EC8F2; padding: 60px 20px; text-align: center;">
+        Cargando %APP_NAME%…
+      </p>
+    </div>
+    <!-- Si algo falla al arrancar, mostrar el error en pantalla en vez de una página en blanco -->
+    <script>
+      (function () {
+        function mostrar(msg) {
+          var d = document.getElementById('error-arranque');
+          if (!d) {
+            d = document.createElement('pre');
+            d.id = 'error-arranque';
+            d.style.cssText = 'white-space:pre-wrap;font:14px monospace;color:#ff8a8a;background:#2a1414;padding:16px;margin:16px;border-radius:10px;';
+            document.body.appendChild(d);
+          }
+          d.textContent += 'Error: ' + msg + '\n';
+        }
+        window.addEventListener('error', function (e) {
+          mostrar((e.message || 'desconocido') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          mostrar('Promesa: ' + (e.reason && (e.reason.message || e.reason)));
+        });
+        setTimeout(function () {
+          var c = document.getElementById('cargando');
+          if (c) mostrar('La app no ha arrancado en 10 s. Navegador: ' + navigator.userAgent);
+        }, 10000);
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

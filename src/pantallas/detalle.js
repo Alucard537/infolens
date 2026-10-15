@@ -1,6 +1,9 @@
 // Pantalla de detalle de un elemento.
 import { buscarElemento } from '../datos-prueba.js';
-import { abrirImagen, abrirPdf } from '../ui/visor.js';
+// El visor (con pdf.js, que es grande) se carga solo cuando hace falta
+const visor = () => import('../ui/visor.js');
+const abrirImagen = async (...a) => (await visor()).abrirImagen(...a);
+const abrirPdf = async (...a) => (await visor()).abrirPdf(...a);
 
 export function pantallaDetalle(app, id, { volver }) {
   const el = buscarElemento(id);

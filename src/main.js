@@ -9,12 +9,14 @@ import { registerSW } from 'virtual:pwa-register';
 document.title = APP_NAME;
 
 // Guardar la app en el móvil para que funcione sin internet (en desarrollo no hace nada)
-registerSW({ immediate: true });
+try { registerSW({ immediate: true }); } catch (e) { console.warn('Service worker:', e); }
 
 // Pedir al navegador que no borre los datos de la app por falta de espacio
-if (navigator.storage && navigator.storage.persist) {
-  navigator.storage.persisted().then((ya) => { if (!ya) navigator.storage.persist(); });
-}
+try {
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persisted().then((ya) => { if (!ya) navigator.storage.persist(); }).catch(() => {});
+  }
+} catch {}
 const app = document.querySelector('#app');
 let limpiar = null; // función para cerrar la pantalla anterior (p. ej. apagar la cámara)
 
