@@ -10,7 +10,11 @@ import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
-const num = (t) => parseFloat(String(t).replace(',', '.'));
+// Lee un número aunque se escriba "X=-130", "-130 cm" o con coma decimal ("1,5")
+const num = (t) => {
+  const m = /-?\d+(?:[.,]\d+)?/.exec(String(t ?? '').replace(/\s+/g, ''));
+  return m ? parseFloat(m[0].replace(',', '.')) : NaN;
+};
 const MB = 1024 * 1024;
 
 export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, alGuardar, probar }) {
@@ -222,9 +226,14 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       <p class="nota estado-loc"></p>
       <label class="fila check"><input type="checkbox" data-c="flechas"> Mostrar flechas 3D hasta el componente</label>
       <label class="fila check"><input type="checkbox" data-c="icono"> Mostrar icono 3D sobre el componente</label>
-      <label>Puntos intermedios propios para este paso (opcional, uno por línea: X;Y;Z en cm)
-        <textarea data-c="rutaPropia" rows="2" placeholder="Vacío = usar los del componente"></textarea></label>
-      <button type="button" class="boton-mini" data-m="copiar-ruta">↪️ Copiar los puntos del componente</button>
+      <div class="titulo-archivo">↪️ Puntos intermedios propios para este paso (opcional)</div>
+      <p class="nota">Sin puntos aquí se usan los del componente. Cada punto en <b>cm</b> desde el centro del QR del ancla:
+        X derecha (−izquierda), Y arriba (−abajo), Z hacia ti (−hacia la máquina).</p>
+      <ol class="puntos"></ol>
+      <div class="acciones-paso">
+        <button type="button" class="boton-mini" data-m="punto">➕ Añadir punto</button>
+        <button type="button" class="boton-mini" data-m="copiar-ruta">↪️ Copiar los puntos del componente</button>
+      </div>
       <label>⚠️ Advertencia de seguridad (si se rellena, hay que aceptarla para continuar)
         <textarea data-c="advertencia" rows="2"></textarea></label>
       <label>☑️ Comprobaciones (una por línea; hay que marcarlas todas para continuar)
@@ -240,7 +249,32 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     q('[data-c="flechas"]').checked = !!p.flechas;
     q('[data-c="icono"]').checked = !!p.icono;
     q('[data-c="confirmar"]').checked = !!p.confirmar;
-    q('[data-c="rutaPropia"]').value = (p.rutaPropia || []).map((pt) => pt.map(cm).join(';')).join('\n');
+    // Puntos intermedios: se editan como texto (cm) en p._puntos y se pasan a metros al guardar
+    if (!p._puntos) p._puntos = (p.rutaPropia || []).map((pt) => pt.map(cm));
+    const pintarPuntos = () => {
+      const ol = q('.puntos');
+      ol.innerHTML = '';
+      p._puntos.forEach((pt, k) => {
+        const li = document.createElement('li');
+        li.className = 'punto-fila';
+        li.innerHTML = '<label class="eje">X<input inputmode="decimal" data-k="0"></label><label class="eje">Y<input inputmode="decimal" data-k="1"></label><label class="eje">Z<input inputmode="decimal" data-k="2"></label>'
+          + '<button type="button" class="boton-mini" data-p="sube">↑</button><button type="button" class="boton-mini" data-p="baja">↓</button><button type="button" class="boton-mini" data-p="quita">✕</button>';
+        li.querySelectorAll('input').forEach((inp) => {
+          inp.value = pt[+inp.dataset.k] ?? '';
+          inp.addEventListener('input', () => { pt[+inp.dataset.k] = inp.value; });
+        });
+        li.addEventListener('click', (ev) => {
+          const a = ev.target.dataset.p;
+          if (a === 'sube' && k > 0) [p._puntos[k - 1], p._puntos[k]] = [p._puntos[k], p._puntos[k - 1]];
+          else if (a === 'baja' && k < p._puntos.length - 1) [p._puntos[k + 1], p._puntos[k]] = [p._puntos[k], p._puntos[k + 1]];
+          else if (a === 'quita') p._puntos.splice(k, 1);
+          else return;
+          pintarPuntos();
+        });
+        ol.appendChild(li);
+      });
+    };
+    pintarPuntos();
     const sel = q('[data-c="elementoId"]');
     for (const e of elementos) {
       const o = document.createElement('option');
@@ -262,7 +296,6 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       if (c === 'titulo' || c === 'texto' || c === 'advertencia') p[c] = e.target.value;
       if (c === 'comprobaciones') p.comprobaciones = e.target.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
       if (c === 'flechas' || c === 'icono' || c === 'confirmar') p[c] = e.target.checked;
-      if (c === 'rutaPropia') p._rutaTexto = e.target.value;
       if (c === 'titulo') resumen();
     });
     sel.addEventListener('change', () => { p.elementoId = sel.value || null; estadoLoc(); });
@@ -274,11 +307,13 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       else if (m === 'baja' && k < g.pasos.length - 1) [g.pasos[k + 1], g.pasos[k]] = [g.pasos[k], g.pasos[k + 1]];
       else if (m === 'dup') { const c = { ...JSON.parse(JSON.stringify(p)), id: pasoVacio().id, imagenes: [], videos: [] }; g.pasos.splice(k + 1, 0, c); }
       else if (m === 'quita') { if (!confirm(`¿Quitar el paso ${k + 1}?`)) return; g.pasos.splice(k, 1); }
+      else if (m === 'punto') { p._puntos.push(['', '', '']); pintarPuntos(); return; }
       else if (m === 'copiar-ruta') {
         const l = locs.get(p.elementoId);
         if (!l) { alert('El componente no tiene localización respecto al ancla de la guía.'); return; }
-        q('[data-c="rutaPropia"]').value = (l.ruta || []).map((pt) => pt.map(cm).join(';')).join('\n');
-        p._rutaTexto = q('[data-c="rutaPropia"]').value;
+        if (!(l.ruta || []).length) { alert('El componente no tiene puntos intermedios guardados.'); return; }
+        p._puntos = l.ruta.map((pt) => pt.map(cm));
+        pintarPuntos();
         return;
       } else return;
       pintarPasos();
@@ -327,15 +362,15 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     try {
       // Pasar los puntos intermedios escritos (cm) a metros
       for (const [i, p] of g.pasos.entries()) {
-        if (p._rutaTexto === undefined) continue;
-        const lineas = p._rutaTexto.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        p.rutaPropia = lineas.length ? lineas.map((l) => {
-          const v = l.split(/[;\s]+/).map(num);
-          if (v.length !== 3 || v.some((n) => !Number.isFinite(n))) throw new Error(`Paso ${i + 1}: el punto "${l}" no es válido (X;Y;Z en cm).`);
+        if (!p._puntos) continue;
+        const llenos = p._puntos.filter((pt) => pt.some((v) => String(v ?? '').trim() !== ''));
+        p.rutaPropia = llenos.length ? llenos.map((pt, k) => {
+          const v = pt.map(num);
+          if (v.some((n) => !Number.isFinite(n))) throw new Error(`Paso ${i + 1}, punto ${k + 1}: rellena X, Y y Z con números (en cm).`);
           return v.map((n) => n / 100);
         }) : null;
       }
-      const datos = { ...g, pasos: g.pasos.map(({ _rutaTexto, elemento, sinLocalizacion, ...resto }) => resto) };
+      const datos = { ...g, pasos: g.pasos.map(({ _puntos, elemento, sinLocalizacion, ...resto }) => resto) };
       const r = await guardarGuia(datos);
       g.id = r.id;
       guardado = true;

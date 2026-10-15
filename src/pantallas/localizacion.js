@@ -7,7 +7,11 @@ import {
 } from '../maquinas.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
-const num = (t) => parseFloat(String(t).replace(',', '.'));
+// Lee un número aunque se escriba "X=-130", "-130 cm" o con coma decimal ("1,5")
+const num = (t) => {
+  const m = /-?\d+(?:[.,]\d+)?/.exec(String(t ?? '').replace(/\s+/g, ''));
+  return m ? parseFloat(m[0].replace(',', '.')) : NaN;
+};
 
 export function pantallaLocalizacion(app, elementoId, { volver, previsualizar, posicionarConCamara }) {
   let activo = true;

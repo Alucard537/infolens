@@ -393,3 +393,5 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .acciones-paso { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .editor-guia .boton-mini { display: inline-flex; align-items: center; }
 .editor-guia label.boton-mini { margin: 6px 0; color: #fff; font-size: 15px; }
+.punto-fila .eje { display: flex; align-items: center; gap: 4px; flex: 1; margin: 0; font-size: 15px; color: var(--texto2); }
+.punto-fila .eje input { width: 100%; }
