@@ -6,6 +6,7 @@ import { mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarModeloAR } from '../ar/modelo-ar.js';
 import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
 import { crearSeguidor } from '../reconocer/seguimiento.js';
+import { botonQuickLook } from '../ar/quicklook.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
 import { calcularPose } from '../ar/pose.js';
@@ -151,6 +152,9 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     etiqueta.querySelector('.et-mas')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-foto')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-alta')?.addEventListener('click', () => darDeAlta(id));
+    // Botón para anclar el modelo con el LiDAR (visor de Apple), si tiene modelo 3D
+    const lidar = elemento && botonQuickLook(elemento, { clase: 'et-lidar', alPulsar: () => abrirDetalle(id) });
+    if (lidar) etiqueta.querySelector('.et-textos').appendChild(lidar);
     capaEtiquetas.appendChild(etiqueta);
 
     const seguido = {

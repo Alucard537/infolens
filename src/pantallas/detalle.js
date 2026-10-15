@@ -39,7 +39,7 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
         ${pdf ? '<button class="boton" data-accion="pdf">📄 Ficha técnica</button>' : ''}
         ${conexion ? '<button class="boton" data-accion="conexion">🔌 Conexión</button>' : ''}
         ${!foto && !pdf && !conexion ? '<p class="nota">Este elemento no tiene foto ni PDF.</p>' : ''}
-        ${modelo ? '<p class="nota">🧊 Tiene modelo 3D: se ve en el escáner encima de su QR.</p>' : ''}
+        ${modelo ? '<p class="nota">🧊 Tiene modelo 3D: se ve en el escáner encima de su QR.</p><div class="hueco-lidar"></div>' : ''}
         ${esAdmin() ? `<div class="det-botones">
           <button class="boton secundario" data-accion="editar">✏️ Editar</button>
           <button class="boton secundario" data-accion="qr">🖨️ Imprimir QR</button>
@@ -79,6 +79,13 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       const u = URL.createObjectURL(archivo.blob);
       urls.push(u);
       $(`[data-accion="${accion}"]`).addEventListener('click', async () => (await visor()).abrirPdf(u, `${titulo} · ${el.nombre}`));
+    }
+    // Ver el modelo con AR de Apple (LiDAR), si el iPhone lo permite
+    if (modelo) {
+      import('../ar/quicklook.js').then((m) => {
+        const b = activo && m.botonQuickLook(el);
+        if (b) $('.hueco-lidar').appendChild(b);
+      });
     }
     visor(); // ir cargando el visor en segundo plano para que abra rápido
   })();

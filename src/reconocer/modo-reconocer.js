@@ -5,6 +5,7 @@
 //    un candidato), se "bloquea": deja de buscar y avisa al escáner para que ancle su modelo 3D.
 import { listarHuellas, mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarReconocedor, huellaDe, comparar, ajustarGuia } from './huella.js';
+import { botonQuickLook } from '../ar/quicklook.js';
 
 const CADA_MS = 500;
 const MINIMO = 0.45;      // por debajo: "no reconozco nada"
@@ -85,6 +86,8 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     fila.querySelector('[data-r="ver"]').addEventListener('click', () => abrirDetalle(el.id));
     fila.querySelector('[data-r="otro"]').addEventListener('click', desbloquear);
     panel.appendChild(fila);
+    const lidar = botonQuickLook(el, { clase: 'boton boton-lidar', alPulsar: () => abrirDetalle(el.id) });
+    if (lidar) panel.appendChild(lidar);
     if (el.modelo3dId) {
       const n = document.createElement('p');
       n.className = 'nota';
