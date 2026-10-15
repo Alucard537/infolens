@@ -6,7 +6,9 @@ import { mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarModeloAR } from '../ar/modelo-ar.js';
 import { crearReconocimiento } from '../reconocer/modo-reconocer.js';
 import { crearSeguidor } from '../reconocer/seguimiento.js';
-import { prepararQuickLook } from '../ar/quicklook.js';
+import { prepararQuickLookEnQR } from '../ar/quicklook.js';
+import { gravedadEnQR } from '../ar/navegacion.js';
+import { crearNavegacion } from '../ar/modo-navegacion.js';
 import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
@@ -26,7 +28,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   let ajustes = leerAjustes();
   // Todos los elementos en memoria para encontrarlos al instante al leer un QR
   let elementos = null;
-  mapaElementos().then((m) => { elementos = m; }).catch(() => { elementos = new Map(); });
+  mapaElementos().then((m) => { elementos = m; navegacion.recalcular(); }).catch(() => { elementos = new Map(); });
   app.innerHTML = `
     <div class="escaner">
       <video class="esc-video" playsinline muted autoplay></video>
@@ -38,11 +40,14 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
         <div class="esc-estado">Iniciando cámara…</div>
         <button class="esc-btn" data-accion="nivel" aria-label="Activar sensor de inclinación" hidden>📐</button>
         <button class="esc-btn" data-accion="reconocer" aria-label="Reconocer sin QR">🔍</button>
+        ${esAdmin() ? '<button class="esc-btn" data-accion="posicionar" aria-label="Posicionar componentes">📍</button>' : ''}
         <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
       <div class="guia-recorte" hidden></div>
       <div class="rec-panel" hidden></div>
+      <div class="nav-panel" hidden></div>
+      <div class="pos-panel" hidden></div>
       <div class="esc-panel" hidden>
         <h3>Ajuste fino</h3>
         ${esAdmin() ? `<label>Tamaño del QR impreso (cm, solo la zona negra)
@@ -154,17 +159,15 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     etiqueta.querySelector('.et-foto')?.addEventListener('click', () => abrirDetalle(id));
     etiqueta.querySelector('.et-alta')?.addEventListener('click', () => darDeAlta(id));
     // Botón para anclar el modelo con el LiDAR (visor de Apple), si tiene modelo 3D
+    let lidarQR = null;
     if (elemento && elemento.modelo3dId && hayQuickLook()) {
-      const l = crearEnlaceAR({
-        texto: '⏳ AR…', tamano: 'pequeno', alPulsar: () => abrirDetalle(id),
-      });
-      etiqueta.querySelector('.et-textos').appendChild(l.enlace);
-      prepararQuickLook(elemento).then((u) => l.poner(u, '🧊 Anclar con LiDAR')).catch(() => l.texto('❌ AR'));
+      lidarQR = crearEnlaceAR({ texto: '⏳ AR…', tamano: 'pequeno', alPulsar: () => abrirDetalle(id) });
+      etiqueta.querySelector('.et-textos').appendChild(lidarQR.enlace);
     }
     capaEtiquetas.appendChild(etiqueta);
 
     const seguido = {
-      id, elemento, raiz, flotar, icono, etiqueta, modelo: null,
+      id, elemento, raiz, flotar, icono, etiqueta, modelo: null, lidar: lidarQR, lidarPreparado: false, aparecio: 0,
       filtros: Array.from({ length: 8 }, () => new OneEuro()),
       visto: 0, visible: false, esquinas: null, distancia: 0,
       objetivoPos: new THREE.Vector3(), objetivoRot: new THREE.Quaternion(),
@@ -285,6 +288,13 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     video, guia: $('.guia-recorte'), panel: $('.rec-panel'), abrirDetalle, estaActivo: () => activo,
     alBloquear: (idRec) => anclar(idRec), alDesbloquear: () => quitarAncla(),
     alFijar: (fijo) => { if (ancla) ancla.fijo = fijo; },
+  });
+
+  // ---------- navegación con QR (flechas hasta un componente) ----------
+  const navegacion = crearNavegacion({
+    escena, camara, capaEtiquetas, panel: $('.nav-panel'), panelPos: $('.pos-panel'), sensor, seguidos,
+    elementos: () => elementos, abrirDetalle, esAdmin, ladoCm: () => ajustes.qrCm,
+    ocupado: () => reconocimiento.encendido,
   });
 
   // ---------- "ancla" del elemento reconocido sin QR ----------
@@ -418,6 +428,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       if (!s.visible) {               // recién aparecido: colocar directamente, sin animación
         s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
         s.visible = true; s.raiz.visible = true; s.flotar.visible = true; s.etiqueta.hidden = false;
+        s.aparecio = ahora;
       } else {
         s.pos.lerp(s.objetivoPos, suav); s.rot.slerp(s.objetivoRot, suav);
       }
@@ -442,6 +453,15 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       s.icono.rotation.y = 0.15 * Math.sin(ahora / 900);
     }
     actualizarAncla(dt, g, arriba);
+    for (const s of seguidos.values()) {
+      if (s.visible && s.lidar && !s.lidarPreparado && ahora - s.aparecio > 700) {
+        s.lidarPreparado = true;
+        prepararQuickLookEnQR(s.elemento, gravedadEnQR(s.rot, arriba), ajustes.qrCm)
+          .then((u) => s.lidar.poner(u, '🧊 Anclar con LiDAR'))
+          .catch((e) => { console.warn('LiDAR en QR:', e); s.lidar.texto('❌ AR'); });
+      }
+    }
+    navegacion.actualizar(dt, arriba, ahora);
     renderer.render(escena, camara);
 
     // Etiquetas HTML: encima de la "i" o, si no cabe, debajo del QR. Nunca tapan la "i" ni el QR.
@@ -462,6 +482,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
       if (debug) deb.textContent = `Distancia: ${(s.distancia * 100).toFixed(0)} cm · Sensor de inclinación: ${sensor.activo ? 'sí' : 'no'}`;
     }
 
+    navegacion.etiquetas(g);
     dibujarDebug(g);
     if (stream) {
       estado.hidden = hayAlguno;
@@ -557,7 +578,9 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
   function tocado(x, y) {
     const ndc = new THREE.Vector2((x / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(ndc, camara);
-    // Primero, el objeto anclado del reconocimiento sin QR
+    const idNav = navegacion.tocado(raycaster);
+    if (idNav) return { s: { id: idNav }, esModelo: false };
+    // Luego, el objeto anclado del reconocimiento sin QR
     if (ancla && ancla.objeto) {
       const t = raycaster.intersectObject(ancla.objeto, true)[0];
       if (t) {
@@ -708,6 +731,10 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     if (accion === 'volver') volver();
     if (accion === 'ajustes') panel.hidden = !panel.hidden;
     if (accion === 'nivel') pedirPermisoSensor().then((r) => { btnNivel.hidden = r === 'granted'; });
+    if (accion === 'posicionar') {
+      const on = navegacion.alternarPosicionar();
+      e.target.closest('[data-accion]').classList.toggle('activo', on);
+    }
     if (accion === 'reconocer') {
       const on = reconocimiento.alternar();
       e.target.closest('[data-accion]').classList.toggle('activo', on);
@@ -753,6 +780,7 @@ export function pantallaEscaner(app, { abrirDetalle, darDeAlta, volver }) {
     cancelAnimationFrame(rafId);
     sensor.detener();
     reconocimiento.detener();
+    navegacion.detener();
     quitarAncla();
     detenerCamara();
     worker.terminate();

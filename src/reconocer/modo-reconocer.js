@@ -190,6 +190,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       return encendido;
     },
     get bloqueado() { return bloqueado; },
+    get encendido() { return encendido; },
     marcarFijado(f) { estadoFijar(f); },
     detener() {
       encendido = false;

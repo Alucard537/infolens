@@ -1,0 +1,228 @@
+// Navegación con QR: sistema de coordenadas del QR, flechas 3D y exportación a AR de Apple
+// anclada al propio QR impreso (ARKit lo sigue con LiDAR aunque deje de verse).
+//
+// SISTEMA DE COORDENADAS "G" (el que se guarda en cada componente, en metros):
+//   origen = centro del QR ancla
+//   Y = hacia arriba (contrario a la gravedad), aunque el QR esté inclinado o tumbado
+//   Z = horizontal, hacia fuera del QR (hacia quien lo mira). Si el QR está tumbado en una mesa,
+//       hacia su borde de abajo.
+//   X = horizontal, hacia la derecha mirando el QR de frente
+//
+// Coordenadas propias del QR "L": x = derecha del QR, y = borde de arriba, z = sale del QR.
+import * as THREE from 'three';
+import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
+import { unzipSync, zipSync, strToU8, strFromU8 } from 'three/examples/jsm/libs/fflate.module.js';
+import QRCode from 'qrcode';
+import { crearIcono } from './icono.js';
+
+const VERDE = 0x34c759;
+
+/** Ejes de G expresados en coordenadas L, a partir de "arriba" en coordenadas L. */
+function ejesG(arribaL) {
+  const y = arribaL.clone().normalize();
+  const z = new THREE.Vector3(0, 0, 1).addScaledVector(y, -y.z);           // normal del QR, en horizontal
+  if (z.lengthSq() < 0.05) z.set(0, -1, 0).addScaledVector(y, y.y);       // QR tumbado: su borde de abajo
+  z.normalize();
+  const x = new THREE.Vector3().crossVectors(y, z).normalize();
+  return { x, y, z };
+}
+
+/** "Arriba" del mundo en coordenadas del QR (para guardar cómo está colocado el QR). */
+export function gravedadEnQR(rotQR, arribaCamara) {
+  return arribaCamara.clone().applyQuaternion(rotQR.clone().invert()).normalize();
+}
+
+/** Matriz G -> cámara, con la posición y el giro del QR (en cámara) y "arriba" (en cámara). */
+export function marcoQR(posQR, rotQR, arribaCamara, salida = new THREE.Matrix4()) {
+  const { x, y, z } = ejesG(gravedadEnQR(rotQR, arribaCamara));
+  const mL = new THREE.Matrix4().makeBasis(x, y, z);           // G -> L
+  const mQR = new THREE.Matrix4().compose(posQR, rotQR, new THREE.Vector3(1, 1, 1)); // L -> cámara
+  return salida.multiplyMatrices(mQR, mL);
+}
+
+// ---------- flechas y destino ----------
+
+let geoFlecha = null;
+function geometriaFlecha() {
+  if (geoFlecha) return geoFlecha;
+  // Flecha plana que apunta hacia +Z (un "chevron" con algo de grosor), de 16 cm de largo
+  const forma = new THREE.Shape();
+  forma.moveTo(0, 0.08); forma.lineTo(0.07, 0.0); forma.lineTo(0.035, 0.0);
+  forma.lineTo(0.035, -0.08); forma.lineTo(-0.035, -0.08); forma.lineTo(-0.035, 0.0);
+  forma.lineTo(-0.07, 0.0); forma.closePath();
+  const g = new THREE.ExtrudeGeometry(forma, { depth: 0.012, bevelEnabled: false });
+  g.translate(0, 0, -0.006);
+  g.rotateX(-Math.PI / 2); // la forma estaba en XY: ahora queda tumbada, apuntando a -Z...
+  g.rotateY(Math.PI);      // ...y la giramos para que apunte a +Z
+  geoFlecha = g;
+  return g;
+}
+
+/** Puntos del recorrido en G: QR -> puntos intermedios -> destino. */
+export function puntosRecorrido(nav) {
+  const p = [new THREE.Vector3(0, 0, 0.15)]; // salida: 15 cm delante del QR
+  for (const q of nav.ruta || []) p.push(new THREE.Vector3(q[0], q[1], q[2]));
+  p.push(new THREE.Vector3(nav.pos[0], nav.pos[1], nav.pos[2]));
+  return p;
+}
+
+/**
+ * Grupo con las flechas a lo largo del recorrido (en coordenadas G).
+ * separacion: metros entre flechas.
+ */
+export function crearFlechas(puntos, separacion = 0.3) {
+  const grupo = new THREE.Group();
+  const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x0b3d1a, roughness: 0.4, metalness: 0.1 });
+  const arriba = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < puntos.length - 1; i++) {
+    const a = puntos[i], b = puntos[i + 1];
+    const tramo = b.clone().sub(a);
+    const largo = tramo.length();
+    if (largo < 1e-3) continue;
+    const dir = tramo.clone().divideScalar(largo);
+    // Flecha "de pie" respecto al suelo: su arriba es la vertical (salvo en tramos verticales)
+    let up = arriba.clone().addScaledVector(dir, -arriba.dot(dir));
+    if (up.lengthSq() < 0.01) up = new THREE.Vector3(0, 0, 1).addScaledVector(dir, -dir.z);
+    up.normalize();
+    const lateral = new THREE.Vector3().crossVectors(up, dir).normalize();
+    const giro = new THREE.Matrix4().makeBasis(lateral, up, dir);
+    const n = Math.max(1, Math.floor(largo / separacion));
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n;
+      const f = new THREE.Mesh(geometriaFlecha(), material);
+      f.matrixAutoUpdate = false;
+      f.matrix.copy(giro).setPosition(a.clone().addScaledVector(tramo, t));
+      f.userData.tramo = { i, t };
+      grupo.add(f);
+    }
+  }
+  return grupo;
+}
+
+/** Texto en una placa (para la etiqueta del destino en el AR de Apple). */
+function placaTexto(lineas, anchoM = 0.3) {
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(15,27,36,0.92)';
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = '#7EC8F2'; g.lineWidth = 10; g.strokeRect(5, 5, c.width - 10, c.height - 10);
+  g.fillStyle = '#ffffff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '700 84px -apple-system, system-ui, sans-serif';
+  g.fillText(lineas[0] || '', c.width / 2, 95, c.width - 40);
+  g.fillStyle = '#7EC8F2';
+  g.font = '500 60px -apple-system, system-ui, sans-serif';
+  g.fillText(lineas[1] || '', c.width / 2, 185, c.width - 40);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const placa = new THREE.Mesh(
+    new THREE.PlaneGeometry(anchoM, anchoM / 4),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0 }),
+  );
+  return placa;
+}
+
+/**
+ * Escena para el AR de Apple (en G): flechas + "i" de destino + etiqueta con el nombre.
+ * Como en el AR de Apple no se puede girar hacia la cámara, el destino mira hacia el inicio del recorrido.
+ */
+export function escenaRecorrido(nav, componente, { conEtiqueta = true } = {}) {
+  const grupo = new THREE.Group();
+  const puntos = puntosRecorrido(nav);
+  grupo.add(crearFlechas(puntos));
+  const destino = puntos[puntos.length - 1];
+  const previo = puntos[puntos.length - 2];
+  const mira = previo.clone().sub(destino); mira.y = 0;
+  if (mira.lengthSq() < 1e-6) mira.set(0, 0, 1);
+  mira.normalize();
+  const angulo = Math.atan2(mira.x, mira.z);
+  const icono = crearIcono(true);
+  icono.scale.setScalar(0.12);
+  icono.position.copy(destino).add(new THREE.Vector3(0, 0.12, 0));
+  icono.rotation.y = angulo;
+  grupo.add(icono);
+  if (conEtiqueta) {
+    const placa = placaTexto([componente.nombre, `${componente.referencia} · ${componente.id}`]);
+    placa.position.copy(destino).add(new THREE.Vector3(0, 0.27, 0));
+    placa.rotation.y = angulo;
+    grupo.add(placa);
+  }
+  return grupo;
+}
+
+// ---------- exportar al AR de Apple, anclado al QR impreso ----------
+
+/** G -> coordenadas del ancla de imagen de ARKit (imagen en el plano XZ, Y sale de la imagen, arriba de la imagen = -Z). */
+function matrizGaImagen(arribaL) {
+  const { x, y, z } = ejesG(arribaL);
+  const aImagen = (v) => new THREE.Vector3(v.x, v.z, -v.y); // L -> imagen
+  return new THREE.Matrix4().makeBasis(aImagen(x), aImagen(y), aImagen(z));
+}
+
+/** PNG del QR (solo la zona negra, sin margen: su ancho real es el tamaño impreso). */
+async function pngQR(texto) {
+  const url = await QRCode.toDataURL(texto, { errorCorrectionLevel: 'M', margin: 0, scale: 16 });
+  const bin = atob(url.split(',')[1]);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/** Vuelve a empaquetar el .usdz con los archivos alineados a 64 bytes (lo exige el formato). */
+function empaquetarUsdz(files) {
+  let offset = 0;
+  const salida = {};
+  for (const nombre of Object.keys(files)) {
+    const datos = files[nombre];
+    offset += 34 + nombre.length;
+    const mod = offset & 63;
+    salida[nombre] = mod !== 4 ? [datos, { extra: { 12345: new Uint8Array(64 - mod) } }] : datos;
+    offset = datos.length;
+  }
+  return zipSync(salida, { level: 0, mtime: new Date() });
+}
+
+/**
+ * Exporta "contenidoG" (en coordenadas G) a .usdz anclado al QR impreso.
+ * textoQR: contenido del QR ancla; ladoCm: tamaño impreso; arribaL: cómo está colocado el QR
+ * (vector "arriba" en coordenadas del QR; por defecto QR vertical en una pared).
+ */
+export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0) }) {
+  const envoltura = new THREE.Group();
+  envoltura.matrixAutoUpdate = false;
+  envoltura.matrix.copy(matrizGaImagen(arribaL));
+  envoltura.add(contenidoG);
+  envoltura.updateMatrixWorld(true);
+  // Materiales compatibles con el AR de Apple: todos "estándar" y de una sola cara
+  contenidoG.traverse((o) => {
+    if (!o.isMesh) return;
+    const conv = (m) => {
+      const e = m.isMeshStandardMaterial ? m : new THREE.MeshStandardMaterial({
+        color: m.color ? m.color.clone() : 0xffffff, map: m.map || null,
+        transparent: !!m.transparent, opacity: m.opacity ?? 1, roughness: 0.5, metalness: 0.1,
+      });
+      e.side = THREE.FrontSide;
+      return e;
+    };
+    o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material);
+  });
+  const bytes = await new USDZExporter().parseAsync(envoltura, {
+    ar: { anchoring: { type: 'image' }, planeAnchoring: { alignment: 'vertical' } },
+  });
+  const files = unzipSync(new Uint8Array(bytes));
+  let usda = strFromU8(files['model.usda']);
+  const lineaPlano = /\n(\s*)token preliminary:planeAnchoring:alignment = "[^"]*"/;
+  const m = lineaPlano.exec(usda);
+  if (!m) throw new Error('No se pudo preparar el anclaje al QR.');
+  const s = m[1];
+  usda = usda.replace(lineaPlano, `
+${s}rel preliminary:imageAnchoring:referenceImage = </Root/Scenes/Scene/AnchoringReferenceImage>
+
+${s}def Preliminary_ReferenceImage "AnchoringReferenceImage"
+${s}{
+${s}    uniform asset image = @textures/qr_ancla.png@
+${s}    uniform double physicalWidth = ${Number(ladoCm).toFixed(2)}
+${s}}`);
+  const nuevos = { 'model.usda': strToU8(usda) };
+  for (const [k, v] of Object.entries(files)) if (k !== 'model.usda') nuevos[k] = v;
+  nuevos['textures/qr_ancla.png'] = await pngQR(textoQR);
+  return new Blob([empaquetarUsdz(nuevos)], { type: 'model/vnd.usdz+zip' });
+}

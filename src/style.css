@@ -300,3 +300,20 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .enlace-ar-pequeno { margin: 6px 0 0; }
 .enlace-ar-pequeno img { width: 200px; }
 .boton-fijar { background: #ffd60a; color: #2b2300; }
+
+/* ---------- navegación con QR ---------- */
+.nav-panel, .pos-panel {
+  position: absolute; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+  max-height: 55vh; overflow: auto; padding: 12px 14px; border-radius: 18px; background: rgba(15, 27, 36, 0.92);
+}
+.nav-panel[hidden], .pos-panel[hidden] { display: none; }
+.nav-menu summary { font-size: 17px; font-weight: 700; min-height: 40px; display: flex; align-items: center; cursor: pointer; }
+.nav-titulo { font-size: 18px; }
+.nav-aviso { margin: 4px 0 8px; }
+.etiqueta.nav-destino { border-color: #34c759; }
+.pos-anclas { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+.boton-mini.activo { background: #ffd60a; color: #2b2300; }
+.pos-fila { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 0; border-top: 1px solid #2b4456; font-size: 16px; }
+.fila-xyz { display: flex; gap: 10px; }
+.fila-xyz label { flex: 1; margin: 10px 0; }
+.esc-btn.activo { background: var(--azul); color: #0f1b24; }

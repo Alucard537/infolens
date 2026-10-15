@@ -75,6 +75,27 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
           <button type="button" class="quitar" data-quitar="conexion" hidden>Quitar conexión</button>
         </div>
 
+        <div class="bloque-archivo bloque-nav">
+          <div class="titulo-archivo">🧭 Navegación con QR (opcional)</div>
+          <p class="nota">Para que la app guíe con flechas hasta este componente desde el QR de su máquina.
+            Lo más fácil: en el escáner, botón 📍, apuntando a la vez al QR de la máquina y al de este componente.
+            También puedes escribirlo aquí, en <b>cm</b> desde el centro del QR ancla:
+            <b>X</b> a la derecha, <b>Y</b> hacia arriba, <b>Z</b> hacia fuera del QR (hacia ti). Valen negativos.</p>
+          <label>ID del QR ancla (el de la máquina)
+            <input name="navAncla" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Por ejemplo V-0001">
+          </label>
+          <div class="fila-xyz">
+            <label>X (cm)<input name="navX" inputmode="decimal"></label>
+            <label>Y (cm)<input name="navY" inputmode="decimal"></label>
+            <label>Z (cm)<input name="navZ" inputmode="decimal"></label>
+          </div>
+          <label>Puntos intermedios del recorrido (opcional, uno por línea: X;Y;Z en cm)
+            <textarea name="navRuta" rows="3" placeholder="0;-90;60&#10;120;-90;60"></textarea>
+          </label>
+          <small class="ayuda">Sin puntos intermedios, las flechas van en línea recta desde el QR. Con ellos puedes
+            rodear la máquina o bajar al suelo (Y negativo).</small>
+        </div>
+
         <div class="bloque-archivo" data-campo="modelo">
           <div class="titulo-archivo">🧊 Modelo 3D (opcional)</div>
           <div class="nombre-archivo" data-nombre="modelo">Sin modelo 3D</div>
@@ -129,6 +150,12 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
     form.elements.referencia.value = actual.referencia || '';
     form.elements.tipo.value = actual.tipo || 'SENCILLO';
     form.elements.descripcion.value = actual.descripcion || '';
+    if (actual.nav && actual.nav.ancla) {
+      const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
+      form.elements.navAncla.value = actual.nav.ancla;
+      [form.elements.navX.value, form.elements.navY.value, form.elements.navZ.value] = actual.nav.pos.map(cm);
+      form.elements.navRuta.value = (actual.nav.ruta || []).map((p) => p.map(cm).join(';')).join('\n');
+    }
     const [foto, pdf, conexion, modelo] = await Promise.all([
       obtenerArchivo(actual.imagenId), obtenerArchivo(actual.pdfId), obtenerArchivo(actual.pdfConexionId), obtenerArchivo(actual.modelo3dId),
     ]);
@@ -219,6 +246,23 @@ export function pantallaFormulario(app, { id, idSugerido, alGuardar, alBorrar, v
     if (!datos.id) return mostrarError('Escribe un ID.');
     if (!datos.nombre) return mostrarError('El nombre es obligatorio.');
     if (!datos.referencia) return mostrarError('La referencia es obligatoria.');
+    // Navegación: coordenadas en cm en el formulario, en metros en la base de datos
+    const num = (t) => parseFloat(String(t).replace(',', '.'));
+    const navAncla = normalizarId(f.navAncla.value);
+    if (navAncla) {
+      const pos = [f.navX.value, f.navY.value, f.navZ.value].map(num);
+      if (pos.some((n) => !Number.isFinite(n))) return mostrarError('Navegación: escribe X, Y y Z (en cm) o deja vacío el ID del QR ancla.');
+      if (navAncla === datos.id) return mostrarError('Navegación: el QR ancla tiene que ser el de otro elemento (el de la máquina).');
+      const ruta = [];
+      for (const linea of f.navRuta.value.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+        const p = linea.split(/[;\s]+/).map(num);
+        if (p.length !== 3 || p.some((n) => !Number.isFinite(n))) return mostrarError(`Navegación: el punto "${linea}" no es válido (formato X;Y;Z en cm).`);
+        ruta.push(p.map((n) => n / 100));
+      }
+      datos.nav = { ancla: navAncla, pos: pos.map((n) => n / 100), ruta };
+    } else {
+      datos.nav = null;
+    }
     const boton = form.querySelector('[type="submit"]');
     boton.disabled = true;
     boton.textContent = 'Guardando…';

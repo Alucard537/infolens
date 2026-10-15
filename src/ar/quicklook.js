@@ -18,6 +18,20 @@ export { hayQuickLook };
 const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const esAppInstalada = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 
+/** Modelo a tamaño real, centrado y apoyado por su base en y = 0. */
+export async function modeloNormalizado(blobGlb) {
+  const datos = await blobGlb.arrayBuffer();
+  const gltf = await new GLTFLoader().parseAsync(datos, '');
+  const modelo = gltf.scene;
+  modelo.updateMatrixWorld(true);
+  const caja = new THREE.Box3().setFromObject(modelo);
+  const centro = caja.getCenter(new THREE.Vector3());
+  const raiz = new THREE.Group();
+  modelo.position.sub(new THREE.Vector3(centro.x, caja.min.y, centro.z));
+  raiz.add(modelo);
+  return raiz;
+}
+
 async function crearUsdz(blobGlb) {
   const datos = await blobGlb.arrayBuffer();
   const gltf = await new GLTFLoader().parseAsync(datos, '');
@@ -43,7 +57,7 @@ async function crearUsdz(blobGlb) {
 // Por eso el .usdz se guarda en el almacén de la app (Cache Storage) con una dirección web normal
 // (…/ar-generado/<id>.usdz); el service worker la sirve desde ahí, igual que la prueba del inicio.
 export const CACHE_AR = 'ar-generado';
-async function direccionWeb(id, blob) {
+export async function direccionWeb(id, blob) {
   try {
     if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) throw new Error('sin SW');
     const url = new URL(`${import.meta.env.BASE_URL}ar-generado/${encodeURIComponent(id)}.usdz`, location.href).href;
@@ -108,4 +122,42 @@ export function bloqueLidar(elemento, { alPulsar } = {}) {
     .then((u) => poner(u, '🧊 Anclar con LiDAR'))
     .catch((e) => { texto('❌ No se pudo preparar el AR'); console.warn('Quick Look:', e); });
   return div;
+}
+
+// ---------- anclado al QR impreso (ARKit lo encuentra solo y lo sigue con LiDAR) ----------
+const cacheQR = new Map();
+const redondeo = (v) => [v.x, v.y, v.z].map((n) => Math.round(n * 10) / 10).join(',');
+
+/**
+ * El modelo del elemento, de pie y a tamaño real, encima de SU QR. En el AR de Apple aparece solo
+ * en cuanto la cámara ve el QR. arribaL: cómo está colocado el QR (lo calcula el escáner).
+ */
+export function prepararQuickLookEnQR(elemento, arribaL, ladoCm) {
+  const clave = `${elemento.modelo3dId}|${redondeo(arribaL)}|${ladoCm}`;
+  if (!cacheQR.has(clave)) {
+    const p = (async () => {
+      const [{ usdzAncladoAQR }, a] = await Promise.all([import('./navegacion.js'), obtenerArchivo(elemento.modelo3dId)]);
+      if (!a) throw new Error('No se encuentra el modelo 3D.');
+      const modelo = await modeloNormalizado(a.blob);
+      modelo.position.y = (ladoCm / 100) * 0.6; // justo encima del QR
+      const blob = await usdzAncladoAQR(modelo, { textoQR: 'INFOLENS:' + elemento.id, ladoCm, arribaL });
+      return direccionWeb(`${elemento.modelo3dId}-qr-${redondeo(arribaL).replace(/[^0-9-]/g, '_')}`, blob);
+    })();
+    p.catch(() => cacheQR.delete(clave));
+    cacheQR.set(clave, p);
+  }
+  return cacheQR.get(clave);
+}
+
+/** Recorrido de navegación (flechas + destino) anclado al QR ancla, para el AR de Apple. */
+export async function prepararRecorridoQuickLook(componente, ancla, ladoCm) {
+  const { usdzAncladoAQR, escenaRecorrido } = await import('./navegacion.js');
+  const arr = ancla.anclaGravedad;
+  const arribaL = arr ? new THREE.Vector3(arr[0], arr[1], arr[2]) : new THREE.Vector3(0, 1, 0);
+  const escena = escenaRecorrido(componente.nav, componente);
+  const blob = await usdzAncladoAQR(escena, { textoQR: 'INFOLENS:' + ancla.id, ladoCm, arribaL });
+  // Nombre estable (se sobrescribe si cambia el recorrido): no se acumulan archivos
+  let h = 0;
+  for (const c of JSON.stringify([componente.nav, arr, ladoCm, componente.nombre])) h = (h * 31 + c.charCodeAt(0)) | 0;
+  return direccionWeb(`recorrido-${ancla.id}-${componente.id}-${(h >>> 0).toString(36)}`, blob);
 }

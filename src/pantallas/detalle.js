@@ -45,6 +45,7 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
           <button class="boton secundario" data-accion="qr">🖨️ Imprimir QR</button>
         </div>
         <button class="boton secundario" data-accion="huella">🎯 Reconocer sin QR ${hu ? '(huella: ' + hu.n + ' imágenes)' : '(sin huella)'}</button>` : ''}
+        ${el.nav && el.nav.ancla ? '<p class="nota det-nav"></p>' : ''}
         <p class="nota">ID: <b class="det-id"></b> · Su QR contiene el texto <b class="det-qr"></b></p>
       </div>`;
     const $ = (s) => app.querySelector(s);
@@ -61,6 +62,7 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       } else desc.appendChild(document.createTextNode(trozo));
     }
     $('.det-id').textContent = el.id;
+    if (el.nav && el.nav.ancla) $('.det-nav').textContent = `🧭 Se puede llegar con flechas desde el QR ${el.nav.ancla} (a ${Math.hypot(...el.nav.pos).toFixed(1).replace('.', ',')} m de él).`;
     $('.det-qr').textContent = 'INFOLENS:' + el.id;
     $('.volver').addEventListener('click', volver);
     $('[data-accion="editar"]')?.addEventListener('click', () => editar(el.id));
