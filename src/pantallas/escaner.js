@@ -911,7 +911,32 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   function detenerCamara() {
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null;
+    if (video.srcObject) video.srcObject = null;
   }
+
+  // AR de Apple (LiDAR): necesita la cámara para él solo. Al abrirlo se apaga la de la app y al volver
+  // a la app se enciende otra vez.
+  let camaraPausadaPorAR = false;
+  const alAbrirAR = () => {
+    if (!stream) return;
+    camaraPausadaPorAR = true;
+    detenerCamara();
+    estado.hidden = false;
+    estado.textContent = '📷 Cámara en pausa mientras usas el AR con LiDAR. Toca la pantalla para reanudar.';
+  };
+  const reanudarCamara = () => {
+    if (!activo || !camaraPausadaPorAR || document.visibilityState !== 'visible') return;
+    camaraPausadaPorAR = false;
+    estado.textContent = 'Iniciando cámara…';
+    iniciarCamara();
+  };
+  // Al volver de Quick Look (se espera un poco: si no, la cámara puede seguir ocupada)
+  const alVolver = () => { if (camaraPausadaPorAR) setTimeout(reanudarCamara, 600); };
+  window.addEventListener('infolens-abrir-ar', alAbrirAR);
+  document.addEventListener('visibilitychange', alVolver);
+  window.addEventListener('focus', alVolver);
+  window.addEventListener('pageshow', alVolver);
+  app.addEventListener('pointerdown', (e) => { if (camaraPausadaPorAR && !e.target.closest('a[rel="ar"]')) reanudarCamara(); });
 
   function rellenarSelectorCamaras(dispositivos) {
     const sel = $('[data-ajuste="camaraId"]');
@@ -989,6 +1014,10 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     detenerCamara();
     worker.terminate();
     if (entorno) entorno.terminate();
+    window.removeEventListener('infolens-abrir-ar', alAbrirAR);
+    document.removeEventListener('visibilitychange', alVolver);
+    window.removeEventListener('focus', alVolver);
+    window.removeEventListener('pageshow', alVolver);
     window.removeEventListener('resize', ajustarTamano);
     renderer.dispose();
     urlsFotos.forEach((u) => URL.revokeObjectURL(u));

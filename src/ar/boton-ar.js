@@ -64,7 +64,12 @@ export function crearEnlaceAR({ url = '', texto, tamano = 'grande', titulo, subt
     if (t) textoActual = t;
     pintar(textoActual);
   };
-  a.addEventListener('click', (e) => { e.stopPropagation(); if (!listo) e.preventDefault(); });
+  a.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!listo) { e.preventDefault(); return; }
+    // Si la app está usando la cámara, el AR de Apple se abre SIN realidad aumentada: hay que soltarla antes
+    window.dispatchEvent(new CustomEvent('infolens-abrir-ar'));
+  });
   a.addEventListener('message', (e) => {
     if (e.data === '_apple_ar_quicklook_button_tapped' && alPulsar) alPulsar();
   });
