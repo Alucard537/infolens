@@ -23,6 +23,7 @@ import { pantallaGuias, pantallaGuiaPortada } from './pantallas/guias.js';
 import { pantallaGuiaEditor } from './pantallas/guia-editor.js';
 import { pantallaGuiaLidar } from './pantallas/guia-lidar.js';
 import { pantallaArRecorrido } from './pantallas/ar-recorrido.js';
+import { pantallaDiagnosticoAR } from './pantallas/diagnostico-ar.js';
 
 document.title = APP_NAME;
 
@@ -104,6 +105,11 @@ async function pantallaInicio() {
       : '🧊 El AR con LiDAR solo está disponible en iPhone o iPad.';
     prueba.appendChild(p);
   }
+  const diag = document.createElement('button');
+  diag.className = 'boton secundario';
+  diag.textContent = '🔬 Diagnóstico del AR con LiDAR';
+  diag.addEventListener('click', () => ir('#/diagnostico-ar'));
+  prueba.appendChild(diag);
   cargarEscaner(); // ir cargando el escáner en segundo plano
 }
 
@@ -195,7 +201,9 @@ async function mostrar() {
   }
   if (miTurno !== turno) return;
 
-  if (pantalla === 'ar') {
+  if (pantalla === 'diagnostico-ar') {
+    limpiar = pantallaDiagnosticoAR(app, { volver: () => ir('#/') });
+  } else if (pantalla === 'ar') {
     limpiar = pantallaArRecorrido(app, params.get('d'), { volver: () => ir('#/') });
   } else if (pantalla === 'admin') {
     pantallaAdmin(app, {
