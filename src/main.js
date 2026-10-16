@@ -93,6 +93,7 @@ async function pantallaInicio() {
   const prueba = app.querySelector('.prueba-ar');
   if (hayQuickLook()) {
     prueba.appendChild(crearEnlaceAR({ url: import.meta.env.BASE_URL + 'ejemplo/prueba-ar.usdz', texto: '🧪 Probar AR con LiDAR (ejemplo)' }).enlace);
+    prueba.appendChild(pruebaFlechas());
   } else {
     const p = document.createElement('p');
     p.className = 'nota';
@@ -102,6 +103,66 @@ async function pantallaInicio() {
     prueba.appendChild(p);
   }
   cargarEscaner(); // ir cargando el escáner en segundo plano
+}
+
+// PRUEBA: dos objetos (rojo = salida, azul = llegada) unidos por flechas, en el AR de Apple con LiDAR.
+// 1) Archivo fijo (130 adelante + 150 derecha), igual que el ejemplo que funciona.
+// 2) El mismo, generado en el móvil con las medidas que se escriban.
+function pruebaFlechas() {
+  const div = document.createElement('div');
+  div.className = 'bloque-lidar-guia';
+  div.innerHTML = `
+    <p class="nota lidar-recomendado">🧪 Prueba: dos objetos unidos por flechas</p>
+    <p class="nota">🟥 Rojo = salida (ponlo donde está el QR del ancla). 🟦 Azul = llegada. En el AR de Apple
+      se mueven JUNTOS: coloca el rojo en la salida y gira con dos dedos hasta que las flechas apunten hacia ADELANTE.</p>
+    <div class="fijo"></div>
+    <div class="titulo-archivo">Con tus medidas (cm)</div>
+    <div class="tramos-prueba"></div>
+    <div class="botones-archivo"><button class="boton secundario" data-p="generar">⚙️ Generar con estas medidas</button></div>
+    <div class="generado"></div>`;
+  div.querySelector('.fijo').appendChild(crearEnlaceAR({
+    url: import.meta.env.BASE_URL + 'ejemplo/prueba-flechas.usdz', texto: '🧪 Fijo: 130 adelante → 150 derecha',
+  }).enlace);
+  const filas = div.querySelector('.tramos-prueba');
+  const iniciales = [{ adelante: '130', derecha: '' }, { adelante: '', derecha: '150' }, { adelante: '', derecha: '' }];
+  iniciales.forEach((t, i) => {
+    const f = document.createElement('div');
+    f.className = 'tramo-fila';
+    f.innerHTML = `<span class="tramo-n">Tramo ${i + 1}</span>`
+      + ['adelante', 'derecha', 'arriba'].map((k) => `<label class="eje">${k[0].toUpperCase() + k.slice(1)}<input inputmode="decimal" data-k="${k}"></label>`).join('');
+    f.querySelector('[data-k="adelante"]').value = t.adelante;
+    f.querySelector('[data-k="derecha"]').value = t.derecha;
+    filas.appendChild(f);
+  });
+  const salida = div.querySelector('.generado');
+  div.querySelector('[data-p="generar"]').addEventListener('click', async () => {
+    salida.innerHTML = '<p class="nota">⏳ Generando…</p>';
+    try {
+      const [{ usdzPruebaFlechas }, { direccionWeb }, { numero }] = await Promise.all([
+        import('./ar/prueba-flechas.js'), import('./ar/quicklook.js'), import('./coordenadas.js'),
+      ]);
+      const tramos = [...filas.children].map((f) => Object.fromEntries(
+        ['adelante', 'derecha', 'arriba'].map((k) => [k, numero(f.querySelector(`[data-k="${k}"]`).value)]),
+      )).filter((t) => t.adelante || t.derecha || t.arriba);
+      if (!tramos.length) throw new Error('Escribe al menos un tramo.');
+      if (tramos.some((t) => Object.values(t).some((v) => !Number.isFinite(v)))) throw new Error('Algún valor no es un número.');
+      const bytes = await usdzPruebaFlechas(tramos);
+      const url = await direccionWeb(`prueba-flechas-${Date.now()}`, new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+      salida.innerHTML = '';
+      salida.appendChild(crearEnlaceAR({ url, texto: '🧪 Abrir mis medidas en AR con LiDAR' }).enlace);
+      const n = document.createElement('p');
+      n.className = 'nota';
+      n.textContent = url.startsWith('blob:') ? '⚠️ Se ha creado como archivo temporal: puede abrirse sin AR.' : '✅ Listo. Toca el botón verde.';
+      salida.appendChild(n);
+    } catch (e) {
+      salida.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'error-form';
+      p.textContent = '❌ ' + e.message;
+      salida.appendChild(p);
+    }
+  });
+  return div;
 }
 
 async function mostrar() {
