@@ -465,3 +465,6 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
 
 .lidar-vista { display: block; margin: 4px 0 8px; }
 .lidar-vista select { width: 100%; min-height: 46px; font-size: 16px; border-radius: 10px; background: #0b141b; color: #fff; border: 1px solid #3a5468; }
+
+.pasos-lidar { margin: 8px 0 10px; padding-left: 22px; }
+.pasos-lidar li { margin: 6px 0; line-height: 1.35; }

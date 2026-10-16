@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import { crearFlechas, usdzAncladoAQR, marcaSalida } from './navegacion.js';
 import { crearIcono } from './icono.js';
-import { pngMarcador } from './marcador.js';
+import { pngMarcador, anchoMarcadorCm as anchoMarcadorCmDe } from './marcador.js';
 
 const ORO = 0xffc83d, AZUL = 0x0a84ff;
 
@@ -74,14 +74,15 @@ const cortar = (t, n) => (t && t.length > n ? t.slice(0, n - 1) + '…' : t || '
  * Escena en G: puntos = recorrido (Vector3, el primero el QR). info = { nombre, referencia, id, descripcion }.
  */
 // vista: 'ambas' (flechas y línea), 'flechas' (solo flechas) o 'linea' (solo la línea verde)
-export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'flechas' } = {}) {
+// anchoMarcadorCm: medida del marcador impreso (el cuadro blanco de referencia tiene ese tamaño, para alinearlo con su borde)
+export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'flechas', anchoMarcadorCm = null } = {}) {
   const grupo = new THREE.Group();
   // Una cosa u otra: solo flechas o solo la línea de un punto a otro
   const linea = vista === 'linea';
   grupo.add(crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: linea ? 0.018 : 0.008 }));
   grupo.add(anclaTresD(Math.max(0.12, (ladoCm / 100) * 1.4)));
   // Cuadro del tamaño exacto del QR + flecha azul ADELANTE y roja DERECHA: tiene que coincidir con el QR impreso
-  grupo.add(marcaSalida(ladoCm / 100, { conTexto: false }));
+  grupo.add(marcaSalida((anchoMarcadorCm || ladoCm) / 100, { conTexto: false }));
   const fin = puntos[puntos.length - 1];
   const previo = puntos[puntos.length - 2] || new THREE.Vector3(0, 0, 0.5);
   // El cartel mira hacia donde llega la persona (el tramo anterior), en horizontal
@@ -125,7 +126,7 @@ function compatibles(raiz) {
  * modo 'suelo': se coloca a mano.
  */
 export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'flechas', unidad = 'cm', soloQR = false, anchoRealCm = null } = {}) {
-  const escena = escenaPaso(puntos, info, { ladoCm, vista });
+  const escena = escenaPaso(puntos, info, { ladoCm, vista, anchoMarcadorCm: soloQR ? null : (anchoRealCm || anchoMarcadorCmDe(ladoCm)) });
   compatibles(escena);
   if (modo === 'qr') {
     const arribaL = colocacion === 'pared' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);

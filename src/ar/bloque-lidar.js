@@ -56,9 +56,12 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       <p class="nota medida-nota"></p>
     </div>
     <div class="lidar-boton"></div>
-    <p class="nota">Al abrir, <b>apunta al MARCADOR del ancla</b> (el dibujo con el QR en el centro; se imprime en
-      ⚓ Gestión de anclas → 🖨️ Marcador): aparece un ⚓ ancla 3D encima y las flechas hasta el elemento, con su
-      información al final. Luego camina siguiendo las flechas.</p>
+    <ol class="pasos-lidar">
+      <li>Ponte <b>detrás del marcador</b> del ancla, mirando hacia donde apunta <b>"▲ ADELANTE"</b>.</li>
+      <li>Apunta el <b>centro de la pantalla al centro del QR</b> y toca el botón verde: el ⚓ y el recorrido salen ahí, mirando hacia donde miras tú.</li>
+      <li>Si el <b>cuadro blanco</b> no coincide con el borde del marcador: <b>arrastra con un dedo</b> y <b>gira con dos</b> hasta que coincida (la flecha azul sobre "▲ ADELANTE").</li>
+      <li>Camina siguiendo el recorrido hasta la información del elemento.</li>
+    </ol>
     <div class="lidar-mano"></div>
     <details class="lidar-ajustes">
       <summary>⚙️ Si las flechas salen giradas o en la pared</summary>
@@ -113,9 +116,9 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       const uQR = URL.createObjectURL(qr), uSuelo = URL.createObjectURL(suelo);
       urlsVivas.add(uQR); urlsVivas.add(uSuelo);
       boton.innerHTML = '';
-      boton.appendChild(crearEnlaceAR({ url: uQR, texto: '🧭 Ver recorrido con LiDAR (apunta al QR)' }).enlace);
-      mano.innerHTML = '<p class="nota">¿No detecta el QR? Ábrelo así y coloca el ⚓ ancla encima del QR con los dedos (arrastra con uno, gira con dos):</p>';
-      mano.appendChild(crearEnlaceAR({ url: uSuelo, texto: '✋ Colocar a mano sobre el QR', tamano: 'grande' }).enlace);
+      boton.appendChild(crearEnlaceAR({ url: uSuelo, texto: '🧭 Ver recorrido con LiDAR' }).enlace);
+      mano.innerHTML = '<details class="lidar-ajustes"><summary>🧪 Prueba: detección automática del marcador</summary><p class="nota">Todavía no funciona en el iPhone: el AR de Apple ignora el marcador y lo pone en el centro de la pantalla.</p></details>';
+      mano.querySelector('details').appendChild(crearEnlaceAR({ url: uQR, texto: '🧪 Detectar el marcador (prueba)', tamano: 'grande' }).enlace);
     } catch (e) {
       if (mio !== turno) return;
       console.warn('Recorrido LiDAR:', e);
