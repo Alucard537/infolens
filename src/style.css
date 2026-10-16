@@ -462,3 +462,6 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
 .lidar-ajustes summary { cursor: pointer; color: var(--azul); font-weight: 600; padding: 6px 0; }
 .lidar-ajustes label { display: block; margin: 8px 0; }
 .lidar-ajustes select { width: 100%; min-height: 44px; font-size: 16px; border-radius: 10px; background: #0b141b; color: #fff; border: 1px solid #3a5468; }
+
+.lidar-vista { display: block; margin: 4px 0 8px; }
+.lidar-vista select { width: 100%; min-height: 46px; font-size: 16px; border-radius: 10px; background: #0b141b; color: #fff; border: 1px solid #3a5468; }

@@ -16,10 +16,12 @@ export function ajustesQRLidar(anclaId) {
   return {
     colocacion: (a.lidarColocacion || {})[anclaId] || 'suelo',
     giro: Number((a.lidarGiro || {})[anclaId] || 0),
+    vista: a.lidarVista || 'ambas',
   };
 }
 function guardarAjusteQR(anclaId, campo, valor) {
   const a = leerAjustes();
+  if (campo === 'vista') { guardarAjustes({ lidarVista: valor }); return; }
   const clave = campo === 'colocacion' ? 'lidarColocacion' : 'lidarGiro';
   guardarAjustes({ [clave]: { ...(a[clave] || {}), [anclaId]: valor } });
 }
@@ -42,6 +44,8 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
     return div;
   }
   div.innerHTML = `
+    <label class="lidar-vista">Qué mostrar
+      <select data-q="vista"><option value="ambas">⚓ Ancla + flechas + línea</option><option value="flechas">⚓ Ancla + solo flechas</option><option value="linea">⚓ Ancla + solo línea verde</option></select></label>
     <div class="lidar-boton"></div>
     <p class="nota">Al abrir, <b>apunta al QR del ancla</b>: aparece un ⚓ ancla 3D encima y las flechas hasta el elemento,
       con su información al final. Luego camina siguiendo las flechas.</p>
@@ -51,13 +55,23 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       <label>El QR del ancla está
         <select data-q="colocacion"><option value="suelo">En el suelo o en una mesa</option><option value="pared">En una pared</option></select></label>
       <label>Girar el recorrido sobre el QR
-        <select data-q="giro"><option value="0">Sin girar</option><option value="90">90° a la izquierda</option>
-          <option value="180">180° (media vuelta)</option><option value="270">90° a la derecha</option></select></label>
+        <select data-q="giro"></select></label>
     </details>
     <div class="lidar-safari"></div>`;
   const aj = fijos || ajustesQRLidar(anclaId);
   const selCol = div.querySelector('[data-q="colocacion"]'), selGiro = div.querySelector('[data-q="giro"]');
-  selCol.value = aj.colocacion; selGiro.value = String(aj.giro);
+  // Giro en pasos de 5°: positivo = a la izquierda (visto desde arriba), negativo = a la derecha
+  for (let gr = -175; gr <= 180; gr += 5) {
+    const o = document.createElement('option');
+    o.value = String(gr);
+    o.textContent = gr === 0 ? 'Sin girar' : gr === 180 ? '180° (media vuelta)' : `${Math.abs(gr)}° a la ${gr > 0 ? 'izquierda' : 'derecha'}`;
+    selGiro.appendChild(o);
+  }
+  selCol.value = aj.colocacion;
+  const g0 = ((Math.round(aj.giro / 5) * 5 + 540) % 360) - 180;
+  selGiro.value = String(g0 === -180 ? 180 : g0);
+  const selVista = div.querySelector('[data-q="vista"]');
+  selVista.value = aj.vista || 'ambas';
   const boton = div.querySelector('.lidar-boton'), mano = div.querySelector('.lidar-mano');
 
   let turno = 0;
@@ -69,7 +83,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       const THREE = await import('three');
       const { usdzPaso } = await import('./recorrido-lidar.js');
       const pts = puntos.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
-      const comunes = { textoQR: 'INFOLENS:' + anclaId, ladoCm, colocacion: selCol.value, giro: Number(selGiro.value) };
+      const comunes = { textoQR: 'INFOLENS:' + anclaId, ladoCm, colocacion: selCol.value, giro: Number(selGiro.value), vista: selVista.value };
       const [qr, suelo] = await Promise.all([usdzPaso(pts, info, { ...comunes, modo: 'qr' }), usdzPaso(pts, info, { ...comunes, modo: 'suelo' })]);
       if (mio !== turno) return;
       for (const u of urlsVivas) URL.revokeObjectURL(u);
@@ -97,6 +111,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
   };
   selCol.addEventListener('change', alCambiar('colocacion', selCol));
   selGiro.addEventListener('change', alCambiar('giro', selGiro));
+  selVista.addEventListener('change', () => { guardarAjusteQR(anclaId, 'vista', selVista.value); preparar(); });
 
   // Desde la app instalada puede que el AR de Apple no se abra: opción de abrirlo en Safari
   function pintarSafari() {

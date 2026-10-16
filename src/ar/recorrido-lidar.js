@@ -37,7 +37,7 @@ export function anclaTresD(alto = 0.16) {
     g.add(punta);
   }
   // Base: disco azul sobre el QR
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * k, 0.05 * k, 0.004, 32),
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.02 * k, 0.02 * k, 0.004, 32),
     new THREE.MeshStandardMaterial({ color: AZUL, roughness: 0.5, emissive: 0x06336b }));
   base.position.y = 0.002;
   g.add(base);
@@ -72,9 +72,10 @@ const cortar = (t, n) => (t && t.length > n ? t.slice(0, n - 1) + '…' : t || '
 /**
  * Escena en G: puntos = recorrido (Vector3, el primero el QR). info = { nombre, referencia, id, descripcion }.
  */
-export function escenaPaso(puntos, info = {}, { ladoCm = 10 } = {}) {
+// vista: 'ambas' (flechas y línea), 'flechas' (solo flechas) o 'linea' (solo la línea verde)
+export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'ambas' } = {}) {
   const grupo = new THREE.Group();
-  grupo.add(crearFlechas(puntos, 0.5, { conLinea: true }));
+  grupo.add(crearFlechas(puntos, 0.5, { conLinea: vista !== 'flechas', conFlechas: vista !== 'linea', conAro: false }));
   grupo.add(anclaTresD(Math.max(0.12, (ladoCm / 100) * 1.4)));
   // Cuadro del tamaño exacto del QR + flecha azul ADELANTE y roja DERECHA: tiene que coincidir con el QR impreso
   grupo.add(marcaSalida(ladoCm / 100, { conTexto: false }));
@@ -120,8 +121,8 @@ function compatibles(raiz) {
  * .usdz del paso. modo 'qr': anclado al QR impreso (textoQR, ladoCm, colocacion 'suelo'|'pared', giro en grados).
  * modo 'suelo': se coloca a mano.
  */
-export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0 } = {}) {
-  const escena = escenaPaso(puntos, info, { ladoCm });
+export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'ambas' } = {}) {
+  const escena = escenaPaso(puntos, info, { ladoCm, vista });
   compatibles(escena);
   if (modo === 'qr') {
     const arribaL = colocacion === 'pared' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);

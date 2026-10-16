@@ -82,14 +82,14 @@ export function puntosRecorrido(nav) {
  * Grupo con las flechas a lo largo del recorrido (en coordenadas G).
  * separacion: metros entre flechas.
  */
-export function crearFlechas(puntos, separacion = 0.5, { conLinea = true } = {}) {
+export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFlechas = true, conAro = true } = {}) {
   const grupo = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, roughness: 0.4, metalness: 0.1 });
   const materialLinea = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, transparent: true, opacity: 0.7 });
   grupo.userData.materiales = [material, materialLinea];
   const arriba = new THREE.Vector3(0, 1, 0);
   const ESCALA_FLECHA = new THREE.Vector3(0.9, 0.9, 0.9);
-  if (conLinea && puntos.length) {
+  if (conLinea && conAro && puntos.length) {
     // Marca de salida junto al QR del ancla (un aro en el suelo del recorrido)
     const aro = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 32), materialLinea);
     aro.rotation.x = Math.PI / 2;
@@ -117,7 +117,7 @@ export function crearFlechas(puntos, separacion = 0.5, { conLinea = true } = {})
       tubo.userData.linea = true;
       grupo.add(tubo);
     }
-    const n = Math.max(1, Math.floor(largo / separacion));
+    const n = conFlechas ? Math.max(1, Math.floor(largo / separacion)) : 0;
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
       const f = new THREE.Mesh(geometriaFlecha(), material);
@@ -292,8 +292,8 @@ export function marcaSalida(ladoM, { conTexto = true } = {}) {
     pivote.position.y = 0.004;
     return pivote;
   };
-  g.add(flecha(0, azul, Math.max(0.12, ladoM)));
-  g.add(flecha(-Math.PI / 2, rojo, Math.max(0.06, ladoM * 0.5)));
+  g.add(flecha(0, azul, Math.max(0.25, ladoM * 2)));
+  g.add(flecha(-Math.PI / 2, rojo, Math.max(0.12, ladoM)));
   if (!conTexto) return g;
   // Texto tumbado en el suelo, por detrás del QR (se lee de pie junto al QR mirando ADELANTE)
   const ancho = Math.max(0.24, ladoM * 2.2);
