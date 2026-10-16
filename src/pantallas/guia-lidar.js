@@ -4,7 +4,8 @@
 import { obtenerArchivo, mapaElementos } from '../db.js';
 import { obtenerGuia, obtenerAncla, localizacionesDeAncla, maquinaActivaId, TIPOS_GUIA } from '../maquinas.js';
 import { esAdmin } from '../permisos.js';
-import { hayQuickLook } from '../ar/boton-ar.js';
+import { bloquePasoLidar } from '../ar/bloque-lidar.js';
+import { leerAjustes } from '../ajustes.js';
 import { deG, describir } from '../coordenadas.js';
 
 /** ¿Adónde se va en un paso? 1) sus tramos, 2) posición final suelta (antiguas), 3) localización del componente. */
@@ -16,7 +17,7 @@ export function destinoDelPaso(p, locs) {
   return l ? { pos: l.pos, ruta: l.ruta || [] } : null;
 }
 
-export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetalle, abrirImagen }) {
+export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetalle, abrirImagen, editar, conCamara }) {
   let activo = true;
   const urls = [];
   let paso = pasoInicial;
@@ -44,7 +45,6 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
     if (!activo) return;
     const elementos = new Map([...els].filter(([, e]) => e.maquinaId === g.maquinaId));
     const locs = new Map(ls.map((l) => [l.elementoId, l]));
-    const { bloqueRecorridoLidar } = await import('../ar/quicklook.js');
     paso = Math.min(Math.max(0, paso), g.pasos.length - 1);
 
     const puedeAvanzar = (i) => {
@@ -61,7 +61,11 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
       const destino = destinoDelPaso(p, locs);
       app.innerHTML = `
         <div class="pagina guia-lidar">
-          <button class="volver">‹ Salir</button>
+          <div class="fila-botones-guia">
+            <button class="volver">‹ Salir</button>
+            ${esAdmin() && editar ? '<button class="boton-mini" data-g="editar">✏️ Editar guía</button>' : ''}
+            ${conCamara ? '<button class="boton-mini" data-g="camara">📷 Modo cámara</button>' : ''}
+          </div>
           <div class="guia-nombre"></div>
           <div class="guia-paso"></div>
           <h2 class="guia-titulo"></h2>
@@ -71,17 +75,18 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
         </div>`;
       const $ = (s) => app.querySelector(s);
       $('.volver').addEventListener('click', () => { if (confirm('¿Salir de la guía?')) volver(); });
+      $('[data-g="editar"]')?.addEventListener('click', () => editar(g.id));
+      $('[data-g="camara"]')?.addEventListener('click', () => conCamara(g.id));
       $('.guia-nombre').textContent = `📘 ${g.nombre}`;
       $('.guia-paso').textContent = `Paso ${paso + 1} de ${total} · ${TIPOS_GUIA[g.tipo] || ''} · Ancla: ${ancla.nombre}`;
       $('.guia-titulo').textContent = p.titulo || (el ? `Localizar: ${el.nombre}` : `Paso ${paso + 1}`);
       const lp = $('.lidar-paso');
       if (destino && p.flechas !== false) {
-        if (hayQuickLook() || /iPhone|iPad|iPod/.test(navigator.userAgent)) {
-          const comp = el || { id: 'paso-' + (paso + 1), nombre: p.titulo || `Paso ${paso + 1}`, referencia: g.nombre };
-          lp.appendChild(bloqueRecorridoLidar({ ...comp, nav: destino }, { id: g.anclaId }, 0));
-        } else {
-          lp.innerHTML = '<p class="nota">🧊 El AR con LiDAR solo se abre en Safari de iPhone o iPad (no desde la app instalada).</p>';
-        }
+        const info = el
+          ? { nombre: el.nombre, referencia: el.referencia, id: el.id, descripcion: el.descripcion || '' }
+          : { nombre: p.titulo || `Paso ${paso + 1}`, referencia: g.nombre, id: '', descripcion: p.texto || '' };
+        const puntos = [[0, 0, 0], ...(destino.ruta || []), destino.pos];
+        lp.appendChild(bloquePasoLidar({ puntos, info, anclaId: g.anclaId, ladoCm: leerAjustes().qrCm || 10 }));
         const d = document.createElement('p');
         d.className = 'nota';
         d.textContent = `📍 Destino: ${describir(deG(destino.pos))} desde el QR del ancla.`;

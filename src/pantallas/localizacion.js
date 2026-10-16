@@ -5,7 +5,8 @@ import { obtenerElemento } from '../db.js';
 import {
   obtenerMaquina, listarAnclas, localizacionesDeElemento, guardarLocalizacion, borrarLocalizacion,
 } from '../maquinas.js';
-import { aG, deG, puntosDeTramos, tramosDePuntos, describir, numero } from '../coordenadas.js';
+import { aG, deG, puntosDeTramos, tramosDePuntos, describir, numero, deSimple, simplesDeTramos } from '../coordenadas.js';
+import { pintarListaTramos } from '../ui/tramos.js';
 
 const CAMPOS = ['adelante', 'derecha', 'arriba'];
 const TITULOS = { adelante: 'Adelante', derecha: 'Derecha', arriba: 'Arriba' };
@@ -54,15 +55,14 @@ export function pantallaLocalizacion(app, elementoId, { volver, previsualizar, p
         <label>Ancla de referencia (de la máquina ${maquina.id})
           <select name="ancla"></select>
         </label>
-        <div class="titulo-archivo">📌 Dónde está el componente (cm desde el QR del ancla)</div>
-        ${casillas('p')}
-        <div class="titulo-archivo">🧭 Recorrido por tramos (opcional)</div>
-        <p class="nota">Cada tramo es un movimiento desde donde terminó el anterior (el primero sale del QR). Ejemplo:
-          <b>Adelante 130</b> y luego <b>Derecha 150</b>. Después del último tramo, las flechas van directas al componente.
-          Sin tramos, van en línea recta desde el QR.</p>
+        <div class="titulo-archivo">🧭 Recorrido por tramos desde el QR del ancla</div>
+        <p class="nota">Cada tramo es UNA dirección y una distancia en cm, desde donde terminó el anterior (el primero sale del QR).
+          Ejemplo: <b>30 Adelante</b>, <b>20 Derecha</b>, <b>40 Abajo</b>. El componente está donde termina el último tramo.</p>
         <ol class="tramos"></ol>
         <button type="button" class="boton-mini" data-a="tramo">➕ Añadir tramo</button>
         <p class="nota fin-tramos"></p>
+        <div class="titulo-archivo">📌 O escribe directamente dónde está (cm desde el QR; vacío = final de los tramos)</div>
+        ${casillas('p')}
         <div class="titulo-archivo">ℹ️ Posición del icono final (cm, opcional)</div>
         <p class="nota">Vacío = justo encima del componente.</p>
         ${casillas('i')}
@@ -83,60 +83,41 @@ export function pantallaLocalizacion(app, elementoId, { volver, previsualizar, p
       const leer = (prefijo) => Object.fromEntries(CAMPOS.map((k) => [k, numero(b.elements[prefijo + k].value)]));
       const vacio = (prefijo) => CAMPOS.every((k) => String(b.elements[prefijo + k].value).trim() === '');
 
-      // Tramos
-      const tramos = loc ? tramosDePuntos(loc.ruta || []).map((t) => ({ ...t })) : [];
+      // Tramos (una dirección y una distancia cada uno). Al cargar: la ruta guardada + el componente.
+      const tramos = loc ? simplesDeTramos(tramosDePuntos([...(loc.ruta || []), loc.pos])) : [];
       const ol = b.querySelector('.tramos');
+      const leerTramos = () => tramos.filter((t) => String(t.cm ?? '').trim() !== '').map(deSimple);
       const pintarFin = () => {
-        const ok = tramos.every((t) => CAMPOS.every((k) => Number.isFinite(numero(t[k]))));
-        b.querySelector('.fin-tramos').textContent = !tramos.length ? '' : !ok ? '⚠️ Algún tramo no es un número.'
-          : `Fin de los tramos: ${describir(deG(puntosDeTramos(tramos.map((t) => Object.fromEntries(CAMPOS.map((k) => [k, numero(t[k])])))).at(-1)))}.`;
+        const tr = leerTramos();
+        const ok = tr.every((t) => Object.values(t).every(Number.isFinite));
+        b.querySelector('.fin-tramos').textContent = !tr.length ? '' : !ok ? '⚠️ Algún tramo tiene una distancia que no es un número.'
+          : `📍 Fin de los tramos: ${describir(deG(puntosDeTramos(tr).at(-1)))} desde el QR.`;
       };
-      const pintarTramos = () => {
-        ol.innerHTML = '';
-        tramos.forEach((t, k) => {
-          const li = document.createElement('li');
-          li.className = 'tramo-fila';
-          li.innerHTML = `<span class="tramo-n">Tramo ${k + 1}</span>`
-            + CAMPOS.map((c) => `<label class="eje">${TITULOS[c]}<input inputmode="decimal" data-k="${c}"></label>`).join('')
-            + '<span class="tramo-botones"><button type="button" class="boton-mini" data-m="sube">↑</button><button type="button" class="boton-mini" data-m="baja">↓</button><button type="button" class="boton-mini" data-m="quita">✕</button></span>';
-          li.querySelectorAll('input').forEach((inp) => {
-            inp.value = t[inp.dataset.k] || t[inp.dataset.k] === 0 ? String(t[inp.dataset.k]).replace('.', ',') : '';
-            if (inp.value === '0') inp.value = '';
-            inp.addEventListener('input', () => { t[inp.dataset.k] = inp.value; pintarFin(); });
-          });
-          li.addEventListener('click', (ev) => {
-            const m = ev.target.dataset.m;
-            if (m === 'sube' && k > 0) [tramos[k - 1], tramos[k]] = [tramos[k], tramos[k - 1]];
-            else if (m === 'baja' && k < tramos.length - 1) [tramos[k + 1], tramos[k]] = [tramos[k], tramos[k + 1]];
-            else if (m === 'quita') tramos.splice(k, 1);
-            else return;
-            pintarTramos();
-          });
-          ol.appendChild(li);
-        });
-        pintarFin();
-      };
+      const pintarTramos = () => { pintarListaTramos(ol, tramos, pintarFin); pintarFin(); };
       pintarTramos();
-      b.querySelector('[data-a="tramo"]').addEventListener('click', () => { tramos.push({ adelante: '', derecha: '', arriba: '' }); pintarTramos(); });
+      b.querySelector('[data-a="tramo"]').addEventListener('click', () => { tramos.push({ dir: 'adelante', cm: '' }); pintarTramos(); });
 
-      if (loc) {
+      if (loc && !tramos.length) {
         poner('p', loc.pos);
-        if (loc.posIcono) poner('i', loc.posIcono);
       }
+      if (loc && loc.posIcono) poner('i', loc.posIcono);
       b.addEventListener('submit', async (ev) => {
         ev.preventDefault();
         const er = b.querySelector('.error-form'), ok = b.querySelector('.ok-form');
         er.hidden = true; ok.hidden = true;
         try {
-          if (vacio('p')) throw new Error('Escribe dónde está el componente (adelante, derecha, arriba en cm).');
-          const pos = leer('p');
-          if (!CAMPOS.every((k) => Number.isFinite(pos[k]))) throw new Error('La posición del componente tiene un valor que no es un número.');
-          const tr = tramos.filter((t) => CAMPOS.some((k) => String(t[k] ?? '').trim() !== ''))
-            .map((t, i) => {
-              const v = Object.fromEntries(CAMPOS.map((k) => [k, numero(t[k])]));
-              if (!CAMPOS.every((k) => Number.isFinite(v[k]))) throw new Error(`El tramo ${i + 1} tiene un valor que no es un número.`);
-              return v;
-            });
+          const tr = leerTramos();
+          tr.forEach((v, i) => { if (!CAMPOS.every((k) => Number.isFinite(v[k]))) throw new Error(`El tramo ${i + 1} tiene una distancia que no es un número.`); });
+          let pos, ruta;
+          if (vacio('p')) {
+            if (!tr.length) throw new Error('Añade los tramos del recorrido (o escribe dónde está el componente).');
+            const pts = puntosDeTramos(tr);
+            pos = deG(pts.at(-1)); ruta = pts.slice(0, -1);
+          } else {
+            pos = leer('p');
+            if (!CAMPOS.every((k) => Number.isFinite(pos[k]))) throw new Error('La posición del componente tiene un valor que no es un número.');
+            ruta = puntosDeTramos(tr);
+          }
           let posIcono = null;
           if (!vacio('i')) {
             const ic = leer('i');
@@ -144,7 +125,7 @@ export function pantallaLocalizacion(app, elementoId, { volver, previsualizar, p
             posIcono = aG(ic);
           }
           if (!sel.value) throw new Error('Elige un ancla.');
-          await guardarLocalizacion({ maquinaId: el.maquinaId, anclaId: sel.value, elementoId, pos: aG(pos), ruta: puntosDeTramos(tr), posIcono });
+          await guardarLocalizacion({ maquinaId: el.maquinaId, anclaId: sel.value, elementoId, pos: aG(pos), ruta, posIcono });
           ok.hidden = false; ok.textContent = `✅ Guardada: el componente está ${describir(pos)} desde el QR.`;
           if (!loc) pintar();
         } catch (ex) { er.hidden = false; er.textContent = ex.message; }

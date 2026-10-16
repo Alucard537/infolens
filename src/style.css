@@ -454,3 +454,11 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
 .boton-lidar { background: #34c759; color: #062b12; margin: 6px 0 10px; }
 .guia-lidar .guia-nombre { font-weight: 700; color: var(--azul); margin-top: 8px; }
 .guia-lidar .guia-paso { color: var(--texto2); font-size: 14px; }
+.tramo-simple { grid-template-columns: 1.4fr 1fr; }
+.tramo-simple select { width: 100%; min-height: 46px; font-size: 17px; border-radius: 10px; border: 1px solid #3a5468; background: #0b141b; color: #fff; padding: 0 8px; }
+
+.fila-botones-guia { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.lidar-ajustes { margin: 8px 0; }
+.lidar-ajustes summary { cursor: pointer; color: var(--azul); font-weight: 600; padding: 6px 0; }
+.lidar-ajustes label { display: block; margin: 8px 0; }
+.lidar-ajustes select { width: 100%; min-height: 44px; font-size: 16px; border-radius: 10px; background: #0b141b; color: #fff; border: 1px solid #3a5468; }

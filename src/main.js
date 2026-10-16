@@ -131,27 +131,23 @@ function pruebaFlechas() {
   div.querySelector('.fijo').appendChild(crearEnlaceAR({
     url: import.meta.env.BASE_URL + 'ejemplo/prueba-flechas.usdz', texto: '🧪 Fijo: 130 adelante → 150 derecha',
   }).enlace);
-  const filas = div.querySelector('.tramos-prueba');
-  const iniciales = [{ adelante: '130', derecha: '' }, { adelante: '', derecha: '150' }, { adelante: '', derecha: '' }];
-  iniciales.forEach((t, i) => {
-    const f = document.createElement('div');
-    f.className = 'tramo-fila';
-    f.innerHTML = `<span class="tramo-n">Tramo ${i + 1}</span>`
-      + ['adelante', 'derecha', 'arriba'].map((k) => `<label class="eje">${k[0].toUpperCase() + k.slice(1)}<input inputmode="decimal" data-k="${k}"></label>`).join('');
-    f.querySelector('[data-k="adelante"]').value = t.adelante;
-    f.querySelector('[data-k="derecha"]').value = t.derecha;
-    filas.appendChild(f);
-  });
+  const filas = document.createElement('ol');
+  div.querySelector('.tramos-prueba').appendChild(filas);
+  const lista = [{ dir: 'adelante', cm: '130' }, { dir: 'derecha', cm: '150' }];
+  const pintar = () => import('./ui/tramos.js').then(({ pintarListaTramos }) => pintarListaTramos(filas, lista));
+  pintar();
+  const mas = document.createElement('button');
+  mas.className = 'boton-mini'; mas.textContent = '➕ Añadir tramo';
+  mas.addEventListener('click', () => { lista.push({ dir: 'adelante', cm: '' }); pintar(); });
+  div.querySelector('.tramos-prueba').appendChild(mas);
   const salida = div.querySelector('.generado');
   div.querySelector('[data-p="generar"]').addEventListener('click', async () => {
     salida.innerHTML = '<p class="nota">⏳ Generando…</p>';
     try {
-      const [{ usdzPruebaFlechas }, { direccionWeb }, { numero }] = await Promise.all([
+      const [{ usdzPruebaFlechas }, { direccionWeb }, { deSimple }] = await Promise.all([
         import('./ar/prueba-flechas.js'), import('./ar/quicklook.js'), import('./coordenadas.js'),
       ]);
-      const tramos = [...filas.children].map((f) => Object.fromEntries(
-        ['adelante', 'derecha', 'arriba'].map((k) => [k, numero(f.querySelector(`[data-k="${k}"]`).value)]),
-      )).filter((t) => t.adelante || t.derecha || t.arriba);
+      const tramos = lista.filter((t) => String(t.cm ?? '').trim() !== '').map(deSimple);
       if (!tramos.length) throw new Error('Escribe al menos un tramo.');
       if (tramos.some((t) => Object.values(t).some((v) => !Number.isFinite(v)))) throw new Error('Algún valor no es un número.');
       const bytes = await usdzPruebaFlechas(tramos);
@@ -264,7 +260,7 @@ async function mostrar() {
     limpiar = pantallaGuias(app, maq, {
       // Volver a un sitio fijo (no "atrás"): si se vino desde la gestión de una máquina, a ella; si no, al inicio
       volver: () => ir(params.get('maquina') ? '#/maquina/' + enc(params.get('maquina')) : '#/'),
-      abrir: (g) => ir('#/guia/' + enc(g)),
+      abrir: (g) => ir('#/guia-lidar/' + enc(g)),
       editar: (g) => ir('#/guia-editar/' + enc(g)),
       nueva: (m) => ir('#/guia-nueva?maquina=' + enc(m)),
     });
@@ -278,9 +274,11 @@ async function mostrar() {
   } else if (pantalla === 'guia-lidar' && id) {
     limpiar = pantallaGuiaLidar(app, id, {
       pasoInicial: parseInt(params.get('paso') || '0', 10) || 0,
-      volver: () => ir('#/guia/' + enc(id)),
+      volver: () => ir('#/guias'),
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
       abrirImagen,
+      editar: (g) => ir('#/guia-editar/' + enc(g)),
+      conCamara: (g) => irConCamara('#/guia-ejecutar/' + enc(g)),
     });
   } else if (pantalla === 'guia-nueva' || (pantalla === 'guia-editar' && id)) {
     limpiar = pantallaGuiaEditor(app, {
@@ -294,7 +292,7 @@ async function mostrar() {
         import('./maquinas.js').then(async ({ obtenerGuia }) => {
           const guia = await obtenerGuia(g);
           if (guia) establecerMaquinaActiva(guia.maquinaId);
-          irConCamara('#/guia-ejecutar/' + enc(g));
+          ir('#/guia-lidar/' + enc(g));
         });
       },
     });

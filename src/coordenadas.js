@@ -58,3 +58,36 @@ export function numero(t) {
   const m = /-?\d+(?:[.,]\d+)?/.exec(s);
   return m ? parseFloat(m[0].replace(',', '.')) : NaN;
 }
+
+// ---------- tramos "simples": UNA dirección y una distancia (lo que escribe el usuario) ----------
+// Ejemplo: [{dir:'adelante', cm:30}, {dir:'derecha', cm:20}, {dir:'abajo', cm:40}] → las flechas avanzan
+// 30 cm, giran a la derecha 20 cm y bajan 40 cm, exactamente por ese camino.
+export const DIRECCIONES = [
+  ['adelante', '⬆️ Adelante'], ['atras', '⬇️ Atrás'],
+  ['derecha', '➡️ Derecha'], ['izquierda', '⬅️ Izquierda'],
+  ['arriba', '⤴️ Arriba'], ['abajo', '⤵️ Abajo'],
+];
+const EJE = { adelante: ['adelante', 1], atras: ['adelante', -1], derecha: ['derecha', 1], izquierda: ['derecha', -1], arriba: ['arriba', 1], abajo: ['arriba', -1] };
+
+/** {dir, cm} → {adelante, derecha, arriba} (cm). cm no numérico → NaN en su eje. */
+export function deSimple({ dir, cm }) {
+  const [k, signo] = EJE[dir] || EJE.adelante;
+  const t = { adelante: 0, derecha: 0, arriba: 0 };
+  t[k] = signo * numero(cm);
+  return t;
+}
+
+/** Tramos {adelante, derecha, arriba} → tramos simples (uno por cada eje que no sea 0). */
+export function simplesDeTramos(tramos) {
+  const r = [];
+  for (const t of tramos || []) {
+    for (const [k, mas, menos] of [['adelante', 'adelante', 'atras'], ['derecha', 'derecha', 'izquierda'], ['arriba', 'arriba', 'abajo']]) {
+      const v = Number(t[k]) || 0;
+      if (v) r.push({ dir: v > 0 ? mas : menos, cm: String(Math.abs(v)).replace('.', ',') });
+    }
+  }
+  return r;
+}
+
+/** Texto de un tramo simple: "30 cm adelante". */
+export const textoSimple = ({ dir, cm }) => `${cm} cm ${(DIRECCIONES.find(([d]) => d === dir) || ['', dir])[1].replace(/^\S+\s/, '').toLowerCase()}`;

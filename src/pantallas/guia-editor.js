@@ -8,7 +8,8 @@ import {
 } from '../maquinas.js';
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
-import { puntosDeTramos, tramosDePuntos, describir, numero, deG } from '../coordenadas.js';
+import { puntosDeTramos, tramosDePuntos, describir, deG, deSimple, simplesDeTramos } from '../coordenadas.js';
+import { pintarListaTramos } from '../ui/tramos.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
 // Lee un número aunque se escriba "X=-130", "-130 cm" o con coma decimal ("1,5")
@@ -228,10 +229,9 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       <label class="fila check"><input type="checkbox" data-c="flechas"> Mostrar flechas 3D hasta el componente</label>
       <label class="fila check"><input type="checkbox" data-c="icono"> Mostrar icono 3D sobre el componente</label>
       <div class="titulo-archivo">🧭 Recorrido por tramos desde el QR del ancla</div>
-      <p class="nota">Cada tramo es un movimiento desde donde terminó el anterior (el primero sale del QR), en <b>cm</b>.
-        Ejemplo: tramo 1 <b>Adelante 130</b>; tramo 2 <b>Derecha 150</b> → las flechas avanzan 130 cm y luego giran 150 cm
-        a la derecha. Negativos: atrás, izquierda, abajo. <b>Adelante</b> = hacia donde miras al leer el QR del ancla derecho
-        (la flecha "▲ ADELANTE" impresa). Sin tramos se usa la localización guardada del componente.</p>
+      <p class="nota">Cada tramo es UNA dirección y una distancia en <b>cm</b>, desde donde terminó el anterior (el primero sale
+        del QR del ancla). Ejemplo: <b>30 Adelante</b>, <b>20 Derecha</b>, <b>40 Abajo</b> → las flechas siguen exactamente ese camino.
+        <b>Adelante</b> = hacia la flecha "▲ ADELANTE" impresa en el QR del ancla. Sin tramos se usa la localización guardada del componente.</p>
       <ol class="tramos"></ol>
       <div class="acciones-paso">
         <button type="button" class="boton-mini" data-m="tramo">➕ Añadir tramo</button>
@@ -253,49 +253,22 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     q('[data-c="flechas"]').checked = !!p.flechas;
     q('[data-c="icono"]').checked = !!p.icono;
     q('[data-c="confirmar"]').checked = !!p.confirmar;
-    // Tramos: se editan como texto (cm) en p._tramos y se pasan a puntos (metros) al guardar
+    // Tramos: se editan como { dir, cm } en p._tramos y se pasan a puntos (metros) al guardar
     if (!p._tramos) {
       const puntos = [...(p.rutaPropia || []), ...(Array.isArray(p.destinoPropio) ? [p.destinoPropio] : [])];
-      p._tramos = tramosDePuntos(puntos).map((t) => ({ adelante: t.adelante || '', derecha: t.derecha || '', arriba: t.arriba || '' }));
+      p._tramos = simplesDeTramos(tramosDePuntos(puntos));
     }
-    const leerTramos = () => p._tramos
-      .filter((t) => ['adelante', 'derecha', 'arriba'].some((k) => String(t[k] ?? '').trim() !== ''))
-      .map((t) => ({ adelante: numero(t.adelante), derecha: numero(t.derecha), arriba: numero(t.arriba) }));
+    const leerTramos = () => p._tramos.filter((t) => String(t.cm ?? '').trim() !== '').map(deSimple);
     const pintarDestino = () => {
       const tr = leerTramos();
       const ok = tr.every((t) => Object.values(t).every(Number.isFinite));
       const fin = tr.length && ok ? deG(puntosDeTramos(tr).at(-1)) : null;
       q('.destino-tramos').textContent = !tr.length ? ''
-        : !ok ? '⚠️ Algún tramo tiene un valor que no es un número.'
+        : !ok ? '⚠️ Algún tramo tiene una distancia que no es un número.'
           : `📍 Destino final: ${describir(fin)} desde el QR del ancla.`;
     };
     const pintarTramos = () => {
-      const ol = q('.tramos');
-      ol.innerHTML = '';
-      p._tramos.forEach((t, k) => {
-        const li = document.createElement('li');
-        li.className = 'tramo-fila';
-        li.innerHTML = '<span class="tramo-n"></span>'
-          + '<label class="eje">Adelante<input inputmode="decimal" data-k="adelante"></label>'
-          + '<label class="eje">Derecha<input inputmode="decimal" data-k="derecha"></label>'
-          + '<label class="eje">Arriba<input inputmode="decimal" data-k="arriba"></label>'
-          + '<span class="tramo-botones"><button type="button" class="boton-mini" data-p="sube">↑</button><button type="button" class="boton-mini" data-p="baja">↓</button><button type="button" class="boton-mini" data-p="quita">✕</button></span>';
-        li.querySelector('.tramo-n').textContent = `Tramo ${k + 1}`;
-        li.querySelectorAll('input').forEach((inp) => {
-          inp.value = t[inp.dataset.k] ?? '';
-          inp.addEventListener('input', () => { t[inp.dataset.k] = inp.value; pintarDestino(); estadoLoc(); });
-        });
-        li.addEventListener('click', (ev) => {
-          const a = ev.target.dataset.p;
-          if (a === 'sube' && k > 0) [p._tramos[k - 1], p._tramos[k]] = [p._tramos[k], p._tramos[k - 1]];
-          else if (a === 'baja' && k < p._tramos.length - 1) [p._tramos[k + 1], p._tramos[k]] = [p._tramos[k], p._tramos[k + 1]];
-          else if (a === 'quita') p._tramos.splice(k, 1);
-          else return;
-          pintarTramos();
-          estadoLoc();
-        });
-        ol.appendChild(li);
-      });
+      pintarListaTramos(q('.tramos'), p._tramos, () => { pintarDestino(); estadoLoc(); });
       pintarDestino();
     };
     const sel = q('[data-c="elementoId"]');
@@ -334,11 +307,11 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       else if (m === 'baja' && k < g.pasos.length - 1) [g.pasos[k + 1], g.pasos[k]] = [g.pasos[k], g.pasos[k + 1]];
       else if (m === 'dup') { const c = { ...JSON.parse(JSON.stringify(p)), id: pasoVacio().id, imagenes: [], videos: [] }; g.pasos.splice(k + 1, 0, c); }
       else if (m === 'quita') { if (!confirm(`¿Quitar el paso ${k + 1}?`)) return; g.pasos.splice(k, 1); }
-      else if (m === 'tramo') { p._tramos.push({ adelante: '', derecha: '', arriba: '' }); pintarTramos(); return; }
+      else if (m === 'tramo') { p._tramos.push({ dir: 'adelante', cm: '' }); pintarTramos(); return; }
       else if (m === 'copiar-ruta') {
         const l = locs.get(p.elementoId);
         if (!l) { alert('El componente no tiene localización respecto al ancla de la guía.'); return; }
-        p._tramos = tramosDePuntos([...(l.ruta || []), l.pos]);
+        p._tramos = simplesDeTramos(tramosDePuntos([...(l.ruta || []), l.pos]));
         pintarTramos();
         estadoLoc();
         return;
@@ -392,10 +365,10 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       // Pasar los tramos escritos (cm) a puntos en metros: el último es el destino
       for (const [i, p] of g.pasos.entries()) {
         if (!p._tramos) continue;
-        const llenos = p._tramos.filter((t) => ['adelante', 'derecha', 'arriba'].some((k) => String(t[k] ?? '').trim() !== ''));
+        const llenos = p._tramos.filter((t) => String(t.cm ?? '').trim() !== '');
         const tr = llenos.map((t, k) => {
-          const v = { adelante: numero(t.adelante), derecha: numero(t.derecha), arriba: numero(t.arriba) };
-          if (!Object.values(v).every(Number.isFinite)) throw new Error(`Paso ${i + 1}, tramo ${k + 1}: escribe números (en cm).`);
+          const v = deSimple(t);
+          if (!Object.values(v).every(Number.isFinite)) throw new Error(`Paso ${i + 1}, tramo ${k + 1}: escribe la distancia en cm (un número).`);
           return v;
         });
         p.rutaPropia = tr.length ? puntosDeTramos(tr) : null;

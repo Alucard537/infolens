@@ -216,10 +216,11 @@ function empaquetarUsdz(files) {
  * textoQR: contenido del QR ancla; ladoCm: tamaño impreso; arribaL: cómo está colocado el QR
  * (vector "arriba" en coordenadas del QR; por defecto QR vertical en una pared).
  */
-export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0) }) {
+export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0), giroGrados = 0 }) {
   const envoltura = new THREE.Group();
   envoltura.matrixAutoUpdate = false;
-  envoltura.matrix.copy(matrizGaImagen(arribaL));
+  // giroGrados: corrección por si el AR de Apple coloca el contenido girado sobre el QR (gira sobre la cara del QR)
+  envoltura.matrix.makeRotationY(THREE.MathUtils.degToRad(giroGrados)).multiply(matrizGaImagen(arribaL));
   envoltura.add(contenidoG);
   envoltura.updateMatrixWorld(true);
   // Materiales compatibles con el AR de Apple: todos "estándar" y de una sola cara
