@@ -216,7 +216,7 @@ function empaquetarUsdz(files) {
  * textoQR: contenido del QR ancla; ladoCm: tamaño impreso; arribaL: cómo está colocado el QR
  * (vector "arriba" en coordenadas del QR; por defecto QR vertical en una pared).
  */
-export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0), giroGrados = 0 }) {
+export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0), giroGrados = 0, imagen = null, anchoImagenCm = null, unidad = 'cm' }) {
   const envoltura = new THREE.Group();
   envoltura.matrixAutoUpdate = false;
   // giroGrados: corrección por si el AR de Apple coloca el contenido girado sobre el QR (gira sobre la cara del QR)
@@ -251,11 +251,11 @@ ${s}rel preliminary:imageAnchoring:referenceImage = </Root/Scenes/Scene/Anchorin
 ${s}def Preliminary_ReferenceImage "AnchoringReferenceImage"
 ${s}{
 ${s}    uniform asset image = @textures/qr_ancla.png@
-${s}    uniform double physicalWidth = ${Number(ladoCm).toFixed(2)}
+${s}    uniform double physicalWidth = ${unidad === 'm' ? (Number(anchoImagenCm || ladoCm) / 100).toFixed(4) : Number(anchoImagenCm || ladoCm).toFixed(2)}
 ${s}}`);
   const nuevos = { 'model.usda': strToU8(usda) };
   for (const [k, v] of Object.entries(files)) if (k !== 'model.usda') nuevos[k] = v;
-  nuevos['textures/qr_ancla.png'] = await pngQR(textoQR);
+  nuevos['textures/qr_ancla.png'] = imagen || await pngQR(textoQR);
   return new Blob([empaquetarUsdz(nuevos)], { type: 'model/vnd.usdz+zip' });
 }
 

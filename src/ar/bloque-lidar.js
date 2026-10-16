@@ -17,6 +17,7 @@ export function ajustesQRLidar(anclaId) {
     colocacion: (a.lidarColocacion || {})[anclaId] || 'suelo',
     giro: Number((a.lidarGiro || {})[anclaId] || 0),
     vista: a.lidarVista || 'ambas',
+    unidad: a.lidarUnidad || 'cm',
   };
 }
 function guardarAjusteQR(anclaId, campo, valor) {
@@ -47,8 +48,9 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
     <label class="lidar-vista">Qué mostrar
       <select data-q="vista"><option value="ambas">⚓ Ancla + flechas + línea</option><option value="flechas">⚓ Ancla + solo flechas</option><option value="linea">⚓ Ancla + solo línea verde</option></select></label>
     <div class="lidar-boton"></div>
-    <p class="nota">Al abrir, <b>apunta al QR del ancla</b>: aparece un ⚓ ancla 3D encima y las flechas hasta el elemento,
-      con su información al final. Luego camina siguiendo las flechas.</p>
+    <p class="nota">Al abrir, <b>apunta al MARCADOR del ancla</b> (el dibujo con el QR en el centro; se imprime en
+      ⚓ Gestión de anclas → 🖨️ Marcador): aparece un ⚓ ancla 3D encima y las flechas hasta el elemento, con su
+      información al final. Luego camina siguiendo las flechas.</p>
     <div class="lidar-mano"></div>
     <details class="lidar-ajustes">
       <summary>⚙️ Si las flechas salen giradas o en la pared</summary>
@@ -83,7 +85,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       const THREE = await import('three');
       const { usdzPaso } = await import('./recorrido-lidar.js');
       const pts = puntos.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
-      const comunes = { textoQR: 'INFOLENS:' + anclaId, ladoCm, colocacion: selCol.value, giro: Number(selGiro.value), vista: selVista.value };
+      const comunes = { textoQR: 'INFOLENS:' + anclaId, ladoCm, colocacion: selCol.value, giro: Number(selGiro.value), vista: selVista.value, unidad: aj.unidad || 'cm' };
       const [qr, suelo] = await Promise.all([usdzPaso(pts, info, { ...comunes, modo: 'qr' }), usdzPaso(pts, info, { ...comunes, modo: 'suelo' })]);
       if (mio !== turno) return;
       for (const u of urlsVivas) URL.revokeObjectURL(u);

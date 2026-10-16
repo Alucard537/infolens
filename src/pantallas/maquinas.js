@@ -236,15 +236,16 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
     li.innerHTML = `<div class="fila-elemento fila-maquina">
         <span class="fila-textos"><span class="fila-nombre"></span><span class="fila-ref"></span></span>
         <span class="acciones-fila">
-          <button class="boton-mini" data-a="qr">🖨️ QR</button>
+          <button class="boton-mini" data-a="qr">🖨️ Marcador</button>
           <button class="boton-mini" data-a="ed">✏️</button>
           <button class="boton-mini" data-a="del">🗑️</button>
         </span></div>`;
     li.querySelector('.fila-nombre').textContent = `⚓ ${a.nombre}`;
     li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
     li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
-      const { generarPdfQR } = await import('../qr-pdf.js');
-      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.id}`, ancla: true }], leerAjustes().qrCm);
+      // Marcador de ancla: el QR en el centro de un dibujo que el AR de Apple (LiDAR) reconoce bien
+      const { generarPdfMarcador } = await import('../qr-pdf.js');
+      const pdf = generarPdfMarcador([{ id: a.id, nombre: a.nombre, referencia: `Máquina ${m.id}` }], leerAjustes().qrCm);
       guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
     });
     li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));

@@ -3,6 +3,7 @@
 import QRCode from 'qrcode';
 import { jsPDF } from 'jspdf';
 import { QR_PREFIX, APP_NAME } from './config.js';
+import { dibujarMarcador } from './ar/marcador.js';
 
 export const textoQR = (id) => QR_PREFIX + id;
 
@@ -121,4 +122,29 @@ export async function qrEnCanvas(canvas, id, tam = 600) {
 export function qrPorHoja(ladoCm) {
   const m = medidas(ladoCm);
   return Math.max(0, m.cols * m.filas);
+}
+
+/**
+ * MARCADOR DE ANCLA en PDF (uno por hoja A4): el QR del ancla en el centro de un dibujo que el AR de
+ * Apple reconoce bien (ver ar/marcador.js). anclas: [{ id, nombre, referencia }]; ladoCm: zona negra del QR.
+ */
+export function generarPdfMarcador(anclas, ladoCm) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  anclas.forEach((a, i) => {
+    if (i > 0) doc.addPage();
+    const { lienzo, anchoCm } = dibujarMarcador(textoQR(a.id), ladoCm, 2048);
+    const w = anchoCm * 10, x = (A4.ancho - w) / 2, y = 16;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(0);
+    doc.text(`ANCLA · ${a.nombre || a.id}`, A4.ancho / 2, 11, { align: 'center' });
+    doc.addImage(lienzo.toDataURL('image/png'), 'PNG', x, y, w, w);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    const t = [
+      `${a.referencia || ''}  ·  ID: ${a.id}`,
+      `Marcador de ${anchoCm} cm (QR del centro: ${ladoCm} cm). Imprimir al 100 % / tamaño real, sin "ajustar a la página".`,
+      'Pégalo plano y entero (sin tapar el dibujo), con "ADELANTE" hacia donde empiezan los recorridos.',
+      'El AR con LiDAR reconoce el dibujo completo: así sabe dónde está el frente, la derecha y el centro.',
+    ];
+    doc.text(t, A4.ancho / 2, y + w + 8, { align: 'center', lineHeightFactor: 1.5, maxWidth: A4.ancho - 20 });
+  });
+  return doc.output('blob');
 }
