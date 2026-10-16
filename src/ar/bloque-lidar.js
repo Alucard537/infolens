@@ -3,7 +3,8 @@
 //      las flechas por el camino exacto y, al final, la información del elemento.
 //   2) respaldo: colocar a mano (si no detecta el QR).
 //   3) ajustes del QR: en el suelo / en la pared, y girar si las flechas salen giradas.
-import { crearEnlaceAR, hayQuickLook } from './boton-ar.js';
+import { hayQuickLook } from './boton-ar.js';
+import { abrirCentrarQR } from '../ui/centrar-qr.js';
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
 
 const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -45,8 +46,8 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
     <label class="lidar-vista">Qué mostrar
       <select data-q="vista"><option value="flechas">⚓ Ancla + flechas</option><option value="linea">⚓ Ancla + línea de un punto a otro</option></select></label>
     <div class="lidar-boton"></div>
-    <p class="nota">Apunta al QR del ancla y toca el botón verde: el recorrido aparece ahí. Ajústalo con los dedos
-      (uno para mover, dos para girar) hasta que el ⚓ quede encima del QR y las flechas salgan hacia "▲ ADELANTE". Luego camina.</p>
+    <p class="nota">Al pulsar, centra el QR del ancla dentro del recuadro amarillo (▲ ADELANTE hacia arriba) y pulsa ⚓ Anclar:
+      el recorrido aparece encima del QR. Si hace falta, ajústalo con los dedos (uno para mover, dos para girar). Luego camina.</p>
     <div class="lidar-safari"></div>`;
   const aj = fijos || ajustesQRLidar(anclaId);
   const selVista = div.querySelector('[data-q="vista"]');
@@ -69,7 +70,12 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       const url = URL.createObjectURL(archivo);
       urlsVivas.add(url);
       boton.innerHTML = '';
-      boton.appendChild(crearEnlaceAR({ url, texto: '🧭 Ver recorrido con LiDAR' }).enlace);
+      // Primero se centra el QR en el recuadro amarillo (cámara de la app) y desde ahí se ancla
+      const b = document.createElement('button');
+      b.className = 'boton grande boton-lidar';
+      b.textContent = '🧭 Ver recorrido con LiDAR';
+      b.addEventListener('click', () => abrirCentrarQR(url));
+      boton.appendChild(b);
     } catch (e) {
       if (mio !== turno) return;
       console.warn('Recorrido LiDAR:', e);
