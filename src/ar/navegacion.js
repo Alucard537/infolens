@@ -70,13 +70,13 @@ export function puntosRecorrido(nav) {
  * Grupo con las flechas a lo largo del recorrido (en coordenadas G).
  * separacion: metros entre flechas.
  */
-export function crearFlechas(puntos, separacion = 0.22, { conLinea = true } = {}) {
+export function crearFlechas(puntos, separacion = 0.5, { conLinea = true } = {}) {
   const grupo = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, roughness: 0.4, metalness: 0.1 });
   const materialLinea = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, transparent: true, opacity: 0.7 });
   grupo.userData.materiales = [material, materialLinea];
   const arriba = new THREE.Vector3(0, 1, 0);
-  const ESCALA_FLECHA = new THREE.Vector3(1.4, 1.4, 1.4);
+  const ESCALA_FLECHA = new THREE.Vector3(0.9, 0.9, 0.9);
   if (conLinea && puntos.length) {
     // Marca de salida junto al QR del ancla (un aro en el suelo del recorrido)
     const aro = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 32), materialLinea);
@@ -148,7 +148,7 @@ function placaTexto(lineas, anchoM = 0.3) {
 export function escenaRecorrido(nav, componente, { conEtiqueta = true } = {}) {
   const grupo = new THREE.Group();
   const puntos = puntosRecorrido(nav);
-  grupo.add(crearFlechas(puntos, 0.3, { conLinea: false }));
+  grupo.add(crearFlechas(puntos, 0.5, { conLinea: false }));
   const destino = puntos[puntos.length - 1];
   const previo = puntos[puntos.length - 2];
   const mira = previo.clone().sub(destino); mira.y = 0;

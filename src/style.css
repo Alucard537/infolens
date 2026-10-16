@@ -425,3 +425,13 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
 .tramo-botones { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
 .tramos { padding-left: 0; list-style: none; margin: 6px 0; }
 .destino-tramos { font-weight: 700; color: #7CFC9A; }
+
+.estado-seguimiento {
+  position: absolute; left: 50%; transform: translateX(-50%); top: calc(max(12px, env(safe-area-inset-top)) + 92px); z-index: 2;
+  padding: 6px 14px; border-radius: 999px; font-size: 14px; font-weight: 700; white-space: nowrap; max-width: calc(100% - 32px);
+  overflow: hidden; text-overflow: ellipsis; background: rgba(15, 27, 36, 0.85); color: #fff; pointer-events: none;
+}
+.estado-seguimiento[hidden] { display: none; }
+.estado-seguimiento.verde { border: 2px solid #30d158; }
+.estado-seguimiento.azul { border: 2px solid #0a84ff; }
+.estado-seguimiento.naranja { border: 2px solid #ff9f0a; white-space: normal; text-align: center; }

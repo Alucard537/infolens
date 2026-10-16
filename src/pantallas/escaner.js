@@ -21,6 +21,7 @@ import { crearSensorVertical, pedirPermisoSensor, faltaPermiso } from '../ar/ver
 
 const TIEMPO_OCULTAR_MS = 1000;   // si no se ve el QR durante 1 s, se oculta el icono
 const MAX_LADO_CAPTURA = 1920;    // resolución máxima que se pasa al lector de QR
+const LADO_ENTORNO = 480;         // resolución para el seguimiento con el entorno (suelo / pared)
 const DIAMETRO_ICONO = 0.7;       // tamaño de la "i" respecto al lado del QR
 const SEPARACION_ICONO = 0.15;    // hueco entre el borde del QR y la "i" (respecto al lado del QR)
 // Tamaño del modelo 3D en realidad aumentada: unas 2,5 veces el QR, entre 12 y 30 cm
@@ -51,6 +52,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
         <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
+      <div class="estado-seguimiento" hidden></div>
       <div class="guia-recorte" hidden></div>
       <button class="aviso-sensor" hidden>📐 Toca aquí para activar el sensor de movimiento.<br><small>Sin él no se sabe dónde está el suelo y las flechas no se pueden orientar.</small></button>
       <div class="rec-panel" hidden></div>
@@ -74,6 +76,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
           </select>
         </label>
         <label class="fila"><input type="checkbox" data-ajuste="debug"> Mostrar esquinas y distancia</label>
+        ${modo !== 'escaner' ? '<label class="fila"><input type="checkbox" data-ajuste="entorno"> Seguir la posición con el entorno (suelo / pared) cuando no se ve el QR</label>' : ''}
         ${esAdmin() && modo !== 'escaner' ? '<label class="fila"><input type="checkbox" data-ajuste="ejes"> Mostrar los ejes X / Y / Z del ancla (para configurar coordenadas)</label>' : ''}
         <p class="nota">Para afinar: pon el móvil a una distancia conocida del QR (por ejemplo 1 m) y mueve
           el campo de visión hasta que la distancia mostrada coincida.</p>
@@ -90,6 +93,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   const btnLinterna = $('[data-accion="linterna"]');
   const panel = $('.esc-panel');
   panel.querySelector('[data-ajuste="posModelo"]').value = ajustes.posModelo === 'debajo' ? 'debajo' : 'encima';
+  const casillaEntorno = panel.querySelector('[data-ajuste="entorno"]');
+  if (casillaEntorno) casillaEntorno.checked = ajustes.entorno !== false;
   let debug = false;
   let activo = true;
   let stream = null;
@@ -251,6 +256,72 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   }
   const urlsFotos = [];
 
+  /** Coloca el objetivo de un QR seguido a partir de su pose (coordenadas de cámara "de visión"). */
+  function ponerPose(s, pose) {
+    const [r1, r2, r3] = pose.R, t = pose.t;
+    const M = new THREE.Matrix4().set(
+      r1[0], r2[0], r3[0], t[0],
+      r1[1], r2[1], r3[1], t[1],
+      r1[2], r2[2], r3[2], t[2],
+      0, 0, 0, 1,
+    );
+    M.premultiply(D).multiply(D);
+    M.decompose(s.objetivoPos, s.objetivoRot, new THREE.Vector3());
+    s.distancia = Math.hypot(t[0], t[1], t[2]);
+  }
+
+  // ---------- seguimiento con el entorno (modos ANCLA y GUÍA) ----------
+  // Mientras se ve el QR del ancla aprende puntos del plano donde está pegado (suelo, mesa, pared);
+  // cuando el QR sale de la imagen, sigue esos puntos y mantiene la posición del QR (ver ar/entorno.js).
+  const entorno = modo !== 'escaner' ? new Worker(new URL('../ar/entorno-worker.js', import.meta.url), { type: 'module' }) : null;
+  const lienzoEntorno = document.createElement('canvas');
+  const ctxEntorno = lienzoEntorno.getContext('2d', { willReadFrequently: true });
+  let entornoOcupado = false, idAnclaEntorno = null, infoEntorno = { puntos: 0, encajan: 0 };
+  if (entorno) {
+    entorno.onmessage = (e) => {
+      entornoOcupado = false;
+      if (!activo) return;
+      const d = e.data;
+      if (d.error) console.warn('Entorno:', d.error);
+      infoEntorno = d;
+      if (!d.pose || !idAnclaEntorno || ajustes.entorno === false) return;
+      const s = seguidos.get(idAnclaEntorno);
+      const ahora = performance.now();
+      if (!s || ahora - (s.vistoQR || 0) < 150) return; // con el QR a la vista manda el QR
+      ponerPose(s, d.pose);
+      s.esquinas = null;
+      s.visto = ahora;
+      s.porEntorno = true;
+      s.ultimoEntorno = ahora;
+    };
+    entorno.onerror = (e) => { entornoOcupado = false; console.warn('Entorno:', e.message); };
+  }
+  function capturarEntorno(tiempo) {
+    if (!entorno || entornoOcupado || ajustes.entorno === false || !idAnclaEntorno) return;
+    if (video.readyState < 2 || !video.videoWidth) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const k = Math.min(1, LADO_ENTORNO / Math.max(vw, vh));
+    const w = Math.round(vw * k), h = Math.round(vh * k);
+    if (lienzoEntorno.width !== w) lienzoEntorno.width = w;
+    if (lienzoEntorno.height !== h) lienzoEntorno.height = h;
+    ctxEntorno.drawImage(video, 0, 0, w, h);
+    const datos = ctxEntorno.getImageData(0, 0, w, h);
+    const g = geometria();
+    entornoOcupado = true;
+    entorno.postMessage({ tipo: 'fotograma', t: tiempo, w, h, f: g.f * k, cx: g.cx * k, cy: g.cy * k, buffer: datos.data.buffer }, [datos.data.buffer]);
+  }
+  const estadoSeg = $('.estado-seguimiento');
+  function pintarEstadoSeguimiento(ahora) {
+    const s = idAnclaEntorno && seguidos.get(idAnclaEntorno);
+    let txt = '', clase = '';
+    if (s && ahora - (s.vistoQR || 0) < 400) { txt = '🟢 QR del ancla a la vista'; clase = 'verde'; }
+    else if (s && s.porEntorno && ahora - (s.ultimoEntorno || 0) < 400) { txt = `🔵 Siguiendo con el entorno · ${infoEntorno.encajan} puntos`; clase = 'azul'; }
+    else if (s && s.vistoQR) { txt = ajustes.entorno === false ? '🟠 Solo el giro del móvil: vuelve a enfocar el QR del ancla' : '🟠 Posición perdida: vuelve a enfocar el QR del ancla (o apunta al suelo con textura)'; clase = 'naranja'; }
+    estadoSeg.hidden = !txt;
+    if (txt && estadoSeg.textContent !== txt) estadoSeg.textContent = txt;
+    estadoSeg.className = 'estado-seguimiento ' + clase;
+  }
+
   function procesarDeteccion(qrs, k, tiempo) {
     if (!elementos || !anclas) return; // la base de datos aún no ha cargado (tarda milisegundos)
     const g = geometria();
@@ -269,18 +340,16 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       ]);
       const pose = calcularPose(esq, g.f, g.cx, g.cy, lado);
       if (!pose) continue;
-      const [r1, r2, r3] = pose.R, t = pose.t;
-      const M = new THREE.Matrix4().set(
-        r1[0], r2[0], r3[0], t[0],
-        r1[1], r2[1], r3[1], t[1],
-        r1[2], r2[2], r3[2], t[2],
-        0, 0, 0, 1,
-      );
-      M.premultiply(D).multiply(D);
-      M.decompose(s.objetivoPos, s.objetivoRot, new THREE.Vector3());
+      ponerPose(s, pose);
       s.esquinas = esq;
-      s.distancia = Math.hypot(t[0], t[1], t[2]);
       s.visto = performance.now();
+      // Ancla activa: su pose enseña al seguimiento con el entorno dónde está el plano del QR
+      if (entorno && s.tipo === 'ancla-activa') {
+        if (idAnclaEntorno !== id) { entorno.postMessage({ tipo: 'reiniciar' }); idAnclaEntorno = id; }
+        entorno.postMessage({ tipo: 'qr', t: tiempo, R: pose.R, tv: pose.t });
+        s.vistoQR = s.visto;
+        s.porEntorno = false;
+      }
     }
   }
 
@@ -306,7 +375,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     estado.textContent = 'Error del lector de QR: ' + (e.message || 'desconocido');
   };
 
-  function capturar() {
+  function capturar(tiempo) {
     if (ocupado || video.readyState < 2 || !video.videoWidth) return;
     const vw = video.videoWidth, vh = video.videoHeight;
     const k = Math.min(1, MAX_LADO_CAPTURA / Math.max(vw, vh));
@@ -316,7 +385,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     ctxCaptura.drawImage(video, 0, 0, w, h);
     const datos = ctxCaptura.getImageData(0, 0, w, h);
     const id = ++peticion;
-    pendientes.set(id, { k, tiempo: performance.now() });
+    pendientes.set(id, { k, tiempo });
     ocupado = true;
     worker.postMessage({ id, ancho: w, alto: h, buffer: datos.data.buffer }, [datos.data.buffer]);
   }
@@ -506,7 +575,9 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     const ahora = performance.now();
     const dt = Math.min((ahora - ultimo) / 1000, 0.1);
     ultimo = ahora;
-    capturar();
+    capturarEntorno(ahora);
+    capturar(ahora);
+    pintarEstadoSeguimiento(ahora);
 
     const g = geometria();
     actualizarProyeccion(g);
@@ -871,6 +942,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     }
   });
   panel.addEventListener('change', (e) => {
+    if (e.target.dataset.ajuste === 'entorno') ajustes = guardarAjustes({ entorno: e.target.checked });
     if (e.target.dataset.ajuste === 'camaraId') {
       ajustes = guardarAjustes({ camaraId: e.target.value });
       iniciarCamara();
@@ -890,6 +962,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     quitarAncla();
     detenerCamara();
     worker.terminate();
+    if (entorno) entorno.terminate();
     window.removeEventListener('resize', ajustarTamano);
     renderer.dispose();
     urlsFotos.forEach((u) => URL.revokeObjectURL(u));

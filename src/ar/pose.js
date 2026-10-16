@@ -2,7 +2,7 @@
 // Método: homografía entre el cuadrado real (en metros) y las esquinas en la imagen.
 
 // Resuelve A·x = b (8x8) por eliminación de Gauss.
-function resolver(A, b) {
+export function resolver(A, b) {
   const n = b.length;
   for (let c = 0; c < n; c++) {
     let p = c;
@@ -49,6 +49,14 @@ export function calcularPose(esquinas, f, cx, cy, lado) {
   }
   const H = resolver(A, b);
   if (!H) return null;
+  return poseDeHomografia(H);
+}
+
+/**
+ * Pose de un plano a partir de su homografía H (8 coeficientes, h33 = 1) entre coordenadas del plano
+ * (metros) y coordenadas normalizadas de la cámara ((u - cx) / f, (v - cy) / f).
+ */
+export function poseDeHomografia(H) {
   const c1 = [H[0], H[3], H[6]];
   const c2 = [H[1], H[4], H[7]];
   const c3 = [H[2], H[5], 1];
