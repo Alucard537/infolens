@@ -18,7 +18,12 @@ export function leerDatosRecorrido(texto) {
       info: { nombre: txt(i.nombre || 'Destino', 80), referencia: txt(i.referencia, 80), id: txt(i.id, 60), descripcion: txt(i.descripcion, 300) },
       anclaId: txt(d.a, 80),
       ladoCm: Number(d.l) > 0 && Number(d.l) < 200 ? Number(d.l) : 10,
-      fijos: { colocacion: d.c === 'pared' ? 'pared' : 'suelo', giro: [0, 90, 180, 270].includes(Number(d.g)) ? Number(d.g) : 0 },
+      fijos: {
+        colocacion: d.c === 'pared' ? 'pared' : 'suelo',
+        giro: Number.isFinite(Number(d.g)) ? Math.round(Number(d.g) / 5) * 5 : 0,
+        anchoReal: Number(d.w) > 2 && Number(d.w) < 200 ? Number(d.w) : null,
+        vista: d.v === 'linea' ? 'linea' : 'flechas',
+      },
     };
   } catch {
     return null;

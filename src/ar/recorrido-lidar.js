@@ -124,14 +124,14 @@ function compatibles(raiz) {
  * .usdz del paso. modo 'qr': anclado al QR impreso (textoQR, ladoCm, colocacion 'suelo'|'pared', giro en grados).
  * modo 'suelo': se coloca a mano.
  */
-export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'flechas', unidad = 'cm', soloQR = false } = {}) {
+export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'flechas', unidad = 'cm', soloQR = false, anchoRealCm = null } = {}) {
   const escena = escenaPaso(puntos, info, { ladoCm, vista });
   compatibles(escena);
   if (modo === 'qr') {
     const arribaL = colocacion === 'pared' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
     // Imagen de referencia = el MARCADOR del ancla (dibujo + QR), salvo que se pida el QR solo (marcadores antiguos)
     const m = soloQR ? null : await pngMarcador(textoQR, ladoCm);
-    return usdzAncladoAQR(escena, { textoQR, ladoCm, arribaL, giroGrados: giro, imagen: m && m.png, anchoImagenCm: m && m.anchoCm, unidad });
+    return usdzAncladoAQR(escena, { textoQR, ladoCm, arribaL, giroGrados: giro, imagen: m && m.png, anchoImagenCm: m && (anchoRealCm || m.anchoCm), unidad });
   }
   const bytes = await new USDZExporter().parseAsync(escena);
   return new Blob([bytes], { type: 'model/vnd.usdz+zip' });

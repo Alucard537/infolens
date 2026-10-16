@@ -5,6 +5,8 @@
 //   3) ajustes del QR: en el suelo / en la pared, y girar si las flechas salen giradas.
 import { crearEnlaceAR, hayQuickLook } from './boton-ar.js';
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
+import { anchoMarcadorCm } from './marcador.js';
+import { numero } from '../coordenadas.js';
 
 const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const esAppInstalada = () => navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
@@ -18,12 +20,13 @@ export function ajustesQRLidar(anclaId) {
     giro: Number((a.lidarGiro || {})[anclaId] || 0),
     vista: a.lidarVista === 'linea' ? 'linea' : 'flechas',
     unidad: a.lidarUnidad || 'cm',
+    anchoReal: Number((a.lidarAncho || {})[anclaId]) || null,
   };
 }
 function guardarAjusteQR(anclaId, campo, valor) {
   const a = leerAjustes();
   if (campo === 'vista') { guardarAjustes({ lidarVista: valor }); return; }
-  const clave = campo === 'colocacion' ? 'lidarColocacion' : 'lidarGiro';
+  const clave = campo === 'colocacion' ? 'lidarColocacion' : campo === 'ancho' ? 'lidarAncho' : 'lidarGiro';
   guardarAjustes({ [clave]: { ...(a[clave] || {}), [anclaId]: valor } });
 }
 
@@ -47,6 +50,11 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
   div.innerHTML = `
     <label class="lidar-vista">Qué mostrar
       <select data-q="vista"><option value="flechas">⚓ Ancla + flechas</option><option value="linea">⚓ Ancla + línea de un punto a otro</option></select></label>
+    <div class="lidar-medida">
+      <label>📏 Medida real del MARCADOR impreso, en cm (el cuadro entero, de borde negro a borde negro)
+        <input inputmode="decimal" data-q="ancho"></label>
+      <p class="nota medida-nota"></p>
+    </div>
     <div class="lidar-boton"></div>
     <p class="nota">Al abrir, <b>apunta al MARCADOR del ancla</b> (el dibujo con el QR en el centro; se imprime en
       ⚓ Gestión de anclas → 🖨️ Marcador): aparece un ⚓ ancla 3D encima y las flechas hasta el elemento, con su
@@ -75,6 +83,18 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
   const selVista = div.querySelector('[data-q="vista"]');
   selVista.value = aj.vista === 'linea' ? 'linea' : 'flechas';
   const boton = div.querySelector('.lidar-boton'), mano = div.querySelector('.lidar-mano');
+  // Medida real del marcador: el AR de Apple necesita la medida EXACTA del papel (la impresora puede cambiarla)
+  const anchoTeorico = anchoMarcadorCm(ladoCm);
+  const inAncho = div.querySelector('[data-q="ancho"]');
+  inAncho.value = String(aj.anchoReal || anchoTeorico).replace('.', ',');
+  const anchoReal = () => { const n = numero(inAncho.value); return n > 2 && n < 200 ? n : null; };
+  const notaMedida = () => {
+    const n = anchoReal();
+    div.querySelector('.medida-nota').textContent = !n ? '⚠️ Escribe un número (cm).'
+      : Math.abs(n - anchoTeorico) > 0.3 ? `Impreso a otro tamaño: se usará ${String(n).replace('.', ',')} cm (el PDF lo hace de ${String(anchoTeorico).replace('.', ',')} cm).`
+        : `Correcto si con la regla mide ${String(anchoTeorico).replace('.', ',')} cm.`;
+  };
+  notaMedida();
 
   let turno = 0;
   async function preparar() {
@@ -85,7 +105,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
       const THREE = await import('three');
       const { usdzPaso } = await import('./recorrido-lidar.js');
       const pts = puntos.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
-      const comunes = { textoQR: 'INFOLENS:' + anclaId, ladoCm, colocacion: selCol.value, giro: Number(selGiro.value), vista: selVista.value, unidad: aj.unidad || 'cm' };
+      const comunes = { textoQR: 'INFOLENS:' + anclaId, ladoCm, colocacion: selCol.value, giro: Number(selGiro.value), vista: selVista.value, unidad: aj.unidad || 'cm', anchoRealCm: anchoReal() };
       const [qr, suelo] = await Promise.all([usdzPaso(pts, info, { ...comunes, modo: 'qr' }), usdzPaso(pts, info, { ...comunes, modo: 'suelo' })]);
       if (mio !== turno) return;
       for (const u of urlsVivas) URL.revokeObjectURL(u);
@@ -114,6 +134,18 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
   selCol.addEventListener('change', alCambiar('colocacion', selCol));
   selGiro.addEventListener('change', alCambiar('giro', selGiro));
   selVista.addEventListener('change', () => { guardarAjusteQR(anclaId, 'vista', selVista.value); preparar(); });
+  let esperaMedida = 0;
+  inAncho.addEventListener('input', () => {
+    notaMedida();
+    clearTimeout(esperaMedida);
+    esperaMedida = setTimeout(() => {
+      const n = anchoReal();
+      if (!n) return;
+      if (!fijos) guardarAjusteQR(anclaId, 'ancho', n);
+      preparar();
+      pintarSafari();
+    }, 700);
+  });
 
   // Desde la app instalada puede que el AR de Apple no se abra: opción de abrirlo en Safari
   function pintarSafari() {
@@ -121,7 +153,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
     if (!(esIOS() && esAppInstalada())) { s.innerHTML = ''; return; }
     s.innerHTML = '<p class="nota">Si desde la app instalada el botón verde no hace nada:</p><a class="boton secundario enlace-boton" target="_blank" rel="noopener">🧭 Abrir este recorrido en Safari</a>';
     s.querySelector('a').href = direccionSafari({
-      p: puntos, i: info, a: anclaId, l: ladoCm, c: selCol.value, g: Number(selGiro.value),
+      p: puntos, i: info, a: anclaId, l: ladoCm, c: selCol.value, g: Number(selGiro.value), w: anchoReal(), v: selVista.value,
     });
   }
   pintarSafari();

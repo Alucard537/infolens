@@ -84,6 +84,7 @@ export function pantallaDiagnosticoAR(app, { volver }) {
   marc.innerHTML = `
     <p class="nota lidar-recomendado">E / F) Detectar el MARCADOR del ancla</p>
     <label>Ancla <select data-d="ancla"></select></label>
+    <label>📏 Medida real del marcador impreso (cm, de borde negro a borde negro) <input inputmode="decimal" data-d="ancho"></label>
     <button class="boton secundario" data-d="pdf">🖨️ Imprimir el marcador de este ancla</button>
     <p class="nota">Imprímelo al 100 %, ponlo en la mesa y prueba E y F. En el bueno, el ⚓ aparece encima y, si giras el
       papel, el ancla y las flechas giran con él. La flecha azul tiene que apuntar a "▲ ADELANTE".</p>
@@ -98,6 +99,10 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     if (!anclas.length) anclas.push({ id: 'PRUEBA', nombre: 'Prueba' });
     for (const a of anclas) { const o = document.createElement('option'); o.value = a.id; o.textContent = `${a.nombre} (${a.id})`; selA.appendChild(o); }
     const lado = leerAjustes().qrCm || 10;
+    const { anchoMarcadorCm } = await import('../ar/marcador.js');
+    const inAncho = marc.querySelector('[data-d="ancho"]');
+    inAncho.value = String(anchoMarcadorCm(lado)).replace('.', ',');
+    const anchoReal = () => { const n = parseFloat(String(inAncho.value).replace(',', '.')); return n > 2 && n < 200 ? n : null; };
     marc.querySelector('[data-d="pdf"]').addEventListener('click', async () => {
       const [{ generarPdfMarcador }, { guardarOCompartir }] = await Promise.all([import('../qr-pdf.js'), import('../ui/descargar.js')]);
       const a = anclas.find((x) => x.id === selA.value);
@@ -111,7 +116,7 @@ export function pantallaDiagnosticoAR(app, { volver }) {
         const caja = marc.querySelector('.' + clase), est = marc.querySelector(`.${clase}-estado`);
         caja.innerHTML = ''; est.textContent = '⏳ Preparando…';
         try {
-          const b = await usdzPaso(pts, { nombre: 'Prueba', referencia: '100 adelante · 50 derecha' }, { modo: 'qr', textoQR: 'INFOLENS:' + selA.value, ladoCm: lado, unidad });
+          const b = await usdzPaso(pts, { nombre: 'Prueba', referencia: '100 adelante · 50 derecha' }, { modo: 'qr', textoQR: 'INFOLENS:' + selA.value, ladoCm: lado, unidad, anchoRealCm: anchoReal() });
           if (!activo) return;
           caja.appendChild(crearEnlaceAR({ url: URL.createObjectURL(b), texto: `🧪 Probar ${letra} (tamaño en ${unidad === 'cm' ? 'centímetros' : 'metros'})` }).enlace);
           est.textContent = `${Math.round(b.size / 1024)} KB · recorrido: 100 cm adelante y 50 cm a la derecha`;
@@ -119,6 +124,7 @@ export function pantallaDiagnosticoAR(app, { volver }) {
       }
     };
     selA.addEventListener('change', preparar);
+    inAncho.addEventListener('change', preparar);
     preparar();
   })();
   return () => { activo = false; };
