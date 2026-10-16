@@ -48,26 +48,16 @@ export function pantallaArRecorrido(app, datosTexto, { volver }) {
     btn.textContent = '⏳ Preparando…';
     listo.innerHTML = '';
     try {
-      // El archivo se sirve desde el almacén de la app: hace falta que el service worker controle la página
-      if ('serviceWorker' in navigator && !navigator.serviceWorker.controller) {
-        btn.textContent = '⏳ Preparando la app en Safari…';
-        await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(r, 8000))]);
-        if (!navigator.serviceWorker.controller) {
-          if (!sessionStorage.getItem('ar-recarga')) { sessionStorage.setItem('ar-recarga', '1'); location.reload(); return; }
-        }
-      }
-      sessionStorage.removeItem('ar-recarga');
       const THREE = await import('three');
-      const [{ usdzRecorridoObjetos }, { direccionWeb, CACHE_AR }] = await Promise.all([import('../ar/prueba-flechas.js'), import('../ar/quicklook.js')]);
+      const [{ usdzRecorridoObjetos }, { direccionWeb }] = await Promise.all([import('../ar/prueba-flechas.js'), import('../ar/quicklook.js')]);
       const bytes = await usdzRecorridoObjetos(datos.puntos.map((q) => new THREE.Vector3(q[0], q[1], q[2])));
-      try { const c = await caches.open(CACHE_AR); for (const r of await c.keys()) if (r.url.includes('/ar-generado/safari-')) await c.delete(r); } catch {}
       const blob = new Blob([bytes], { type: 'model/vnd.usdz+zip' });
-      const url = await direccionWeb(`safari-${Date.now()}`, blob);
+      const url = await direccionWeb('safari', blob);
       if (!activo) return;
       listo.appendChild(crearEnlaceAR({ url, texto: '🧭 Ver recorrido con LiDAR' }).enlace);
       const info = document.createElement('p');
       info.className = 'nota';
-      info.textContent = `Archivo: ${Math.round(blob.size / 1024)} KB · ${url.startsWith('blob:') ? '⚠️ temporal (puede abrirse sin AR): recarga la página y vuelve a preparar' : '✅ listo'}`;
+      info.textContent = `✅ Listo · ${Math.round(blob.size / 1024)} KB. Toca el botón verde.`;
       listo.appendChild(info);
       btn.textContent = '↻ Volver a preparar';
     } catch (e) {
@@ -79,7 +69,5 @@ export function pantallaArRecorrido(app, datosTexto, { volver }) {
     }
     btn.disabled = false;
   });
-  // Si se recargó para activar el service worker, preparar directamente
-  if (sessionStorage.getItem('ar-recarga')) btn.click();
   return () => { activo = false; };
 }

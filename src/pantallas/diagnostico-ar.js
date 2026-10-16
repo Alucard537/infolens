@@ -55,7 +55,13 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     } catch (e) { return 'Comprobación: ❌ ' + e.message; }
   };
   (async () => {
-    const { direccionWeb } = await import('../ar/quicklook.js');
+    // B y C: guardado en el almacén de la app (Cache Storage), como se hacía antes
+    const direccionWeb = async (id, blob) => {
+      if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) return URL.createObjectURL(blob);
+      const url = new URL(`${base}ar-generado/${encodeURIComponent(id)}.usdz`, location.href).href;
+      await (await caches.open('ar-generado')).put(url, new Response(blob, { headers: { 'Content-Type': 'model/vnd.usdz+zip', 'Content-Length': String(blob.size) } }));
+      return url;
+    };
     try {
       const blob = await (await fetch(urlFija)).blob();
       const url = await direccionWeb('diag-B', new Blob([blob], { type: 'model/vnd.usdz+zip' }));

@@ -155,12 +155,12 @@ function pruebaFlechas() {
       if (!tramos.length) throw new Error('Escribe al menos un tramo.');
       if (tramos.some((t) => Object.values(t).some((v) => !Number.isFinite(v)))) throw new Error('Algún valor no es un número.');
       const bytes = await usdzPruebaFlechas(tramos);
-      const url = await direccionWeb(`prueba-flechas-${Date.now()}`, new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+      const url = await direccionWeb('prueba-flechas', new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
       salida.innerHTML = '';
       salida.appendChild(crearEnlaceAR({ url, texto: '🧪 Abrir mis medidas en AR con LiDAR' }).enlace);
       const n = document.createElement('p');
       n.className = 'nota';
-      n.textContent = url.startsWith('blob:') ? '⚠️ Se ha creado como archivo temporal: puede abrirse sin AR.' : '✅ Listo. Toca el botón verde.';
+      n.textContent = '✅ Listo. Toca el botón verde.';
       salida.appendChild(n);
     } catch (e) {
       salida.innerHTML = '';

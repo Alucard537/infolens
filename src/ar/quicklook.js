@@ -53,22 +53,18 @@ async function crearUsdz(blobGlb) {
   return new Blob([bytes], { type: 'model/vnd.usdz+zip' });
 }
 
-// Con una dirección temporal (blob:) Quick Look abre el modelo pero SIN realidad aumentada.
-// Por eso el .usdz se guarda en el almacén de la app (Cache Storage) con una dirección web normal
-// (…/ar-generado/<id>.usdz); el service worker la sirve desde ahí, igual que la prueba del inicio.
+// Dirección del .usdz generado en el móvil para el AR de Apple.
+// PROBADO EN EL iPHONE (diagnóstico, 16/10/2026): funciona como dirección TEMPORAL (blob:).
+// Guardado en el almacén de la app (Cache Storage) y servido por el service worker NO se abre.
+// (Lo que hacía que se abriera sin AR era tener la cámara de la app encendida, no el blob.)
 export const CACHE_AR = 'ar-generado';
+const temporales = new Map(); // id -> blob: (se libera la anterior del mismo id)
 export async function direccionWeb(id, blob) {
-  try {
-    if (!('caches' in window) || !navigator.serviceWorker || !navigator.serviceWorker.controller) throw new Error('sin SW');
-    const url = new URL(`${import.meta.env.BASE_URL}ar-generado/${encodeURIComponent(id)}.usdz`, location.href).href;
-    const almacen = await caches.open(CACHE_AR);
-    await almacen.put(url, new Response(blob, {
-      headers: { 'Content-Type': 'model/vnd.usdz+zip', 'Content-Length': String(blob.size) },
-    }));
-    return url;
-  } catch {
-    return URL.createObjectURL(blob); // último recurso (por ejemplo en desarrollo, sin service worker)
-  }
+  const previa = temporales.get(id);
+  if (previa) URL.revokeObjectURL(previa);
+  const url = URL.createObjectURL(blob);
+  temporales.set(id, url);
+  return url;
 }
 
 /** Prepara (una vez) el .usdz del modelo de un elemento. Devuelve Promise<URL>. */
@@ -187,15 +183,6 @@ export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
   div.className = 'bloque-lidar-guia';
   // Desde la app instalada en la pantalla de inicio el AR de Apple NO se abre: se abre en Safari,
   // con el recorrido dentro de la dirección (Safari no tiene los datos de la app).
-  if (esIOS() && esAppInstalada()) {
-    div.innerHTML = `
-      <p class="nota lidar-recomendado">👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).</p>
-      <a class="boton grande enlace-boton" target="_blank" rel="noopener">🧭 Abrir el recorrido con LiDAR (en Safari)</a>
-      <p class="nota">La app instalada no puede abrir el AR de Apple: se abre en Safari. Allí pulsa "Preparar" y luego el botón verde.
-        Cuando termines, vuelve a esta app para seguir.</p>`;
-    div.querySelector('a').href = direccionSafariRecorrido(componente);
-    return div;
-  }
   div.innerHTML = `
     <p class="nota lidar-recomendado">👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).</p>
     <button class="boton" data-l="preparar">⚙️ Preparar recorrido con LiDAR</button>
@@ -215,9 +202,7 @@ export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
       let h = 0;
       for (const c of JSON.stringify([componente.nav, componente.id, ancla.id])) h = (h * 31 + c.charCodeAt(0)) | 0;
       const blob = new Blob([bytes], { type: 'model/vnd.usdz+zip' });
-      // Borrar los recorridos preparados antes (no se acumulan)
-      try { const c = await caches.open(CACHE_AR); for (const r of await c.keys()) if (r.url.includes('/ar-generado/paso-')) await c.delete(r); } catch {}
-      const url = await direccionWeb(`paso-${(h >>> 0).toString(36)}-${Date.now()}`, blob);
+      const url = await direccionWeb(`paso-${(h >>> 0).toString(36)}`, blob);
       listo.appendChild(crearEnlaceAR({ url, texto: '🧭 Ver recorrido con LiDAR: ancla 🟥 → componente 🟦' }).enlace);
       // Otra forma de abrirlo: un enlace normal al archivo (Safari también abre el AR de Apple)
       const otro = document.createElement('a');
@@ -227,7 +212,7 @@ export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
       listo.appendChild(otro);
       const info = document.createElement('p');
       info.className = 'nota';
-      info.textContent = `Archivo: ${Math.round(blob.size / 1024)} KB · ${url.startsWith('blob:') ? '⚠️ temporal (puede abrirse sin AR)' : '✅ guardado en la app'}`;
+      info.textContent = `✅ Listo · ${Math.round(blob.size / 1024)} KB. Toca el botón verde.`;
       listo.appendChild(info);
       btn.textContent = '↻ Volver a preparar';
     } catch (e) {
@@ -240,6 +225,15 @@ export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
     }
     btn.disabled = false;
   });
+  // Desde la app instalada en la pantalla de inicio puede que el AR de Apple no se abra: otra opción es
+  // abrirlo en Safari, con el recorrido dentro de la dirección (Safari no tiene los datos de la app).
+  if (esIOS() && esAppInstalada()) {
+    const extra = document.createElement('div');
+    extra.innerHTML = '<p class="nota">Si desde la app instalada el botón verde no hace nada, ábrelo en Safari:</p>'
+      + '<a class="boton secundario enlace-boton" target="_blank" rel="noopener">🧭 Abrir el recorrido en Safari</a>';
+    extra.querySelector('a').href = direccionSafariRecorrido(componente);
+    div.appendChild(extra);
+  }
   return div;
 }
 
