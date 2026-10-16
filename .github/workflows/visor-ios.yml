@@ -1,0 +1,58 @@
+# Compila el visor nativo de iPhone (ios/) en un Mac de GitHub, SIN firmar.
+# El .ipa se instala en el iPhone con Sideloadly (Windows) y un Apple ID gratuito (caduca a los 7 días).
+name: Visor iOS
+
+on:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/visor-ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generar el proyecto de Xcode
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+      - name: Compilar
+        run: |
+          cd ios
+          set -o pipefail
+          xcodebuild -project InfoLensVisor.xcodeproj -target InfoLensVisor -configuration Release -sdk iphoneos \
+            SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee compilacion.log
+      - name: Errores de compilación (en el resumen)
+        if: failure()
+        run: |
+          echo '## Errores de compilación' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "error:|warning: unre|fatal" ios/compilacion.log | head -60 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Empaquetar .ipa
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -R build/Release-iphoneos/InfoLensVisor.app Payload/
+          zip -qry InfoLensVisor.ipa Payload
+          ls -la InfoLensVisor.ipa
+          echo "✅ Compilado: InfoLensVisor.ipa ($(du -h InfoLensVisor.ipa | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InfoLensVisor-ipa
+          path: ios/InfoLensVisor.ipa
+      - name: Publicar en "Releases" (descarga directa)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: visor-ios
+          name: InfoLens Visor (iPhone)
+          body: |
+            Visor AR nativo de InfoLens. Descarga InfoLensVisor.ipa e instálalo con Sideloadly (Windows) y tu Apple ID.
+            Compilado del commit ${{ github.sha }}.
+          files: ios/InfoLensVisor.ipa
+          prerelease: true
+          make_latest: false

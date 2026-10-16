@@ -5,6 +5,7 @@
 //   3) ajustes del QR: en el suelo / en la pared, y girar si las flechas salen giradas.
 import { hayQuickLook } from './boton-ar.js';
 import { abrirCentrarQR } from '../ui/centrar-qr.js';
+import { botonVisor } from './visor-nativo.js';
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
 
 const esIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -48,6 +49,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
     <div class="lidar-boton"></div>
     <p class="nota">Al pulsar, centra el QR del ancla dentro del recuadro amarillo (▲ ADELANTE hacia arriba) y pulsa ⚓ Anclar:
       el recorrido aparece encima del QR. Si hace falta, ajústalo con los dedos (uno para mover, dos para girar). Luego camina.</p>
+    <div class="lidar-nativo"></div>
     <div class="lidar-safari"></div>`;
   const aj = fijos || ajustesQRLidar(anclaId);
   const selVista = div.querySelector('[data-q="vista"]');
@@ -98,6 +100,14 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
     });
   }
   pintarSafari();
+  // Visor nativo (app de iPhone InfoLens Visor): engancha el recorrido al QR y lo sigue
+  const pintarNativo = () => {
+    const n = div.querySelector('.lidar-nativo');
+    n.innerHTML = '';
+    n.appendChild(botonVisor({ puntos, info, anclaId, ladoCm, vista: selVista.value, colocacion: aj.colocacion, giro: aj.giro }));
+  };
+  pintarNativo();
+  selVista.addEventListener('change', pintarNativo);
   preparar();
   return div;
 }

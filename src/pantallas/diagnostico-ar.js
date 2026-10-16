@@ -136,6 +136,8 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     <label>📏 Lo que mide la zona negra del QR impreso (cm) <input inputmode="decimal" data-r="lado"></label>
     <p class="nota">Pon el QR del ancla en la mesa. En el bueno, el ⚓ NO sale hasta que la cámara ve el QR, y si mueves o
       giras el papel, el ⚓ y las flechas se mueven y giran con él.</p>
+    <div class="nativo"></div>
+    <p class="nota">📱 El visor nativo es la app de iPhone «InfoLens Visor» (se instala aparte con Sideloadly).</p>
     <div class="g"></div><p class="nota g-estado"></p>
     <div class="h"></div><p class="nota h-estado"></p>
     <div class="i"></div><p class="nota i-estado"></p>`;
@@ -151,6 +153,10 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     inLado.value = String(leerAjustes().qrCm || 10).replace('.', ',');
     const preparar = async () => {
       const lado = parseFloat(String(inLado.value).replace(',', '.')) || 10;
+      const { botonVisor } = await import('../ar/visor-nativo.js');
+      const nat = raiz.querySelector('.nativo');
+      nat.innerHTML = '';
+      nat.appendChild(botonVisor({ puntos: [[0, 0, 0], [0, 0, -1], [0.5, 0, -1]], info: { nombre: 'Prueba', referencia: '100 adelante · 50 derecha' }, anclaId: sel.value, ladoCm: lado }, '📱 Prueba en el visor nativo'));
       const THREE = await import('three');
       const [{ escenaPaso }, { usdzImagenEnRaiz }, { pngMarcador }] = await Promise.all([
         import('../ar/recorrido-lidar.js'), import('../ar/anclaje-raiz.js'), import('../ar/marcador.js')]);

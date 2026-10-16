@@ -6,3 +6,9 @@ dev-dist
 # Datos del usuario (no subir a GitHub)
 INFO/
 public/mediapipe
+
+# Visor iOS (se compila en GitHub)
+ios/build/
+ios/Payload/
+ios/*.ipa
+ios/*.xcodeproj/

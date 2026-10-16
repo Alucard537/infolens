@@ -1,0 +1,36 @@
+# Proyecto de Xcode generado con XcodeGen (en GitHub, en un Mac de GitHub Actions).
+name: InfoLensVisor
+options:
+  bundleIdPrefix: com.infolens
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  InfoLensVisor:
+    type: application
+    platform: iOS
+    sources: [InfoLensVisor]
+    info:
+      path: InfoLensVisor/Info.plist
+      properties:
+        CFBundleDisplayName: InfoLens Visor
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        NSCameraUsageDescription: "La cámara se usa para ver el recorrido en realidad aumentada sobre el QR del ancla."
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities: [arkit]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSupportsIndirectInputEvents: true
+        CFBundleURLTypes:
+          - CFBundleURLName: com.infolens.visor
+            CFBundleURLSchemes: [infolens]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.infolens.visor
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+        ENABLE_BITCODE: "NO"
