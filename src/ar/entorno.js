@@ -170,12 +170,12 @@ export function crearSeguidorEntorno() {
   let recuerdos = [];         // [{ t, pos: Map(id -> [x, y]) }]
   let semilla = null;         // última pose del QR { R, t, cuando }
   let ultimaPose = null;
-  let sig = 1;
+  let sig = 1, aprendidos = 0;
   let n = 0;
   let semilla_rand = 12345;
   const rnd = () => ((semilla_rand = (semilla_rand * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
 
-  function reiniciar() { prev = null; puntos = []; recuerdos = []; semilla = null; ultimaPose = null; }
+  function reiniciar() { prev = null; puntos = []; recuerdos = []; semilla = null; ultimaPose = null; aprendidos = 0; }
 
   /** Pose del QR (visto por el lector) para el fotograma del instante t. */
   function poseQR(t, R, tv) {
@@ -252,14 +252,14 @@ export function crearSeguidorEntorno() {
       for (const p of puntos) ocupadas.add(Math.min(CELDAS_Y - 1, (p.y / ch) | 0) * CELDAS_X + Math.min(CELDAS_X - 1, (p.x / cw) | 0));
       for (const e of buscarEsquinas(pir[0], ocupadas, MAX_PUNTOS - puntos.length)) {
         const pl = alPlano(ref, (e.x - cx) / f, (e.y - cy) / f);
-        if (pl) puntos.push({ id: sig++, x: e.x, y: e.y, X: pl[0], Y: pl[1], fallos: 0 });
+        if (pl) { puntos.push({ id: sig++, x: e.x, y: e.y, X: pl[0], Y: pl[1], fallos: 0 }); aprendidos++; }
       }
     }
     // 4) Recordar dónde estaba cada punto en este instante
     recuerdos.push({ t, pos: new Map(puntos.map((p) => [p.id, [p.x, p.y]])) });
     if (recuerdos.length > RECUERDO) recuerdos.shift();
     prev = { pir, w, h, f, cx, cy };
-    return { pose, puntos: puntos.length, encajan };
+    return { pose, puntos: puntos.length, encajan, aprendidos };
   }
 
   return { fotograma, poseQR, reiniciar, get ultimaPose() { return ultimaPose; } };

@@ -45,7 +45,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
   ejes.matrixAutoUpdate = false;
   ejes.visible = false;
   const etiquetasEjes = [];
-  for (const [nombre, color, dir] of [['X+', 0xff453a, [1, 0, 0]], ['Y+', 0xffd60a, [0, 1, 0]], ['Z+', 0x0a84ff, [0, 0, 1]]]) {
+  for (const [nombre, color, dir] of [['DERECHA', 0xff453a, [1, 0, 0]], ['ARRIBA', 0xffd60a, [0, 1, 0]], ['ADELANTE', 0x0a84ff, [0, 0, -1]]]) {
     const mat = new THREE.MeshBasicMaterial({ color });
     const d = new THREE.Vector3(...dir);
     const palo = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, LARGO_EJE, 8), mat);
@@ -67,11 +67,16 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
   const matEjes = new THREE.Matrix4();
 
   /** Cada fotograma (aunque no haya recorrido): coloca los ejes sobre el QR del ancla si se ve. */
+  // "Arriba" medido en el escaneo inicial, en coordenadas del QR del ancla (fijo)
+  let calibrada = null; // { id, g: Vector3 }
+  const gravedadDe = (s) => (calibrada && s && s.id === calibrada.id ? calibrada.g : null);
+  function fijarGravedad(id, g) { calibrada = id && g ? { id, g: new THREE.Vector3(g[0], g[1], g[2]).normalize() } : null; }
+  let forzarEjes = false;
   function actualizarEjes(arriba, seguidoAncla) {
-    const ver = mostrarEjes() && seguidoAncla && seguidoAncla.visible;
+    const ver = (mostrarEjes() || forzarEjes) && seguidoAncla && seguidoAncla.visible;
     ejes.visible = !!ver;
     if (!ver) return;
-    marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matEjes);
+    marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matEjes, gravedadDe(seguidoAncla));
     ejes.matrix.copy(matEjes);
     ejes.matrixWorldNeedsUpdate = true;
   }
@@ -131,7 +136,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
     if (!r) return null;
     const q = sensor.giro(0);
     if (seguidoAncla && seguidoAncla.visible) {
-      marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matG);
+      marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matG, gravedadDe(seguidoAncla));
       if (q) (r.mundo ||= new THREE.Matrix4()).makeRotationFromQuaternion(q).multiply(matG);
       r.visto = true;
       r.perdido = 0;
@@ -216,15 +221,17 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
   /** Olvidar el sistema de referencia (al cambiar de ancla). */
   function reiniciarReferencia() { if (r) { r.mundo = null; r.visto = false; r.perdido = 0; } }
 
-  return { mostrar, ocultar, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, get activo() { return !!r; } };
+  return {
+    mostrar, ocultar, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
+    set forzarEjes(v) { forzarEjes = !!v; }, get activo() { return !!r; },
+  };
 }
 
 // ======================================================================
 // Modo ANCLA (localizar componentes de la máquina activa)
 // ======================================================================
 export function crearModoAncla({
-  capa, panel, panelPos, seguidos, abrirDetalle, maquinaId, ladoCm, esAdmin, avisar, verLocId = null,
-}) {
+  capa, panel, panelPos, seguidos, abrirDetalle, maquinaId, ladoCm, esAdmin, avisar, verLocId = null, gravedadCalibrada = () => null }) {
   let anclaId = null;          // ancla activa (QR de la máquina activa)
   let ancla = null;
   let locs = [];               // localizaciones válidas para esa ancla
@@ -250,7 +257,9 @@ export function crearModoAncla({
     ancla = await obtenerAncla(id);
     // Si no se sabe cómo está colocado su QR (pared, mesa…), se mide ahora con el sensor
     const sa = seguidos.get(id);
-    if (ancla && !ancla.gravedad && sa && arribaActual) {
+    const medida = gravedadCalibrada(id);
+    if (ancla && medida) ancla.gravedad = medida;
+    else if (ancla && !ancla.gravedad && sa && arribaActual) {
       const gL = gravedadEnQR(sa.rot, arribaActual);
       ancla.gravedad = [gL.x, gL.y, gL.z];
       if (esAdmin()) guardarGravedadAncla(id, ancla.gravedad).catch(() => {});

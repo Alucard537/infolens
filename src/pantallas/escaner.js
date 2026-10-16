@@ -10,7 +10,8 @@ import { prepararQuickLookEnQR } from '../ar/quicklook.js';
 import { gravedadEnQR } from '../ar/navegacion.js';
 import { crearCapaRecorrido, crearModoAncla } from '../ar/modo-navegacion.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
-import { mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia } from '../maquinas.js';
+import { crearEscaneo } from '../ar/escaneo.js';
+import { mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia, guardarGravedadAncla } from '../maquinas.js';
 import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
@@ -49,10 +50,12 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
         <button class="esc-btn" data-accion="nivel" aria-label="Activar sensor de inclinación" hidden>📐</button>
         ${modo === 'escaner' ? '<button class="esc-btn" data-accion="reconocer" aria-label="Reconocer sin QR">🔍</button>' : ''}
         ${modo === 'ancla' && esAdmin() ? '<button class="esc-btn" data-accion="posicionar" aria-label="Posicionar componentes">📍</button>' : ''}
+        ${modo !== 'escaner' ? '<button class="esc-btn" data-accion="reescanear" aria-label="Volver a escanear el entorno">🛰️</button>' : ''}
         <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
       <div class="estado-seguimiento" hidden></div>
+      <div class="escaneo-panel" hidden></div>
       <div class="guia-recorte" hidden></div>
       <button class="aviso-sensor" hidden>📐 Toca aquí para activar el sensor de movimiento.<br><small>Sin él no se sabe dónde está el suelo y las flechas no se pueden orientar.</small></button>
       <div class="rec-panel" hidden></div>
@@ -85,6 +88,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     </div>`;
 
   const $ = (s) => app.querySelector(s);
+  const raizEscaner = $('.escaner');
   const video = $('.esc-video');
   const lienzo3d = $('.esc-3d');
   const lienzoDebug = $('.esc-debug');
@@ -417,6 +421,23 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   let verEjes = false; // ejes X/Y/Z del ancla: solo si el administrador los enciende en ⚙
   const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes: () => verEjes && esAdmin() });
   let guiaActual = null;
+  // Escaneo inicial del entorno: hasta que no termina, no se muestran flechas (ver ar/escaneo.js)
+  const escaneo = modo !== 'escaner' ? crearEscaneo({
+    panel: $('.escaneo-panel'), seguidos, capa,
+    conEntorno: () => ajustes.entorno !== false,
+    infoEntorno: () => infoEntorno,
+    alMedir: (id, g) => {
+      if (guiaActual && guiaActual.anclaId === id) guiaActual.anclaGravedad = g;
+      const a = anclas && anclas.get(id);
+      if (a) a.gravedad = g;
+      if (esAdmin()) guardarGravedadAncla(id, g).catch(() => {});
+    },
+    alReiniciar: () => {
+      if (entorno) entorno.postMessage({ tipo: 'reiniciar' });
+      infoEntorno = { puntos: 0, encajan: 0, aprendidos: 0 };
+      capa.reiniciarReferencia();
+    },
+  }) : null;
   const avisar = (t) => { estado.hidden = false; estado.textContent = t; avisoHasta = performance.now() + 4000; };
   let avisoHasta = 0;
   (async () => {
@@ -454,6 +475,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
         modulo = crearModoAncla({
           capa, panel: $('.nav-panel'), panelPos: $('.pos-panel'), seguidos, abrirDetalle, maquinaId,
           ladoCm: () => ajustes.qrCm, esAdmin, avisar, verLocId,
+          gravedadCalibrada: (id) => (escaneo ? escaneo.gravedad(id) : null),
         });
       } else if (modo === 'guia') {
         modulo = crearModoGuia({
@@ -636,7 +658,10 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     // En ANCLA y GUÍA la orientación depende del sensor de movimiento: sin él no se dibuja nada
     const sinSensor = modo !== 'escaner' && !sensor.activo && ahora - inicioEscaner > 800;
     avisoSensor.hidden = !sinSensor;
-    if (modulo && !sinSensor && (modo === 'escaner' || sensor.activo)) modulo.actualizar(dt, arriba, ahora);
+    // Primero el escaneo del entorno; mientras dura, el modo ANCLA / GUÍA espera (sin flechas)
+    const escaneando = !!escaneo && (sinSensor || !sensor.activo || !(elementos && escaneo.actualizar(arriba, ahora)));
+    raizEscaner.classList.toggle('escaneando', escaneando);
+    if (modulo && !sinSensor && !escaneando && (modo === 'escaner' || sensor.activo)) modulo.actualizar(dt, arriba, ahora);
     renderer.render(escena, camara);
 
     // Etiquetas HTML: encima de la "i" o, si no cabe, debajo del QR. Nunca tapan la "i" ni el QR.
@@ -904,6 +929,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   $('.esc-barra').addEventListener('click', async (e) => {
     const accion = e.target.closest('[data-accion]')?.dataset.accion;
     if (accion === 'volver') volver();
+    if (accion === 'reescanear' && escaneo) { escaneo.reiniciar(); avisar('Escaneo del entorno reiniciado.'); }
     if (accion === 'ajustes') panel.hidden = !panel.hidden;
     if (accion === 'nivel') pedirPermisoSensor().then((r) => { btnNivel.hidden = r === 'granted'; });
     if (accion === 'posicionar') {

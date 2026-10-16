@@ -18,10 +18,18 @@ import { crearIcono } from './icono.js';
 const VERDE = 0x34c759;
 
 /** Ejes de G expresados en coordenadas L, a partir de "arriba" en coordenadas L. */
+// QR "tumbado" (suelo, mesa, techo) si su cara mira a menos de 45° de la vertical; si no, "de pared".
+// Tumbado: ADELANTE = hacia su borde de arriba (la flecha "▲ ADELANTE" impresa).
+// De pared: ADELANTE = hacia la pared. En los dos casos DERECHA = el borde derecho del QR.
+export function colocacionQR(arribaL) {
+  const c = arribaL[2] ?? arribaL.z;
+  return c > Math.SQRT1_2 ? 'suelo' : c < -Math.SQRT1_2 ? 'techo' : 'pared';
+}
 function ejesG(arribaL) {
   const y = arribaL.clone().normalize();
-  const z = new THREE.Vector3(0, 0, 1).addScaledVector(y, -y.z);           // normal del QR, en horizontal
-  if (z.lengthSq() < 0.05) z.set(0, -1, 0).addScaledVector(y, y.y);       // QR tumbado: su borde de abajo
+  const z = colocacionQR(y) === 'pared'
+    ? new THREE.Vector3(0, 0, 1).addScaledVector(y, -y.z)     // normal del QR, en horizontal
+    : new THREE.Vector3(0, -1, 0).addScaledVector(y, y.y);    // QR tumbado: su borde de abajo, en horizontal
   z.normalize();
   const x = new THREE.Vector3().crossVectors(y, z).normalize();
   return { x, y, z };
@@ -32,9 +40,13 @@ export function gravedadEnQR(rotQR, arribaCamara) {
   return arribaCamara.clone().applyQuaternion(rotQR.clone().invert()).normalize();
 }
 
-/** Matriz G -> cámara, con la posición y el giro del QR (en cámara) y "arriba" (en cámara). */
-export function marcoQR(posQR, rotQR, arribaCamara, salida = new THREE.Matrix4()) {
-  const { x, y, z } = ejesG(gravedadEnQR(rotQR, arribaCamara));
+/**
+ * Matriz G -> cámara, con la posición y el giro del QR (en cámara) y "arriba" (en cámara).
+ * gravedadL: "arriba" ya medido en coordenadas del QR (fijo: el QR no se mueve). Si se da, los ejes
+ * dependen SOLO de la posición del QR y no se mueven con el sensor.
+ */
+export function marcoQR(posQR, rotQR, arribaCamara, salida = new THREE.Matrix4(), gravedadL = null) {
+  const { x, y, z } = ejesG(gravedadL || gravedadEnQR(rotQR, arribaCamara));
   const mL = new THREE.Matrix4().makeBasis(x, y, z);           // G -> L
   const mQR = new THREE.Matrix4().compose(posQR, rotQR, new THREE.Vector3(1, 1, 1)); // L -> cámara
   return salida.multiplyMatrices(mQR, mL);
