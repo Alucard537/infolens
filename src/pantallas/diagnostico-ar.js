@@ -127,5 +127,57 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     inAncho.addEventListener('change', preparar);
     preparar();
   })();
+  // G / H / I: anclaje al QR declarado en la RAÍZ del archivo (como el ejemplo de Apple), con el QR impreso normal
+  const raiz = document.createElement('div');
+  raiz.className = 'bloque-lidar-guia';
+  raiz.innerHTML = `
+    <p class="nota lidar-recomendado">G / H / I) Engancharse al QR impreso (nueva forma)</p>
+    <label>QR del ancla <select data-r="ancla"></select></label>
+    <label>📏 Lo que mide la zona negra del QR impreso (cm) <input inputmode="decimal" data-r="lado"></label>
+    <p class="nota">Pon el QR del ancla en la mesa. En el bueno, el ⚓ NO sale hasta que la cámara ve el QR, y si mueves o
+      giras el papel, el ⚓ y las flechas se mueven y giran con él.</p>
+    <div class="g"></div><p class="nota g-estado"></p>
+    <div class="h"></div><p class="nota h-estado"></p>
+    <div class="i"></div><p class="nota i-estado"></p>`;
+  cont.appendChild(raiz);
+  (async () => {
+    const [{ mapaAnclas, maquinaActivaId }, { leerAjustes }] = await Promise.all([import('../maquinas.js'), import('../ajustes.js')]);
+    const maq = maquinaActivaId();
+    const anclas = [...(await mapaAnclas()).values()].filter((a) => !maq || a.maquinaId === maq);
+    if (!anclas.length) anclas.push({ id: 'PRUEBA', nombre: 'Prueba' });
+    const sel = raiz.querySelector('[data-r="ancla"]');
+    for (const a of anclas) { const o = document.createElement('option'); o.value = a.id; o.textContent = `${a.nombre} (${a.id})`; sel.appendChild(o); }
+    const inLado = raiz.querySelector('[data-r="lado"]');
+    inLado.value = String(leerAjustes().qrCm || 10).replace('.', ',');
+    const preparar = async () => {
+      const lado = parseFloat(String(inLado.value).replace(',', '.')) || 10;
+      const THREE = await import('three');
+      const [{ escenaPaso }, { usdzImagenEnRaiz }, { pngMarcador }] = await Promise.all([
+        import('../ar/recorrido-lidar.js'), import('../ar/anclaje-raiz.js'), import('../ar/marcador.js')]);
+      const pts = [[0, 0, 0], [0, 0, -1], [0.5, 0, -1]].map((q) => new THREE.Vector3(...q));
+      const variantes = [
+        ['g', 'G', 'QR · tamaño en cm', { unidad: 'cm', anchoCm: lado }],
+        ['h', 'H', 'QR · tamaño en metros', { unidad: 'm', anchoCm: lado }],
+        ['i', 'I', 'marcador de colores (si lo imprimiste) · cm', { unidad: 'cm', marcador: true }],
+      ];
+      for (const [clase, letra, texto, op] of variantes) {
+        const caja = raiz.querySelector('.' + clase), est = raiz.querySelector(`.${clase}-estado`);
+        caja.innerHTML = ''; est.textContent = '⏳ Preparando…';
+        try {
+          const textoQR = 'INFOLENS:' + sel.value;
+          let imagen = null, anchoCm = op.anchoCm;
+          if (op.marcador) { const m = await pngMarcador(textoQR, leerAjustes().qrCm || 10); imagen = m.png; anchoCm = m.anchoCm; }
+          const escena = escenaPaso(pts, { nombre: 'Prueba', referencia: '100 adelante · 50 derecha' }, { ladoCm: lado });
+          const b = await usdzImagenEnRaiz(escena, { textoQR, anchoCm, unidad: op.unidad, imagen });
+          if (!activo) return;
+          caja.appendChild(crearEnlaceAR({ url: URL.createObjectURL(b), texto: `🧪 Probar ${letra}` }).enlace);
+          est.textContent = `${letra}: ${texto} · ${Math.round(b.size / 1024)} KB`;
+        } catch (e) { est.textContent = '❌ ' + (e && e.message ? e.message : e); }
+      }
+    };
+    sel.addEventListener('change', preparar);
+    inLado.addEventListener('change', preparar);
+    preparar();
+  })();
   return () => { activo = false; };
 }

@@ -191,14 +191,14 @@ function matrizGaImagen(arribaL) {
 }
 
 /** PNG del QR (solo la zona negra, sin margen: su ancho real es el tamaño impreso). */
-async function pngQR(texto) {
+export async function pngQR(texto) {
   const url = await QRCode.toDataURL(texto, { errorCorrectionLevel: 'M', margin: 0, scale: 16 });
   const bin = atob(url.split(',')[1]);
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
 /** Vuelve a empaquetar el .usdz con los archivos alineados a 64 bytes (lo exige el formato). */
-function empaquetarUsdz(files) {
+export function empaquetarUsdz(files) {
   let offset = 0;
   const salida = {};
   for (const nombre of Object.keys(files)) {
