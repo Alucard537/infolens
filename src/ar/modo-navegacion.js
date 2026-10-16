@@ -13,7 +13,7 @@ import { crearIcono } from './icono.js';
 import { obtenerArchivo } from '../db.js';
 import { deG, describir } from '../coordenadas.js';
 import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
-import { prepararRecorridoQuickLook } from './quicklook.js';
+import { prepararRecorridoQuickLook, bloqueRecorridoLidar } from './quicklook.js';
 import {
   localizacionesDeAncla, guardarLocalizacion, guardarGravedadAncla, obtenerAncla,
 } from '../maquinas.js';
@@ -342,11 +342,7 @@ export function crearModoAncla({
     fila.querySelector('[data-n="fin"]').addEventListener('click', mostrarMenu);
     panel.appendChild(fila);
     if (hayQuickLook() && ancla) {
-      const enl = crearEnlaceAR({ texto: '⏳ Preparando recorrido con LiDAR…' });
-      panel.appendChild(enl.enlace);
-      prepararRecorridoQuickLook({ ...c, nav: { pos: l.pos, ruta: l.ruta } }, { id: ancla.id, anclaGravedad: ancla.gravedad }, ladoCm())
-        .then((u) => enl.poner(u, '🧭 Recorrido con LiDAR (se ancla solo al QR)'))
-        .catch((e) => { console.warn('Recorrido LiDAR:', e); enl.texto('❌ No se pudo preparar el recorrido'); });
+      panel.appendChild(bloqueRecorridoLidar({ ...c, nav: { pos: l.pos, ruta: l.ruta } }, { id: ancla.id, anclaGravedad: ancla.gravedad }, ladoCm()));
     }
   }
 

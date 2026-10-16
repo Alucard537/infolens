@@ -446,3 +446,7 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
 .barra-progreso { height: 12px; border-radius: 6px; background: #22313d; overflow: hidden; }
 .barra-progreso > div { height: 100%; width: 0; background: linear-gradient(90deg, #0a84ff, #30d158); transition: width 0.2s; }
 .escaneando .nav-panel, .escaneando .pos-panel { display: none !important; }
+
+.bloque-lidar-guia { margin: 8px 0 12px; padding: 10px; border-radius: 14px; background: rgba(52, 199, 89, 0.12); border: 1px solid #34c759; }
+.bloque-lidar-guia .enlace-ar { margin: 8px 0; }
+.lidar-recomendado { font-weight: 700; color: #7CFC9A; margin: 0 0 4px; }

@@ -7,7 +7,7 @@
 import { obtenerArchivo } from '../db.js';
 import { localizacionesDeAncla, TIPOS_GUIA } from '../maquinas.js';
 import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
-import { prepararRecorridoQuickLook } from './quicklook.js';
+import { bloqueRecorridoLidar } from './quicklook.js';
 import { gravedadEnQR } from './navegacion.js';
 import { deG, describir } from '../coordenadas.js';
 
@@ -80,13 +80,9 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     panel.appendChild(cuerpo);
     // Recorrido con LiDAR (AR de Apple anclado al QR del ancla): las flechas siguen fijas al andar
     if (p._destinoAR && p.flechas !== false && hayQuickLook()) {
-      const enl = crearEnlaceAR({ texto: '⏳ Preparando recorrido con LiDAR…' });
-      cuerpo.appendChild(enl.enlace);
       const comp = p.elemento || { id: 'paso-' + (paso + 1), nombre: p.titulo || `Paso ${paso + 1}`, referencia: guia.nombre };
-      prepararRecorridoQuickLook({ ...comp, nav: { pos: p._destinoAR.pos, ruta: p._destinoAR.ruta || [] } },
-        { id: guia.anclaId, anclaGravedad: guia.anclaGravedad || null }, ladoCm())
-        .then((u) => enl.poner(u, '🧭 Recorrido con LiDAR: flechas fijas al andar'))
-        .catch((e) => { console.warn('Recorrido LiDAR (guía):', e); enl.texto('❌ No se pudo preparar el recorrido'); });
+      cuerpo.appendChild(bloqueRecorridoLidar({ ...comp, nav: { pos: p._destinoAR.pos, ruta: p._destinoAR.ruta || [] } },
+        { id: guia.anclaId, anclaGravedad: guia.anclaGravedad || null }, ladoCm()));
     }
     // Título e instrucciones
     const h = document.createElement('h3');

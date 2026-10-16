@@ -257,3 +257,71 @@ ${s}}`);
   nuevos['textures/qr_ancla.png'] = await pngQR(textoQR);
   return new Blob([empaquetarUsdz(nuevos)], { type: 'model/vnd.usdz+zip' });
 }
+
+// ---------- exportar al AR de Apple para COLOCAR A MANO en el suelo ----------
+// Igual que un objeto 3D: Quick Look lo pone en el suelo y el usuario lo arrastra (un dedo) y lo gira
+// (dos dedos) hasta que el cuadro de salida queda encima del QR impreso y la flecha azul apunta como
+// la flecha "▲ ADELANTE" del QR. No depende de que ARKit reconozca el QR.
+
+function marcaSalida(ladoM) {
+  const g = new THREE.Group();
+  const azul = new THREE.MeshStandardMaterial({ color: 0x0a84ff, emissive: 0x06336b, roughness: 0.5 });
+  const rojo = new THREE.MeshStandardMaterial({ color: 0xff453a, emissive: 0x5a1410, roughness: 0.5 });
+  const blanco = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x333333, roughness: 0.6 });
+  const h = ladoM / 2, grosor = Math.max(0.006, ladoM * 0.06);
+  // Cuadro del tamaño del QR
+  for (const [x, z, ancho, fondo] of [[0, -h, ladoM + grosor, grosor], [0, h, ladoM + grosor, grosor], [-h, 0, grosor, ladoM], [h, 0, grosor, ladoM]]) {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(ancho, 0.004, fondo), blanco);
+    b.position.set(x, 0.002, z);
+    g.add(b);
+  }
+  // Flecha que sale del borde del cuadro: dir = ángulo (0 = ADELANTE, −Z; −90° = DERECHA, +X)
+  const flecha = (dir, mat, largo) => {
+    const f = new THREE.Group();
+    const palo = new THREE.Mesh(new THREE.BoxGeometry(grosor * 0.8, 0.004, largo), mat);
+    palo.position.z = -largo / 2;
+    const punta = new THREE.Mesh(new THREE.ConeGeometry(grosor * 2.2, grosor * 4, 3), mat);
+    punta.rotation.x = -Math.PI / 2;
+    punta.position.z = -largo - grosor * 2;
+    f.add(palo, punta);
+    const pivote = new THREE.Group();
+    f.position.z = -h;
+    pivote.add(f);
+    pivote.rotation.y = dir;
+    pivote.position.y = 0.004;
+    return pivote;
+  };
+  g.add(flecha(0, azul, Math.max(0.12, ladoM)));
+  g.add(flecha(-Math.PI / 2, rojo, Math.max(0.06, ladoM * 0.5)));
+  // Texto tumbado en el suelo, por detrás del QR (se lee de pie junto al QR mirando ADELANTE)
+  const ancho = Math.max(0.24, ladoM * 2.2);
+  const placa = placaTexto(['Pon el cuadro sobre el QR', 'Flecha azul = ▲ ADELANTE'], ancho);
+  placa.rotation.x = -Math.PI / 2;
+  placa.position.set(0, 0.003, h + ancho / 8 + 0.03);
+  g.add(placa);
+  return g;
+}
+
+/** .usdz del recorrido para colocar a mano en el suelo (contenido en coordenadas G). */
+export async function usdzEnSuelo(contenidoG, { ladoCm }) {
+  const raiz = new THREE.Group();
+  raiz.add(contenidoG);
+  raiz.add(marcaSalida(ladoCm / 100));
+  raiz.traverse((o) => {
+    if (!o.isMesh) return;
+    const conv = (m) => {
+      const e = m.isMeshStandardMaterial ? m : new THREE.MeshStandardMaterial({
+        color: m.color ? m.color.clone() : 0xffffff, map: m.map || null,
+        transparent: !!m.transparent, opacity: m.opacity ?? 1, roughness: 0.5, metalness: 0.1,
+      });
+      e.side = THREE.FrontSide;
+      return e;
+    };
+    o.material = Array.isArray(o.material) ? o.material.map(conv) : conv(o.material);
+  });
+  raiz.updateMatrixWorld(true);
+  const bytes = await new USDZExporter().parseAsync(raiz, {
+    ar: { anchoring: { type: 'plane' }, planeAnchoring: { alignment: 'horizontal' } },
+  });
+  return new Blob([bytes], { type: 'model/vnd.usdz+zip' });
+}
