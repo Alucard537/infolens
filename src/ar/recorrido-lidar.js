@@ -8,9 +8,8 @@
 // Se abre con una dirección temporal (blob:), que es la que funciona en el iPhone.
 import * as THREE from 'three';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
-import { crearFlechas, usdzAncladoAQR, marcaSalida } from './navegacion.js';
+import { crearFlechas, usdzAncladoAQR } from './navegacion.js';
 import { crearIcono } from './icono.js';
-import { pngMarcador, anchoMarcadorCm as anchoMarcadorCmDe } from './marcador.js';
 
 const ORO = 0xffc83d, AZUL = 0x0a84ff;
 
@@ -38,7 +37,7 @@ export function anclaTresD(alto = 0.16) {
     g.add(punta);
   }
   // Base: disco azul sobre el QR
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.02 * k, 0.02 * k, 0.004, 32),
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * k, 0.05 * k, 0.004, 32),
     new THREE.MeshStandardMaterial({ color: AZUL, roughness: 0.5, emissive: 0x06336b }));
   base.position.y = 0.002;
   g.add(base);
@@ -73,16 +72,12 @@ const cortar = (t, n) => (t && t.length > n ? t.slice(0, n - 1) + '…' : t || '
 /**
  * Escena en G: puntos = recorrido (Vector3, el primero el QR). info = { nombre, referencia, id, descripcion }.
  */
-// vista: 'ambas' (flechas y línea), 'flechas' (solo flechas) o 'linea' (solo la línea verde)
-// anchoMarcadorCm: medida del marcador impreso (el cuadro blanco de referencia tiene ese tamaño, para alinearlo con su borde)
-export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'flechas', anchoMarcadorCm = null } = {}) {
+// vista: 'flechas' (solo flechas) o 'linea' (solo la línea de un punto a otro)
+export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'flechas' } = {}) {
   const grupo = new THREE.Group();
-  // Una cosa u otra: solo flechas o solo la línea de un punto a otro
   const linea = vista === 'linea';
-  grupo.add(crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: linea ? 0.018 : 0.008 }));
+  grupo.add(crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, grosorLinea: linea ? 0.015 : 0.008 }));
   grupo.add(anclaTresD(Math.max(0.12, (ladoCm / 100) * 1.4)));
-  // Cuadro del tamaño exacto del QR + flecha azul ADELANTE y roja DERECHA: tiene que coincidir con el QR impreso
-  grupo.add(marcaSalida((anchoMarcadorCm || ladoCm) / 100, { conTexto: false }));
   const fin = puntos[puntos.length - 1];
   const previo = puntos[puntos.length - 2] || new THREE.Vector3(0, 0, 0.5);
   // El cartel mira hacia donde llega la persona (el tramo anterior), en horizontal
@@ -125,14 +120,12 @@ function compatibles(raiz) {
  * .usdz del paso. modo 'qr': anclado al QR impreso (textoQR, ladoCm, colocacion 'suelo'|'pared', giro en grados).
  * modo 'suelo': se coloca a mano.
  */
-export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'flechas', unidad = 'cm', soloQR = false, anchoRealCm = null } = {}) {
-  const escena = escenaPaso(puntos, info, { ladoCm, vista, anchoMarcadorCm: soloQR ? null : (anchoRealCm || anchoMarcadorCmDe(ladoCm)) });
+export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'flechas' } = {}) {
+  const escena = escenaPaso(puntos, info, { ladoCm, vista });
   compatibles(escena);
   if (modo === 'qr') {
     const arribaL = colocacion === 'pared' ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(0, 0, 1);
-    // Imagen de referencia = el MARCADOR del ancla (dibujo + QR), salvo que se pida el QR solo (marcadores antiguos)
-    const m = soloQR ? null : await pngMarcador(textoQR, ladoCm);
-    return usdzAncladoAQR(escena, { textoQR, ladoCm, arribaL, giroGrados: giro, imagen: m && m.png, anchoImagenCm: m && (anchoRealCm || m.anchoCm), unidad });
+    return usdzAncladoAQR(escena, { textoQR, ladoCm, arribaL, giroGrados: giro });
   }
   const bytes = await new USDZExporter().parseAsync(escena);
   return new Blob([bytes], { type: 'model/vnd.usdz+zip' });

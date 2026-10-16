@@ -89,21 +89,13 @@ export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFle
   grupo.userData.materiales = [material, materialLinea];
   const arriba = new THREE.Vector3(0, 1, 0);
   const ESCALA_FLECHA = new THREE.Vector3(0.9, 0.9, 0.9);
-  if (conLinea && conAro && puntos.length) {
+  if (conAro && puntos.length) {
     // Marca de salida junto al QR del ancla (un aro en el suelo del recorrido)
     const aro = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 32), materialLinea);
     aro.rotation.x = Math.PI / 2;
     aro.position.copy(puntos[0]);
     aro.userData.linea = true;
     grupo.add(aro);
-  }
-  if (conLinea && grosorLinea > 0.01) {
-    for (const p of puntos) {
-      const bola = new THREE.Mesh(new THREE.SphereGeometry(grosorLinea, 16, 10), materialLinea);
-      bola.position.copy(p);
-      bola.userData.linea = true;
-      grupo.add(bola);
-    }
   }
   for (let i = 0; i < puntos.length - 1; i++) {
     const a = puntos[i], b = puntos[i + 1];
@@ -224,7 +216,7 @@ function empaquetarUsdz(files) {
  * textoQR: contenido del QR ancla; ladoCm: tamaño impreso; arribaL: cómo está colocado el QR
  * (vector "arriba" en coordenadas del QR; por defecto QR vertical en una pared).
  */
-export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0), giroGrados = 0, imagen = null, anchoImagenCm = null, unidad = 'cm' }) {
+export async function usdzAncladoAQR(contenidoG, { textoQR, ladoCm, arribaL = new THREE.Vector3(0, 1, 0), giroGrados = 0 }) {
   const envoltura = new THREE.Group();
   envoltura.matrixAutoUpdate = false;
   // giroGrados: corrección por si el AR de Apple coloca el contenido girado sobre el QR (gira sobre la cara del QR)
@@ -259,17 +251,11 @@ ${s}rel preliminary:imageAnchoring:referenceImage = </Root/Scenes/Scene/Anchorin
 ${s}def Preliminary_ReferenceImage "AnchoringReferenceImage"
 ${s}{
 ${s}    uniform asset image = @textures/qr_ancla.png@
-${s}    uniform double physicalWidth = ${unidad === 'm' ? (Number(anchoImagenCm || ladoCm) / 100).toFixed(4) : Number(anchoImagenCm || ladoCm).toFixed(2)}
+${s}    uniform double physicalWidth = ${Number(ladoCm).toFixed(2)}
 ${s}}`);
-  // El AR de Apple solo lee el anclaje si la escena declara el esquema Preliminary_AnchoringAPI
-  // (sin él lo ignora y coloca el contenido como un objeto normal, mirando hacia quien lo abre).
-  usda = usda.replace(/token preliminary:anchoring:type = "image"/, 'uniform token preliminary:anchoring:type = "image"');
-  const cabecera = /def Xform "Scene" \(\n(\s*)/;
-  if (!cabecera.test(usda)) throw new Error('No se pudo preparar el anclaje al QR (escena).');
-  usda = usda.replace(cabecera, (t, sang) => `def Xform "Scene" (\n${sang}prepend apiSchemas = ["Preliminary_AnchoringAPI"]\n${sang}`);
   const nuevos = { 'model.usda': strToU8(usda) };
   for (const [k, v] of Object.entries(files)) if (k !== 'model.usda') nuevos[k] = v;
-  nuevos['textures/qr_ancla.png'] = imagen || await pngQR(textoQR);
+  nuevos['textures/qr_ancla.png'] = await pngQR(textoQR);
   return new Blob([empaquetarUsdz(nuevos)], { type: 'model/vnd.usdz+zip' });
 }
 
@@ -278,7 +264,7 @@ ${s}}`);
 // (dos dedos) hasta que el cuadro de salida queda encima del QR impreso y la flecha azul apunta como
 // la flecha "▲ ADELANTE" del QR. No depende de que ARKit reconozca el QR.
 
-export function marcaSalida(ladoM, { conTexto = true } = {}) {
+function marcaSalida(ladoM) {
   const g = new THREE.Group();
   const azul = new THREE.MeshStandardMaterial({ color: 0x0a84ff, emissive: 0x06336b, roughness: 0.5 });
   const rojo = new THREE.MeshStandardMaterial({ color: 0xff453a, emissive: 0x5a1410, roughness: 0.5 });
@@ -306,9 +292,8 @@ export function marcaSalida(ladoM, { conTexto = true } = {}) {
     pivote.position.y = 0.004;
     return pivote;
   };
-  g.add(flecha(0, azul, Math.max(0.25, ladoM * 2)));
-  g.add(flecha(-Math.PI / 2, rojo, Math.max(0.12, ladoM)));
-  if (!conTexto) return g;
+  g.add(flecha(0, azul, Math.max(0.12, ladoM)));
+  g.add(flecha(-Math.PI / 2, rojo, Math.max(0.06, ladoM * 0.5)));
   // Texto tumbado en el suelo, por detrás del QR (se lee de pie junto al QR mirando ADELANTE)
   const ancho = Math.max(0.24, ladoM * 2.2);
   const placa = placaTexto(['Pon el cuadro sobre el QR', 'Flecha azul = ▲ ADELANTE'], ancho);
