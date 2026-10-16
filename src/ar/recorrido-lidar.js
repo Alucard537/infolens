@@ -74,9 +74,11 @@ const cortar = (t, n) => (t && t.length > n ? t.slice(0, n - 1) + '…' : t || '
  * Escena en G: puntos = recorrido (Vector3, el primero el QR). info = { nombre, referencia, id, descripcion }.
  */
 // vista: 'ambas' (flechas y línea), 'flechas' (solo flechas) o 'linea' (solo la línea verde)
-export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'ambas' } = {}) {
+export function escenaPaso(puntos, info = {}, { ladoCm = 10, vista = 'flechas' } = {}) {
   const grupo = new THREE.Group();
-  grupo.add(crearFlechas(puntos, 0.5, { conLinea: vista !== 'flechas', conFlechas: vista !== 'linea', conAro: false }));
+  // Una cosa u otra: solo flechas o solo la línea de un punto a otro
+  const linea = vista === 'linea';
+  grupo.add(crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: linea ? 0.018 : 0.008 }));
   grupo.add(anclaTresD(Math.max(0.12, (ladoCm / 100) * 1.4)));
   // Cuadro del tamaño exacto del QR + flecha azul ADELANTE y roja DERECHA: tiene que coincidir con el QR impreso
   grupo.add(marcaSalida(ladoCm / 100, { conTexto: false }));
@@ -122,7 +124,7 @@ function compatibles(raiz) {
  * .usdz del paso. modo 'qr': anclado al QR impreso (textoQR, ladoCm, colocacion 'suelo'|'pared', giro en grados).
  * modo 'suelo': se coloca a mano.
  */
-export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'ambas', unidad = 'cm', soloQR = false } = {}) {
+export async function usdzPaso(puntos, info, { modo = 'qr', textoQR, ladoCm = 10, colocacion = 'suelo', giro = 0, vista = 'flechas', unidad = 'cm', soloQR = false } = {}) {
   const escena = escenaPaso(puntos, info, { ladoCm, vista });
   compatibles(escena);
   if (modo === 'qr') {

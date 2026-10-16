@@ -82,7 +82,7 @@ export function puntosRecorrido(nav) {
  * Grupo con las flechas a lo largo del recorrido (en coordenadas G).
  * separacion: metros entre flechas.
  */
-export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFlechas = true, conAro = true } = {}) {
+export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFlechas = true, conAro = true, grosorLinea = 0.008 } = {}) {
   const grupo = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, roughness: 0.4, metalness: 0.1 });
   const materialLinea = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, transparent: true, opacity: 0.7 });
@@ -96,6 +96,14 @@ export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFle
     aro.position.copy(puntos[0]);
     aro.userData.linea = true;
     grupo.add(aro);
+  }
+  if (conLinea && grosorLinea > 0.01) {
+    for (const p of puntos) {
+      const bola = new THREE.Mesh(new THREE.SphereGeometry(grosorLinea, 16, 10), materialLinea);
+      bola.position.copy(p);
+      bola.userData.linea = true;
+      grupo.add(bola);
+    }
   }
   for (let i = 0; i < puntos.length - 1; i++) {
     const a = puntos[i], b = puntos[i + 1];
@@ -111,7 +119,7 @@ export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFle
     const giro = new THREE.Matrix4().makeBasis(lateral, up, dir);
     // Línea continua del tramo (un tubo fino), para ver el camino completo
     if (conLinea) {
-      const tubo = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, largo, 8, 1), materialLinea);
+      const tubo = new THREE.Mesh(new THREE.CylinderGeometry(grosorLinea, grosorLinea, largo, 12, 1), materialLinea);
       tubo.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
       tubo.position.copy(a).addScaledVector(tramo, 0.5);
       tubo.userData.linea = true;
@@ -253,6 +261,12 @@ ${s}{
 ${s}    uniform asset image = @textures/qr_ancla.png@
 ${s}    uniform double physicalWidth = ${unidad === 'm' ? (Number(anchoImagenCm || ladoCm) / 100).toFixed(4) : Number(anchoImagenCm || ladoCm).toFixed(2)}
 ${s}}`);
+  // El AR de Apple solo lee el anclaje si la escena declara el esquema Preliminary_AnchoringAPI
+  // (sin él lo ignora y coloca el contenido como un objeto normal, mirando hacia quien lo abre).
+  usda = usda.replace(/token preliminary:anchoring:type = "image"/, 'uniform token preliminary:anchoring:type = "image"');
+  const cabecera = /def Xform "Scene" \(\n(\s*)/;
+  if (!cabecera.test(usda)) throw new Error('No se pudo preparar el anclaje al QR (escena).');
+  usda = usda.replace(cabecera, (t, sang) => `def Xform "Scene" (\n${sang}prepend apiSchemas = ["Preliminary_AnchoringAPI"]\n${sang}`);
   const nuevos = { 'model.usda': strToU8(usda) };
   for (const [k, v] of Object.entries(files)) if (k !== 'model.usda') nuevos[k] = v;
   nuevos['textures/qr_ancla.png'] = imagen || await pngQR(textoQR);

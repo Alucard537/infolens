@@ -16,7 +16,7 @@ export function ajustesQRLidar(anclaId) {
   return {
     colocacion: (a.lidarColocacion || {})[anclaId] || 'suelo',
     giro: Number((a.lidarGiro || {})[anclaId] || 0),
-    vista: a.lidarVista || 'ambas',
+    vista: a.lidarVista === 'linea' ? 'linea' : 'flechas',
     unidad: a.lidarUnidad || 'cm',
   };
 }
@@ -46,7 +46,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
   }
   div.innerHTML = `
     <label class="lidar-vista">Qué mostrar
-      <select data-q="vista"><option value="ambas">⚓ Ancla + flechas + línea</option><option value="flechas">⚓ Ancla + solo flechas</option><option value="linea">⚓ Ancla + solo línea verde</option></select></label>
+      <select data-q="vista"><option value="flechas">⚓ Ancla + flechas</option><option value="linea">⚓ Ancla + línea de un punto a otro</option></select></label>
     <div class="lidar-boton"></div>
     <p class="nota">Al abrir, <b>apunta al MARCADOR del ancla</b> (el dibujo con el QR en el centro; se imprime en
       ⚓ Gestión de anclas → 🖨️ Marcador): aparece un ⚓ ancla 3D encima y las flechas hasta el elemento, con su
@@ -73,7 +73,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, fijos = null })
   const g0 = ((Math.round(aj.giro / 5) * 5 + 540) % 360) - 180;
   selGiro.value = String(g0 === -180 ? 180 : g0);
   const selVista = div.querySelector('[data-q="vista"]');
-  selVista.value = aj.vista || 'ambas';
+  selVista.value = aj.vista === 'linea' ? 'linea' : 'flechas';
   const boton = div.querySelector('.lidar-boton'), mano = div.querySelector('.lidar-mano');
 
   let turno = 0;
