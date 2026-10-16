@@ -23,8 +23,12 @@ function objeto(color, forma) {
 
 /** Escena: objeto rojo en el origen, flechas por los tramos y objeto azul al final. */
 export function escenaPruebaFlechas(tramos) {
+  return escenaObjetos([new THREE.Vector3(0, 0, 0), ...puntosDeTramos(tramos).map((p) => new THREE.Vector3(...p))]);
+}
+
+/** puntos: recorrido en G (metros) desde el QR del ancla (origen) hasta el componente (último). */
+export function escenaObjetos(puntos) {
   const grupo = new THREE.Group();
-  const puntos = [new THREE.Vector3(0, 0, 0), ...puntosDeTramos(tramos).map((p) => new THREE.Vector3(...p))];
   // Las flechas empiezan y terminan un poco fuera de los objetos para que no queden tapadas
   grupo.add(crearFlechas(puntos, 0.5, { conLinea: false }));
   grupo.add(objeto(0xff3b30, 'caja'));
@@ -36,7 +40,15 @@ export function escenaPruebaFlechas(tramos) {
 
 /** .usdz de la prueba (mismas opciones que el ejemplo que funciona). */
 export async function usdzPruebaFlechas(tramos) {
-  const escena = escenaPruebaFlechas(tramos);
+  return usdzEscena(escenaPruebaFlechas(tramos));
+}
+
+/** .usdz de un paso de guía: ancla (rojo) + recorrido + componente (azul), igual que la prueba. */
+export async function usdzRecorridoObjetos(puntos) {
+  return usdzEscena(escenaObjetos(puntos));
+}
+
+async function usdzEscena(escena) {
   escena.traverse((o) => {
     if (!o.isMesh) return;
     const mats = Array.isArray(o.material) ? o.material : [o.material];

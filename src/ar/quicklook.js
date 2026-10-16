@@ -167,29 +167,37 @@ export async function prepararRecorridoQuickLook(componente, ancla, ladoCm, modo
 }
 
 /**
- * Bloque con los dos botones del recorrido en el AR de Apple (LiDAR), que no se pierde al andar.
- * componente: { id, nombre, referencia, nav: { pos, ruta } }; ancla: { id, anclaGravedad }.
+ * Botón del recorrido en el AR de Apple (LiDAR), hecho igual que la prueba del inicio que funciona:
+ * un solo objeto con el ancla (🟥), las flechas y el componente (🟦). Se coloca como un objeto.
+ * componente: { id, nombre, referencia, nav: { pos, ruta } }; ancla: { id }.
  */
 export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
   const div = document.createElement('div');
   div.className = 'bloque-lidar-guia';
   const titulo = document.createElement('p');
   titulo.className = 'nota lidar-recomendado';
-  titulo.textContent = '👉 Recomendado para andar: flechas con LiDAR (el AR de Apple no pierde la posición).';
+  titulo.textContent = '👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).';
   div.appendChild(titulo);
-  const qr = crearEnlaceAR({ texto: '⏳ Preparando…' });
-  const mano = crearEnlaceAR({ texto: '⏳ Preparando…' });
-  div.append(qr.enlace, mano.enlace);
+  const enl = crearEnlaceAR({ texto: '⏳ Preparando…' });
+  div.appendChild(enl.enlace);
   const ayuda = document.createElement('p');
   ayuda.className = 'nota';
-  ayuda.innerHTML = '<b>🧭 Detectar el QR:</b> al abrir, apunta al QR del ancla y espera a que salgan las flechas.<br>'
-    + '<b>✋ Colocar a mano:</b> sale como un objeto. Arrastra con un dedo y gira con dos hasta que el cuadro blanco quede encima del QR impreso y la flecha azul apunte como "▲ ADELANTE". Luego camina.';
+  ayuda.innerHTML = '🟥 Rojo = el QR del ancla · 🟦 Azul = ' + escaparHtml(componente.nombre || 'el componente')
+    + '.<br>Coloca el rojo encima del QR del ancla y gira con dos dedos hasta que las flechas salgan hacia "▲ ADELANTE". Luego camina.';
   div.appendChild(ayuda);
-  prepararRecorridoQuickLook(componente, ancla, ladoCm, 'qr')
-    .then((u) => qr.poner(u, '🧭 LiDAR · detectar el QR'))
-    .catch((e) => { console.warn('Recorrido LiDAR (QR):', e); qr.texto('❌ No se pudo preparar'); });
-  prepararRecorridoQuickLook(componente, ancla, ladoCm, 'suelo')
-    .then((u) => mano.poner(u, '✋ LiDAR · colocar a mano sobre el QR'))
-    .catch((e) => { console.warn('Recorrido LiDAR (suelo):', e); mano.texto('❌ No se pudo preparar'); });
+  (async () => {
+    const [{ puntosRecorrido }, { usdzRecorridoObjetos }] = await Promise.all([import('./navegacion.js'), import('./prueba-flechas.js')]);
+    const puntos = puntosRecorrido(componente.nav);
+    const bytes = await usdzRecorridoObjetos(puntos);
+    let h = 0;
+    for (const c of JSON.stringify([componente.nav, componente.id, ancla.id])) h = (h * 31 + c.charCodeAt(0)) | 0;
+    return direccionWeb(`paso-${ancla.id}-${componente.id}-${(h >>> 0).toString(36)}`, new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
+  })()
+    .then((u) => enl.poner(u, '🧭 Ver recorrido con LiDAR: ancla 🟥 → componente 🟦'))
+    .catch((e) => { console.warn('Recorrido LiDAR:', e); enl.texto('❌ No se pudo preparar'); });
   return div;
+}
+
+function escaparHtml(t) {
+  return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
