@@ -172,29 +172,55 @@ export async function prepararRecorridoQuickLook(componente, ancla, ladoCm, modo
  * componente: { id, nombre, referencia, nav: { pos, ruta } }; ancla: { id }.
  */
 export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
+  // Igual que la prueba "Con tus medidas" del inicio (que funciona): primero se genera el archivo
+  // al pulsar un botón normal y DESPUÉS se crea el botón verde, ya listo, con su dirección.
+  void ladoCm;
   const div = document.createElement('div');
   div.className = 'bloque-lidar-guia';
-  const titulo = document.createElement('p');
-  titulo.className = 'nota lidar-recomendado';
-  titulo.textContent = '👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).';
-  div.appendChild(titulo);
-  const enl = crearEnlaceAR({ texto: '⏳ Preparando…' });
-  div.appendChild(enl.enlace);
-  const ayuda = document.createElement('p');
-  ayuda.className = 'nota';
-  ayuda.innerHTML = '🟥 Rojo = el QR del ancla · 🟦 Azul = ' + escaparHtml(componente.nombre || 'el componente')
-    + '.<br>Coloca el rojo encima del QR del ancla y gira con dos dedos hasta que las flechas salgan hacia "▲ ADELANTE". Luego camina.';
-  div.appendChild(ayuda);
-  (async () => {
-    const [{ puntosRecorrido }, { usdzRecorridoObjetos }] = await Promise.all([import('./navegacion.js'), import('./prueba-flechas.js')]);
-    const puntos = puntosRecorrido(componente.nav);
-    const bytes = await usdzRecorridoObjetos(puntos);
-    let h = 0;
-    for (const c of JSON.stringify([componente.nav, componente.id, ancla.id])) h = (h * 31 + c.charCodeAt(0)) | 0;
-    return direccionWeb(`paso-${ancla.id}-${componente.id}-${(h >>> 0).toString(36)}`, new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
-  })()
-    .then((u) => enl.poner(u, '🧭 Ver recorrido con LiDAR: ancla 🟥 → componente 🟦'))
-    .catch((e) => { console.warn('Recorrido LiDAR:', e); enl.texto('❌ No se pudo preparar'); });
+  div.innerHTML = `
+    <p class="nota lidar-recomendado">👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).</p>
+    <button class="boton" data-l="preparar">⚙️ Preparar recorrido con LiDAR</button>
+    <div class="lidar-listo"></div>
+    <p class="nota">🟥 Rojo = el QR del ancla · 🟦 Azul = <span class="l-comp"></span>.<br>
+      Coloca el rojo encima del QR del ancla y gira con dos dedos hasta que las flechas salgan hacia "▲ ADELANTE". Luego camina.</p>`;
+  div.querySelector('.l-comp').textContent = componente.nombre || 'el componente';
+  const listo = div.querySelector('.lidar-listo');
+  const btn = div.querySelector('[data-l="preparar"]');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    btn.textContent = '⏳ Preparando…';
+    listo.innerHTML = '';
+    try {
+      const [{ puntosRecorrido }, { usdzRecorridoObjetos }] = await Promise.all([import('./navegacion.js'), import('./prueba-flechas.js')]);
+      const bytes = await usdzRecorridoObjetos(puntosRecorrido(componente.nav));
+      let h = 0;
+      for (const c of JSON.stringify([componente.nav, componente.id, ancla.id])) h = (h * 31 + c.charCodeAt(0)) | 0;
+      const blob = new Blob([bytes], { type: 'model/vnd.usdz+zip' });
+      // Borrar los recorridos preparados antes (no se acumulan)
+      try { const c = await caches.open(CACHE_AR); for (const r of await c.keys()) if (r.url.includes('/ar-generado/paso-')) await c.delete(r); } catch {}
+      const url = await direccionWeb(`paso-${(h >>> 0).toString(36)}-${Date.now()}`, blob);
+      listo.appendChild(crearEnlaceAR({ url, texto: '🧭 Ver recorrido con LiDAR: ancla 🟥 → componente 🟦' }).enlace);
+      // Otra forma de abrirlo: un enlace normal al archivo (Safari también abre el AR de Apple)
+      const otro = document.createElement('a');
+      otro.className = 'boton secundario enlace-boton';
+      otro.href = url;
+      otro.textContent = '🔁 Si no se abre: abrir de otra forma';
+      listo.appendChild(otro);
+      const info = document.createElement('p');
+      info.className = 'nota';
+      info.textContent = `Archivo: ${Math.round(blob.size / 1024)} KB · ${url.startsWith('blob:') ? '⚠️ temporal (puede abrirse sin AR)' : '✅ guardado en la app'}`;
+      listo.appendChild(info);
+      btn.textContent = '↻ Volver a preparar';
+    } catch (e) {
+      console.warn('Recorrido LiDAR:', e);
+      const p = document.createElement('p');
+      p.className = 'error-form';
+      p.textContent = '❌ No se pudo preparar: ' + (e && e.message ? e.message : e);
+      listo.appendChild(p);
+      btn.textContent = '⚙️ Preparar recorrido con LiDAR';
+    }
+    btn.disabled = false;
+  });
   return div;
 }
 
