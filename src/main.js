@@ -22,6 +22,7 @@ import { pantallaLocalizacion } from './pantallas/localizacion.js';
 import { pantallaGuias, pantallaGuiaPortada } from './pantallas/guias.js';
 import { pantallaGuiaEditor } from './pantallas/guia-editor.js';
 import { pantallaGuiaLidar } from './pantallas/guia-lidar.js';
+import { pantallaArRecorrido } from './pantallas/ar-recorrido.js';
 
 document.title = APP_NAME;
 
@@ -194,7 +195,9 @@ async function mostrar() {
   }
   if (miTurno !== turno) return;
 
-  if (pantalla === 'admin') {
+  if (pantalla === 'ar') {
+    limpiar = pantallaArRecorrido(app, params.get('d'), { volver: () => ir('#/') });
+  } else if (pantalla === 'admin') {
     pantallaAdmin(app, {
       volver: () => ir('#/'),
       destino: params.get('ir'),

@@ -76,7 +76,7 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
       $('.guia-titulo').textContent = p.titulo || (el ? `Localizar: ${el.nombre}` : `Paso ${paso + 1}`);
       const lp = $('.lidar-paso');
       if (destino && p.flechas !== false) {
-        if (hayQuickLook()) {
+        if (hayQuickLook() || /iPhone|iPad|iPod/.test(navigator.userAgent)) {
           const comp = el || { id: 'paso-' + (paso + 1), nombre: p.titulo || `Paso ${paso + 1}`, referencia: g.nombre };
           lp.appendChild(bloqueRecorridoLidar({ ...comp, nav: destino }, { id: g.anclaId }, 0));
         } else {

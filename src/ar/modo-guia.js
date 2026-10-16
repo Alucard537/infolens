@@ -78,7 +78,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     cuerpo.className = 'guia-cuerpo';
     panel.appendChild(cuerpo);
     // Recorrido con LiDAR (AR de Apple anclado al QR del ancla): las flechas siguen fijas al andar
-    if (p._destinoAR && p.flechas !== false && hayQuickLook()) {
+    if (p._destinoAR && p.flechas !== false && (hayQuickLook() || /iPhone|iPad|iPod/.test(navigator.userAgent))) {
       const b = document.createElement('button');
       b.className = 'boton boton-lidar';
       b.textContent = '🧭 Ver este paso con LiDAR (recomendado)';

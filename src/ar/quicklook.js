@@ -171,12 +171,31 @@ export async function prepararRecorridoQuickLook(componente, ancla, ladoCm, modo
  * un solo objeto con el ancla (🟥), las flechas y el componente (🟦). Se coloca como un objeto.
  * componente: { id, nombre, referencia, nav: { pos, ruta } }; ancla: { id }.
  */
+/** Dirección de la app (para Safari) con el recorrido dentro: #/ar?d={n, p}. */
+export function direccionSafariRecorrido(componente) {
+  const nav = componente.nav;
+  const puntos = [[0, 0, 0], ...(nav.ruta || []), nav.pos].map((q) => q.map((n) => Math.round(n * 1000) / 1000));
+  const d = JSON.stringify({ n: componente.nombre || 'Destino', p: puntos });
+  return new URL(`${import.meta.env?.BASE_URL ?? "./"}#/ar?d=${encodeURIComponent(d)}`, location.href).href;
+}
+
 export function bloqueRecorridoLidar(componente, ancla, ladoCm) {
   // Igual que la prueba "Con tus medidas" del inicio (que funciona): primero se genera el archivo
   // al pulsar un botón normal y DESPUÉS se crea el botón verde, ya listo, con su dirección.
   void ladoCm;
   const div = document.createElement('div');
   div.className = 'bloque-lidar-guia';
+  // Desde la app instalada en la pantalla de inicio el AR de Apple NO se abre: se abre en Safari,
+  // con el recorrido dentro de la dirección (Safari no tiene los datos de la app).
+  if (esIOS() && esAppInstalada()) {
+    div.innerHTML = `
+      <p class="nota lidar-recomendado">👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).</p>
+      <a class="boton grande enlace-boton" target="_blank" rel="noopener">🧭 Abrir el recorrido con LiDAR (en Safari)</a>
+      <p class="nota">La app instalada no puede abrir el AR de Apple: se abre en Safari. Allí pulsa "Preparar" y luego el botón verde.
+        Cuando termines, vuelve a esta app para seguir.</p>`;
+    div.querySelector('a').href = direccionSafariRecorrido(componente);
+    return div;
+  }
   div.innerHTML = `
     <p class="nota lidar-recomendado">👉 Recomendado para andar: recorrido con LiDAR (no pierde la posición).</p>
     <button class="boton" data-l="preparar">⚙️ Preparar recorrido con LiDAR</button>
