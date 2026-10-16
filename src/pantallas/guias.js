@@ -74,7 +74,7 @@ export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) 
   return () => { activo = false; urls.forEach((u) => URL.revokeObjectURL(u)); };
 }
 
-export function pantallaGuiaPortada(app, id, { volver, empezar, editar }) {
+export function pantallaGuiaPortada(app, id, { volver, empezar, editar, conLidar }) {
   let activo = true;
   const urls = [];
   (async () => {
@@ -105,7 +105,9 @@ export function pantallaGuiaPortada(app, id, { volver, empezar, editar }) {
           <div>Ancla QR: <b class="g-ancla"></b></div>
         </div>
         <p class="nota">⚠️ Esta guía es una ayuda: no sustituye al procedimiento técnico autorizado ni a las medidas de seguridad de la máquina.</p>
-        <button class="boton grande" data-a="empezar" ${ancla ? '' : 'disabled'}>▶️ Empezar (escanear el ancla)</button>
+        <button class="boton grande" data-a="lidar" ${ancla ? '' : 'disabled'}>🧭 Empezar con LiDAR (recomendado)</button>
+        <p class="nota">Paso a paso, con las flechas en el AR de Apple: no pierden la posición al andar.</p>
+        <button class="boton secundario" data-a="empezar" ${ancla ? '' : 'disabled'}>▶️ Empezar con la cámara (escanear el ancla)</button>
         ${admin ? '<button class="boton secundario" data-a="editar">✏️ Editar guía</button>' : ''}
       </div>`;
     const $ = (s) => app.querySelector(s);
@@ -115,6 +117,7 @@ export function pantallaGuiaPortada(app, id, { volver, empezar, editar }) {
     $('.g-ancla').textContent = ancla ? `${ancla.nombre} (${ancla.id})` : 'sin ancla';
     $('.volver').addEventListener('click', volver);
     $('[data-a="empezar"]').addEventListener('click', () => empezar(g.id));
+    $('[data-a="lidar"]').addEventListener('click', () => conLidar(g.id));
     $('[data-a="editar"]')?.addEventListener('click', () => editar(g.id));
     if (g.portadaId) {
       const a = await obtenerArchivo(g.portadaId);

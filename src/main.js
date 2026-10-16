@@ -21,6 +21,7 @@ import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina, pantallaAnclas 
 import { pantallaLocalizacion } from './pantallas/localizacion.js';
 import { pantallaGuias, pantallaGuiaPortada } from './pantallas/guias.js';
 import { pantallaGuiaEditor } from './pantallas/guia-editor.js';
+import { pantallaGuiaLidar } from './pantallas/guia-lidar.js';
 
 document.title = APP_NAME;
 
@@ -185,7 +186,7 @@ async function mostrar() {
     return;
   }
   // Pantallas que necesitan una máquina activa (si no la hay, se pide elegirla antes)
-  const CON_MAQUINA = ['escaner', 'ancla', 'guias', 'guia', 'guia-ejecutar', 'elementos', 'anclas'];
+  const CON_MAQUINA = ['escaner', 'ancla', 'guias', 'guia', 'guia-ejecutar', 'guia-lidar', 'elementos', 'anclas'];
   if (CON_MAQUINA.includes(pantalla) && !(await maquinaActiva())) {
     if (miTurno !== turno) return;
     location.replace('#/maquinas?falta=1&ir=' + encodeURIComponent(location.hash));
@@ -260,7 +261,15 @@ async function mostrar() {
     limpiar = pantallaGuiaPortada(app, id, {
       volver: () => ir('#/guias'),
       empezar: (g) => irConCamara('#/guia-ejecutar/' + enc(g)),
+      conLidar: (g) => ir('#/guia-lidar/' + enc(g)),
       editar: (g) => ir('#/guia-editar/' + enc(g)),
+    });
+  } else if (pantalla === 'guia-lidar' && id) {
+    limpiar = pantallaGuiaLidar(app, id, {
+      pasoInicial: parseInt(params.get('paso') || '0', 10) || 0,
+      volver: () => ir('#/guia/' + enc(id)),
+      abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
+      abrirImagen,
     });
   } else if (pantalla === 'guia-nueva' || (pantalla === 'guia-editar' && id)) {
     limpiar = pantallaGuiaEditor(app, {

@@ -450,3 +450,7 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
 .bloque-lidar-guia { margin: 8px 0 12px; padding: 10px; border-radius: 14px; background: rgba(52, 199, 89, 0.12); border: 1px solid #34c759; }
 .bloque-lidar-guia .enlace-ar { margin: 8px 0; }
 .lidar-recomendado { font-weight: 700; color: #7CFC9A; margin: 0 0 4px; }
+
+.boton-lidar { background: #34c759; color: #062b12; margin: 6px 0 10px; }
+.guia-lidar .guia-nombre { font-weight: 700; color: var(--azul); margin-top: 8px; }
+.guia-lidar .guia-paso { color: var(--texto2); font-size: 14px; }
