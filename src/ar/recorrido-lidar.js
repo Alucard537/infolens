@@ -8,7 +8,7 @@
 // Se abre con una dirección temporal (blob:), que es la que funciona en el iPhone.
 import * as THREE from 'three';
 import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
-import { crearFlechas, usdzAncladoAQR } from './navegacion.js';
+import { crearFlechas, usdzAncladoAQR, marcaSalida } from './navegacion.js';
 import { crearIcono } from './icono.js';
 
 const ORO = 0xffc83d, AZUL = 0x0a84ff;
@@ -76,6 +76,8 @@ export function escenaPaso(puntos, info = {}, { ladoCm = 10 } = {}) {
   const grupo = new THREE.Group();
   grupo.add(crearFlechas(puntos, 0.5, { conLinea: true }));
   grupo.add(anclaTresD(Math.max(0.12, (ladoCm / 100) * 1.4)));
+  // Cuadro del tamaño exacto del QR + flecha azul ADELANTE y roja DERECHA: tiene que coincidir con el QR impreso
+  grupo.add(marcaSalida(ladoCm / 100, { conTexto: false }));
   const fin = puntos[puntos.length - 1];
   const previo = puntos[puntos.length - 2] || new THREE.Vector3(0, 0, 0.5);
   // El cartel mira hacia donde llega la persona (el tramo anterior), en horizontal

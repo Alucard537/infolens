@@ -264,7 +264,7 @@ ${s}}`);
 // (dos dedos) hasta que el cuadro de salida queda encima del QR impreso y la flecha azul apunta como
 // la flecha "▲ ADELANTE" del QR. No depende de que ARKit reconozca el QR.
 
-function marcaSalida(ladoM) {
+export function marcaSalida(ladoM, { conTexto = true } = {}) {
   const g = new THREE.Group();
   const azul = new THREE.MeshStandardMaterial({ color: 0x0a84ff, emissive: 0x06336b, roughness: 0.5 });
   const rojo = new THREE.MeshStandardMaterial({ color: 0xff453a, emissive: 0x5a1410, roughness: 0.5 });
@@ -294,6 +294,7 @@ function marcaSalida(ladoM) {
   };
   g.add(flecha(0, azul, Math.max(0.12, ladoM)));
   g.add(flecha(-Math.PI / 2, rojo, Math.max(0.06, ladoM * 0.5)));
+  if (!conTexto) return g;
   // Texto tumbado en el suelo, por detrás del QR (se lee de pie junto al QR mirando ADELANTE)
   const ancho = Math.max(0.24, ladoM * 2.2);
   const placa = placaTexto(['Pon el cuadro sobre el QR', 'Flecha azul = ▲ ADELANTE'], ancho);
