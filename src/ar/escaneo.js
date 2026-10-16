@@ -17,7 +17,9 @@ const TEXTO_COLOCACION = {
   pared: 'QR en una pared',
 };
 
-export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar }) {
+// alAnclarAMano(): lo llama el botón "⚓ Anclar" del modo manual; la pantalla calcula la pose del QR con el
+// cuadro dibujado y llama a anclarManual(id, gravedad).
+export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar, alAnclarAMano }) {
   let fase = 'qr';
   let anclaId = null;
   let muestras = [];
@@ -31,11 +33,22 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar }) {
     pintada = fase;
     panel.hidden = fase === 'listo';
     if (fase === 'listo') return;
+    if (fase === 'manual') {
+      panel.innerHTML = `<div class="rec-titulo">📐 Alinear a mano</div>
+        <p class="esc-texto">Pon el móvil <b>encima del QR, mirando hacia abajo</b>, con <b>▲ ADELANTE</b> hacia arriba de la pantalla.
+          Sube o baja el móvil hasta que el QR <b>coincida con el cuadro</b> de la pantalla y pulsa <b>⚓ Anclar</b>.</p>
+        <div class="botones-archivo"><button class="boton" data-e="anclar">⚓ Anclar</button><button class="boton secundario" data-e="cancelar">Cancelar</button></div>`;
+      panel.querySelector('[data-e="anclar"]').addEventListener('click', () => alAnclarAMano && alAnclarAMano());
+      panel.querySelector('[data-e="cancelar"]').addEventListener('click', () => { fase = 'qr'; pintar(); });
+      return;
+    }
     panel.innerHTML = fase === 'qr'
       ? '<div class="rec-titulo">🔍 Busca el QR del ancla</div><p class="esc-texto">Apunta la cámara al QR del ancla. Hasta que no lo detecte no aparece nada en 3D.</p>'
       : `<div class="rec-titulo">✅ QR detectado</div>
          <p class="esc-texto">Mantén el móvil <b>quieto</b> un momento mirando el QR (a 30–80 cm). Cuando el borde se ponga <b>verde</b>, aparecerá el modelo 3D centrado en el QR.</p>
          <div class="barra-progreso"><div></div></div><p class="nota esc-detalle"></p>`;
+    panel.insertAdjacentHTML('beforeend', '<button class="boton secundario" data-e="manual">📐 No lo detecta: alinear a mano</button>');
+    panel.querySelector('[data-e="manual"]').addEventListener('click', () => { fase = 'manual'; pintar(); });
   }
   function progreso(v, detalle) {
     const b = panel.querySelector('.barra-progreso > div');
@@ -55,6 +68,7 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar }) {
   /** Cada fotograma. Devuelve true cuando el QR está bien definido y ya se puede mostrar el 3D. */
   function actualizar(arriba, ahora) {
     const conQR = (s) => !!(s && s.tipo === 'ancla-activa' && s.vistoQR && ahora - s.vistoQR < 250);
+    if (fase === 'manual') { pintar(); return false; }
     if (fase === 'qr') {
       const s = [...seguidos.values()].find(conQR);
       if (s) { anclaId = s.id; fase = 'estable'; muestras = []; }
@@ -91,6 +105,16 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar }) {
   return {
     actualizar, reiniciar,
     get listo() { return fase === 'listo'; },
+    get manual() { return fase === 'manual'; },
+    /** Modo manual: el QR ya está colocado por la pantalla; se fijan los ejes con la gravedad de ese momento. */
+    anclarManual(id, g) {
+      anclaId = id;
+      medida = { id, g, colocacion: colocacionQR(g) };
+      capa.fijarGravedad(id, g);
+      alMedir?.(id, g);
+      fase = 'listo';
+      pintar();
+    },
     /** Para dibujar el borde: id del QR del ancla, si se ve ahora y si ya está bien definido. */
     get borde() { return anclaId && vistoAhora ? { id: anclaId, definido: fase === 'listo' } : null; },
     get colocacion() { return medida ? TEXTO_COLOCACION[medida.colocacion] : ''; },

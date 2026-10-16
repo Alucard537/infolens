@@ -56,6 +56,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       </div>
       <div class="estado-seguimiento" hidden></div>
       <div class="escaneo-panel" hidden></div>
+      <div class="marco-manual" hidden><span>▲ ADELANTE</span></div>
       <div class="guia-recorte" hidden></div>
       <button class="aviso-sensor" hidden>📐 Toca aquí para activar el sensor de movimiento.<br><small>Sin él no se sabe dónde está el suelo y las flechas no se pueden orientar.</small></button>
       <div class="rec-panel" hidden></div>
@@ -326,6 +327,39 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     estadoSeg.className = 'estado-seguimiento ' + clase;
   }
 
+  // ---------- ALINEAR A MANO: el usuario hace coincidir el QR con el cuadro de la pantalla ----------
+  // Con el móvil encima del QR mirando hacia abajo y ▲ ADELANTE arriba de la pantalla, el QR queda de frente
+  // a la cámara: su centro está en el centro del cuadro y su distancia sale del tamaño del cuadro.
+  let ultimoArriba = null;
+  const marcoManual = $('.marco-manual');
+  function anclarAMano() {
+    const id = modo === 'guia' ? guiaActual && guiaActual.anclaId
+      : [...(anclas || new Map()).values()].find((a) => a.maquinaId === maquinaId)?.id;
+    if (!id) { avisar('No hay un ancla para anclar.'); return; }
+    if (!ultimoArriba || !sensor.activo) { avisar('Activa el sensor de movimiento para anclar.'); return; }
+    const g = geometria();
+    const caja = marcoManual.getBoundingClientRect();
+    const ladoVideo = caja.width / g.s;                         // lado del cuadro en píxeles del vídeo
+    const lado = ajustes.qrCm / 100;
+    const d = (g.f * lado) / ladoVideo;                          // distancia al QR (m)
+    const u = ((caja.left + caja.width / 2) - g.ox) / g.s, v = ((caja.top + caja.height / 2) - g.oy) / g.s;
+    const pose = { R: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], t: [((u - g.cx) / g.f) * d, ((v - g.cy) / g.f) * d, d] };
+    let s = seguidos.get(id);
+    if (!s) { s = crearSeguido(id); seguidos.set(id, s); }
+    ponerPose(s, pose);
+    const h = caja.width / 2 / g.s;
+    s.esquinas = [[u - h, v - h], [u + h, v - h], [u + h, v + h], [u - h, v + h]];
+    s.visto = s.vistoQR = performance.now();
+    s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
+    if (entorno) {
+      if (idAnclaEntorno !== id) { entorno.postMessage({ tipo: 'reiniciar' }); idAnclaEntorno = id; }
+      entorno.postMessage({ tipo: 'qr', t: performance.now(), R: pose.R, tv: pose.t });
+    }
+    const gL = gravedadEnQR(s.objetivoRot, ultimoArriba);
+    escaneo.anclarManual(id, [gL.x, gL.y, gL.z]);
+    avisar('⚓ Anclado. Ya puedes moverte: sigue las flechas.');
+  }
+
   function procesarDeteccion(qrs, k, tiempo) {
     if (!elementos || !anclas) return; // la base de datos aún no ha cargado (tarda milisegundos)
     const g = geometria();
@@ -432,6 +466,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       if (a) a.gravedad = g;
       if (esAdmin()) guardarGravedadAncla(id, g).catch(() => {});
     },
+    alAnclarAMano: () => anclarAMano(),
     alReiniciar: () => {
       if (entorno) entorno.postMessage({ tipo: 'reiniciar' });
       infoEntorno = { puntos: 0, encajan: 0, aprendidos: 0 };
@@ -606,6 +641,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     const lado = ajustes.qrCm / 100;
     const suav = 1 - Math.exp(-dt * 18);
     const arriba = sensor.leer(dt);
+    ultimoArriba = arriba;
+    marcoManual.hidden = !(escaneo && escaneo.manual);
     let hayAlguno = false;
 
     for (const s of seguidos.values()) {
