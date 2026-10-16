@@ -218,7 +218,7 @@ async function mostrar() {
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
       darDeAlta: (i) => ir('#/nuevo/' + enc(i) + '?maquina=' + enc(maquinaActivaId() || '')),
       abrirImagen,
-      volver: () => (pantalla === 'guia-ejecutar' ? ir('#/guia/' + enc(id)) : ir('#/')),
+      volver: () => (pantalla === 'guia-ejecutar' ? ir('#/guias') : ir('#/')),
     });
   } else if (pantalla === 'maquinas') {
     const destino = params.get('ir');
@@ -260,7 +260,7 @@ async function mostrar() {
     limpiar = pantallaGuias(app, maq, {
       // Volver a un sitio fijo (no "atrás"): si se vino desde la gestión de una máquina, a ella; si no, al inicio
       volver: () => ir(params.get('maquina') ? '#/maquina/' + enc(params.get('maquina')) : '#/'),
-      abrir: (g) => ir('#/guia-lidar/' + enc(g)),
+      abrir: (g) => irConCamara('#/guia-ejecutar/' + enc(g)),
       editar: (g) => ir('#/guia-editar/' + enc(g)),
       nueva: (m) => ir('#/guia-nueva?maquina=' + enc(m)),
     });
@@ -292,7 +292,7 @@ async function mostrar() {
         import('./maquinas.js').then(async ({ obtenerGuia }) => {
           const guia = await obtenerGuia(g);
           if (guia) establecerMaquinaActiva(guia.maquinaId);
-          ir('#/guia-lidar/' + enc(g));
+          irConCamara('#/guia-ejecutar/' + enc(g));
         });
       },
     });

@@ -759,6 +759,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   function dibujarDebug(g) {
     const c = lienzoDebug.getContext('2d');
     c.clearRect(0, 0, lienzoDebug.width, lienzoDebug.height);
+    dibujarBordeQR(c, g);
     if (!debug) return;
     const colores = ['#ff3b30', '#34c759', '#007aff', '#ffcc00']; // arriba-izq, arriba-der, abajo-der, abajo-izq
     for (const s of seguidos.values()) {
@@ -770,6 +771,43 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
         c.fill();
       });
     }
+  }
+
+  // Borde del QR del ancla con líneas discontinuas: AMARILLO = detectado (estabilizando),
+  // VERDE = bien definido (ya se muestra el modelo 3D centrado en el QR)
+  let fase = 0;
+  function dibujarBordeQR(c, g) {
+    const b = escaneo && escaneo.borde;
+    const s = b && seguidos.get(b.id);
+    if (!s || !s.esquinas) return;
+    const pts = s.esquinas.map(([x, y]) => [g.ox + x * g.s, g.oy + y * g.s]);
+    const color = b.definido ? '#30d158' : '#ffd60a';
+    fase = (fase + 1) % 1000;
+    c.save();
+    c.lineWidth = 6;
+    c.lineJoin = 'round';
+    c.setLineDash([16, 10]);
+    c.lineDashOffset = -fase * 0.8; // las rayas se mueven: se ve que está "vivo"
+    c.strokeStyle = 'rgba(0,0,0,0.55)';
+    c.lineWidth = 9;
+    c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.stroke();
+    c.strokeStyle = color;
+    c.lineWidth = 5;
+    c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.stroke();
+    // Borde de arriba (ADELANTE) un poco más marcado, y el texto
+    c.setLineDash([]);
+    c.lineWidth = 8;
+    c.beginPath(); c.moveTo(...pts[0]); c.lineTo(...pts[1]); c.stroke();
+    const mx = (pts[0][0] + pts[1][0]) / 2, my = (pts[0][1] + pts[1][1]) / 2;
+    c.font = '700 15px -apple-system, system-ui, sans-serif';
+    c.textAlign = 'center';
+    c.fillStyle = 'rgba(0,0,0,0.7)';
+    const txt = b.definido ? '✓ QR bien definido · ▲ ADELANTE' : 'Mantén quieto…';
+    const w = c.measureText(txt).width + 14;
+    c.fillRect(mx - w / 2, my - 34, w, 24);
+    c.fillStyle = color;
+    c.fillText(txt, mx, my - 16);
+    c.restore();
   }
 
   // Tocar el icono también abre el detalle

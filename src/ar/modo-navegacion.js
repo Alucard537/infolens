@@ -9,6 +9,8 @@
 //   componentes localizados y guía hasta el elegido. El administrador puede "Posicionar" componentes.
 import * as THREE from 'three';
 import { marcoQR, gravedadEnQR, puntosRecorrido, crearFlechas } from './navegacion.js';
+import { anclaTresD } from './recorrido-lidar.js';
+import { leerAjustes } from '../ajustes.js';
 import { crearIcono } from './icono.js';
 import { obtenerArchivo } from '../db.js';
 import { deG, describir } from '../coordenadas.js';
@@ -102,7 +104,9 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
     const destinoG = new THREE.Vector3(...(loc.posIcono || loc.pos));
     r = { puntos, destinoG, alTocar, mundo: prev ? prev.mundo : null, visto: prev ? prev.visto : false, perdido: prev ? prev.perdido : 0 };
     if (conFlechas) {
-      r.flechas = crearFlechas(puntos);
+      const linea = leerAjustes().lidarVista === 'linea';
+      r.flechas = crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: linea ? 0.018 : 0.008 });
+      r.flechas.add(anclaTresD(0.14)); // el ⚓ centrado en el QR del ancla (origen)
       r.flechas.matrixAutoUpdate = false;
       r.flechas.visible = false;
       r.materiales = r.flechas.userData.materiales || [];
