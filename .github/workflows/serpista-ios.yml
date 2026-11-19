@@ -1,0 +1,58 @@
+name: Compilar Serpista para iPhone
+
+on:
+  push:
+    branches: [serpista-ios]
+    paths: ['serpista-ios/**', '.github/workflows/serpista-ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: serpista-ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compilar:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar XcodeGen
+        run: brew install xcodegen
+      - name: Generar proyecto iOS
+        working-directory: serpista-ios/ios
+        run: xcodegen generate
+      - name: Compilar para iPhone sin firma
+        working-directory: serpista-ios/ios
+        run: |
+          set -euo pipefail
+          xcodebuild -project Serpista.xcodeproj -scheme Serpista -configuration Release -sdk iphoneos \
+            -destination 'generic/platform=iOS' -derivedDataPath "$RUNNER_TEMP/serpista-build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee compilacion.log
+      - name: Crear IPA para PlumeImpactor
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/serpista-ipa/Payload"
+          cp -R "$RUNNER_TEMP/serpista-build/Build/Products/Release-iphoneos/Serpista.app" "$RUNNER_TEMP/serpista-ipa/Payload/"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/serpista-ipa/Payload/Serpista.app/Info.plist"
+          file "$RUNNER_TEMP/serpista-ipa/Payload/Serpista.app/Serpista"
+          cd "$RUNNER_TEMP/serpista-ipa"
+          zip -qry "$GITHUB_WORKSPACE/SERPISTA-iPhone-1.0.0.ipa" Payload
+          shasum -a 256 "$GITHUB_WORKSPACE/SERPISTA-iPhone-1.0.0.ipa"
+      - name: Guardar IPA compilada
+        uses: actions/upload-artifact@v4
+        with:
+          name: SERPISTA-iPhone-IPA
+          path: SERPISTA-iPhone-1.0.0.ipa
+          if-no-files-found: error
+          retention-days: 14
+      - name: Guardar diagnóstico de compilación
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Serpista-iOS-diagnostico
+          path: serpista-ios/ios/compilacion.log
+          if-no-files-found: ignore

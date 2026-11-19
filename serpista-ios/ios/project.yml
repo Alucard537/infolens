@@ -1,0 +1,45 @@
+name: Serpista
+options:
+  bundleIdPrefix: com.serpista
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+targets:
+  Serpista:
+    type: application
+    platform: iOS
+    sources: [Serpista]
+    info:
+      path: Serpista/Info.plist
+      properties:
+        CFBundleDisplayName: SERPISTA
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        NSCameraUsageDescription: "Permite hacer fotos, leer códigos y usar la cámara en las herramientas de Serpista."
+        NSMicrophoneUsageDescription: "Permite grabar audio o utilizar las funciones de voz de Serpista cuando lo solicites."
+        NSPhotoLibraryUsageDescription: "Permite elegir imágenes para adjuntarlas a tus trabajos en Serpista."
+        NSLocalNetworkUsageDescription: "Permite conectar con los servicios y equipos autorizados de tu red de trabajo."
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSupportsIndirectInputEvents: true
+        UIFileSharingEnabled: false
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.serpista.diagnostico.ios
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+        ENABLE_BITCODE: "NO"
