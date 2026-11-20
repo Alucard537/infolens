@@ -49,20 +49,27 @@ struct PantallaAR: View {
         ZStack {
             VistaAR(controlador: controlador).ignoresSafeArea()
             VStack {
-                Text(controlador.estado)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .padding(12)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.black.opacity(0.65))
-                    .foregroundColor(.white)
-                    .cornerRadius(14)
-                    .padding(.horizontal, 12)
-                if !controlador.detectado {
-                    Text("Apunta la cámara al QR del ancla impreso. El recorrido no aparece hasta que lo detecte.")
-                        .font(.subheadline).foregroundColor(.white).padding(10)
-                        .background(Color.black.opacity(0.5)).cornerRadius(12).padding(.horizontal, 12)
+                VStack(spacing: 8) {
+                    Text(controlador.estado).font(.headline)
+                    if let tramo = controlador.tramoActual {
+                        HStack(spacing: 8) {
+                            if let rumbo = controlador.rumboGrados {
+                                Image(systemName: "location.north.fill")
+                                    .rotationEffect(.degrees(rumbo))
+                                    .foregroundColor(.yellow)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(tramo).font(.headline)
+                        }
+                    }
                 }
+                .multilineTextAlignment(.center)
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(Color.black.opacity(0.65))
+                .foregroundColor(.white)
+                .cornerRadius(14)
+                .padding(.horizontal, 12)
                 Spacer()
                 VStack(spacing: 10) {
                     Picker("Mostrar", selection: $controlador.soloLinea) {
@@ -73,7 +80,7 @@ struct PantallaAR: View {
                     HStack(spacing: 10) {
                         Button("↺ Girar 90°") { controlador.giro = (controlador.giro + 90) % 360 }
                             .buttonStyle(.bordered)
-                        Button("🔄 Buscar QR") { controlador.arrancar() }
+                        Button("🔄 Buscar QR") { controlador.buscarQR() }
                             .buttonStyle(.bordered)
                         Button("✕ Cerrar") { cerrar() }
                             .buttonStyle(.borderedProminent)

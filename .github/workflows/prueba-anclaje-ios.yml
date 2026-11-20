@@ -1,0 +1,45 @@
+name: Compilar visor de prueba
+on:
+  push:
+    branches: [prueba-anclaje-ios]
+    paths: ['ios/**', '.github/workflows/prueba-anclaje-ios.yml']
+permissions:
+  contents: read
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generar proyecto Xcode
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+      - name: Compilar el visor para iPhone
+        run: |
+          set -euo pipefail
+          cd ios
+          xcodebuild -project InfoLensVisor.xcodeproj -target InfoLensVisor -configuration Release -sdk iphoneos \
+            SYMROOT="$RUNNER_TEMP/infolens-build" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee "$RUNNER_TEMP/infolens-xcode.log"
+      - name: Empaquetar IPA de prueba
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/infolens-ipa/Payload"
+          cp -R "$RUNNER_TEMP/infolens-build/Release-iphoneos/InfoLensVisor.app" "$RUNNER_TEMP/infolens-ipa/Payload/"
+          cd "$RUNNER_TEMP/infolens-ipa"
+          zip -qry "$GITHUB_WORKSPACE/InfoLensVisor-Prueba.ipa" Payload
+          shasum -a 256 "$GITHUB_WORKSPACE/InfoLensVisor-Prueba.ipa"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InfoLensVisor-Prueba
+          path: InfoLensVisor-Prueba.ipa
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: Log-Xcode-InfoLens
+          path: ${{ runner.temp }}/infolens-xcode.log
+          if-no-files-found: ignore
