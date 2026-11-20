@@ -13,8 +13,8 @@ import { leerAjustes } from '../ajustes.js';
 import { crearIcono } from './icono.js';
 import { obtenerArchivo } from '../db.js';
 import { deG, describir } from '../coordenadas.js';
-import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
-import { prepararRecorridoQuickLook, bloqueRecorridoLidar } from './quicklook.js';
+import { bloquePasoLidar } from './bloque-lidar.js';
+import { tieneVisorNativo } from './visor-nativo.js';
 import {
   localizacionesDeAncla, guardarLocalizacion, guardarGravedadAncla, obtenerAncla,
 } from '../maquinas.js';
@@ -336,8 +336,13 @@ export function crearModoAncla({
     fila.querySelector('[data-n="ficha"]').addEventListener('click', () => abrirDetalle(c.id));
     fila.querySelector('[data-n="fin"]').addEventListener('click', mostrarMenu);
     panel.appendChild(fila);
-    if (hayQuickLook() && ancla) {
-      panel.appendChild(bloqueRecorridoLidar({ ...c, nav: { pos: l.pos, ruta: l.ruta } }, { id: ancla.id, anclaGravedad: ancla.gravedad }, ladoCm()));
+    if (ancla && tieneVisorNativo()) {
+      panel.appendChild(bloquePasoLidar({
+        puntos: [[0, 0, 0], ...(l.ruta || []), l.pos],
+        info: { id: c.id, nombre: c.nombre, referencia: c.referencia, descripcion: c.descripcion },
+        anclaId: ancla.id,
+        ladoCm: ladoCm(),
+      }));
     }
   }
 

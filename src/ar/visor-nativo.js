@@ -1,7 +1,12 @@
 // Enlace a la app nativa "InfoLens Visor" (ARKit + LiDAR + seguimiento del QR del ancla).
-// Le pasa el recorrido dentro de la dirección: infolens://ruta?d={p, i, a, l, v, c, g, q}
+// Le pasa el recorrido dentro de la dirección: infolens://ruta?d={p, i, a, l, v, q}
 //   q = los módulos del QR del ancla tal como se imprime ("N:hex"), para que ARKit reconozca EXACTAMENTE ese QR.
 import QRCode from 'qrcode';
+
+export function tieneVisorNativo() {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
 
 export function modulosQR(texto) {
   const qr = QRCode.create(texto, { errorCorrectionLevel: 'M' });
@@ -18,7 +23,7 @@ export function modulosQR(texto) {
 }
 
 /** puntos: [[x,y,z]…] en metros desde el QR (el primero [0,0,0]). */
-export function direccionVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas', colocacion = 'suelo', giro = 0 }) {
+export function direccionVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas' }) {
   const redondo = (n) => Math.round(n * 1000) / 1000;
   const d = {
     p: puntos.map((q) => q.map(redondo)),
@@ -26,8 +31,6 @@ export function direccionVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas
     a: anclaId,
     l: ladoCm,
     v: vista,
-    c: colocacion,
-    g: giro,
     q: modulosQR('INFOLENS:' + anclaId),
   };
   return 'infolens://ruta?d=' + encodeURIComponent(JSON.stringify(d));

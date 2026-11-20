@@ -13,8 +13,8 @@ targets:
       path: InfoLensVisor/Info.plist
       properties:
         CFBundleDisplayName: InfoLens Visor
-        CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.3"
+        CFBundleVersion: "3"
         NSCameraUsageDescription: "La cámara se usa para ver el recorrido en realidad aumentada sobre el QR del ancla."
         UILaunchScreen: {}
         UIRequiredDeviceCapabilities: [arkit]
@@ -26,8 +26,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.infolens.visor
-        MARKETING_VERSION: "0.2"
-        CURRENT_PROJECT_VERSION: "2"
+        MARKETING_VERSION: "0.3"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGNING_ALLOWED: "NO"

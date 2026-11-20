@@ -6,7 +6,7 @@
 //    confirmar). Una guía no sustituye al procedimiento técnico autorizado ni a las medidas de seguridad.
 import { obtenerArchivo } from '../db.js';
 import { localizacionesDeAncla, TIPOS_GUIA } from '../maquinas.js';
-import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
+import { tieneVisorNativo } from './visor-nativo.js';
 import { gravedadEnQR } from './navegacion.js';
 import { textoTramo } from './guia-recorrido.js';
 import { deG, describir } from '../coordenadas.js';
@@ -76,11 +76,10 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     const cuerpo = document.createElement('div');
     cuerpo.className = 'guia-cuerpo';
     panel.appendChild(cuerpo);
-    // Recorrido con LiDAR (AR de Apple anclado al QR del ancla): las flechas siguen fijas al andar
-    if (p._destinoAR && p.flechas !== false && (hayQuickLook() || /iPhone|iPad|iPod/.test(navigator.userAgent))) {
+    if (p._destinoAR && p.flechas !== false && tieneVisorNativo()) {
       const b = document.createElement('button');
       b.className = 'boton boton-lidar';
-      b.textContent = '🧭 Ver este paso con LiDAR (recomendado)';
+      b.textContent = '🧭 Ver este paso con LiDAR';
       b.addEventListener('click', () => { location.hash = `#/guia-lidar/${encodeURIComponent(guia.id)}?paso=${paso}`; });
       cuerpo.appendChild(b);
     }

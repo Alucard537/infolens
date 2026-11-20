@@ -100,8 +100,6 @@ struct PantallaAR: View {
                     }
                     .pickerStyle(.segmented)
                     HStack(spacing: 10) {
-                        Button("↺ Girar 90°") { controlador.giro = (controlador.giro + 90) % 360 }
-                            .buttonStyle(.bordered)
                         Button("🔄 Buscar QR") { controlador.buscarQR() }
                             .buttonStyle(.bordered)
                         Button("✕ Cerrar") { cerrar() }
