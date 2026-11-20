@@ -5,10 +5,11 @@ import SwiftUI
 @main
 struct InfoLensVisorApp: App {
     @State private var controlador: ControladorAR?
+    @State private var enlaceInvalido = false
 
     var body: some Scene {
         WindowGroup {
-            Group {
+            ZStack {
                 if let c = controlador {
                     PantallaAR(controlador: c) {
                         c.detener()
@@ -16,27 +17,48 @@ struct InfoLensVisorApp: App {
                     }
                     .id(c.recorrido.clave)
                 } else {
-                    Bienvenida()
+                    Bienvenida { abrir(Recorrido.prueba()) }
                 }
             }
             .onOpenURL { url in
-                guard let r = Recorrido.desdeURL(url) else { return }
-                controlador?.detener()
-                controlador = ControladorAR(recorrido: r)
+                guard let recorrido = Recorrido.desdeURL(url) else {
+                    enlaceInvalido = true
+                    return
+                }
+                abrir(recorrido)
+            }
+            .alert("No se pudo abrir el recorrido", isPresented: $enlaceInvalido) {
+                Button("Aceptar", role: .cancel) {}
+            } message: {
+                Text("Vuelve a Safari, abre el paso de la guía y pulsa «Abrir en el visor nativo».")
             }
         }
+    }
+
+    private func abrir(_ recorrido: Recorrido) {
+        controlador?.detener()
+        controlador = ControladorAR(recorrido: recorrido)
     }
 }
 
 struct Bienvenida: View {
+    let iniciarPrueba: () -> Void
+
     var body: some View {
         VStack(spacing: 18) {
             Text("⚓ InfoLens Visor").font(.largeTitle.bold())
-            Text("Abre un recorrido desde la app InfoLens: en el paso de la guía, toca «📱 Abrir en el visor nativo».")
+            Button(action: iniciarPrueba) {
+                Label("Iniciar prueba con QR", systemImage: "qrcode.viewfinder")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            Text("Apunta al QR de prueba TEST-1, impreso con 10 cm de lado, para ver el recorrido.")
                 .multilineTextAlignment(.center)
-            Text("Para probar: InfoLens → 🔬 Diagnóstico del AR → «📱 Prueba en el visor nativo».")
+            Text("Para seguir una guía, abre su paso en InfoLens y pulsa «Abrir en el visor nativo».")
                 .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
         }
+        .frame(maxWidth: 420)
         .padding(28)
     }
 }

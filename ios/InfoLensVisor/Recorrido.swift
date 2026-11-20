@@ -35,6 +35,20 @@ struct Recorrido {
 
     var textoQR: String { "INFOLENS:" + anclaId }
 
+    static func prueba() -> Recorrido {
+        // Coincide módulo a módulo con el QR de public/ejemplo/qr-prueba.html.
+        let marcador = "21:fea3fc14d06e94bb7505dba52ec10d07faafe01f00b75a5b8dc393c443aaa3a3a6dd004b8bfa64f05c1bba4bfdd53baeb25104e64fe80b0"
+        return Recorrido(
+            puntos: [[0, 0, 0], [0, 0, -1], [0.5, 0, -1]],
+            info: InfoElemento(nombre: "Destino de prueba", referencia: "1 m adelante · 50 cm a la derecha"),
+            anclaId: "TEST-1",
+            ladoCm: 10,
+            soloLinea: false,
+            giro: 0,
+            modulos: Recorrido.leerModulos(marcador)
+        )
+    }
+
     static func desdeURL(_ url: URL) -> Recorrido? {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let d = comps.queryItems?.first(where: { $0.name == "d" })?.value,

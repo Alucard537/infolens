@@ -16,6 +16,24 @@ jobs:
           brew install xcodegen
           cd ios
           xcodegen generate
+      - name: Comprobar el recorrido de prueba y los enlaces
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/infolens-smoke"
+          cat > "$RUNNER_TEMP/infolens-smoke/main.swift" <<'SWIFT'
+          import Foundation
+          let demo = Recorrido.prueba()
+          precondition(demo.textoQR == "INFOLENS:TEST-1")
+          precondition(demo.modulos?.count == 21 && demo.modulos?.first?.count == 21)
+          let url = URL(string: "infolens://ruta?d=%7B%22p%22%3A%5B%5B0%2C0%2C0%5D%2C%5B0%2C0%2C-1%5D%2C%5B0.5%2C0%2C-1%5D%5D%2C%22i%22%3A%7B%22nombre%22%3A%22Destino%20de%20prueba%22%7D%2C%22a%22%3A%22TEST-1%22%2C%22l%22%3A10%2C%22v%22%3A%22flechas%22%2C%22c%22%3A%22suelo%22%2C%22g%22%3A0%2C%22q%22%3A%2221%3Afea3fc14d06e94bb7505dba52ec10d07faafe01f00b75a5b8dc393c443aaa3a3a6dd004b8bfa64f05c1bba4bfdd53baeb25104e64fe80b0%22%7D")!
+          guard let ruta = Recorrido.desdeURL(url) else { fatalError("No se pudo abrir el enlace desde Safari") }
+          precondition(ruta.puntos == demo.puntos && ruta.modulos == demo.modulos)
+          precondition(ruta.ladoCm == demo.ladoCm && ruta.info.nombre == demo.info.nombre)
+          precondition(Recorrido.desdeURL(URL(string: "infolens://ruta")!) == nil)
+          print("QR de prueba y enlace de Safari verificados")
+          SWIFT
+          xcrun swiftc ios/InfoLensVisor/Recorrido.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
+          "$RUNNER_TEMP/infolens-smoke/revisar"
       - name: Compilar el visor para iPhone
         run: |
           set -euo pipefail
