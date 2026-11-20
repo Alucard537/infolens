@@ -20,17 +20,46 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/infolens-smoke"
-          cat > "$RUNNER_TEMP/infolens-smoke/main.swift" <<'SWIFT'
+          printf 'import simd\n' > "$RUNNER_TEMP/infolens-smoke/main.swift"
+          sed -n '/^private struct PoseQR {/,/^}/p' ios/InfoLensVisor/ControladorAR.swift | sed 's/^private struct PoseQR/struct PoseQR/' >> "$RUNNER_TEMP/infolens-smoke/main.swift"
+          cat >> "$RUNNER_TEMP/infolens-smoke/main.swift" <<'SWIFT'
           import Foundation
           let demo = Recorrido.prueba()
           precondition(demo.textoQR == "INFOLENS:TEST-1")
           precondition(demo.modulos?.count == 21 && demo.modulos?.first?.count == 21)
-          let url = URL(string: "infolens://ruta?d=%7B%22p%22%3A%5B%5B0%2C0%2C0%5D%2C%5B0%2C0%2C-1%5D%2C%5B0.5%2C0%2C-1%5D%5D%2C%22i%22%3A%7B%22nombre%22%3A%22Destino%20de%20prueba%22%7D%2C%22a%22%3A%22TEST-1%22%2C%22l%22%3A10%2C%22v%22%3A%22flechas%22%2C%22c%22%3A%22suelo%22%2C%22g%22%3A0%2C%22q%22%3A%2221%3Afea3fc14d06e94bb7505dba52ec10d07faafe01f00b75a5b8dc393c443aaa3a3a6dd004b8bfa64f05c1bba4bfdd53baeb25104e64fe80b0%22%7D")!
+          let url = URL(string: "infolens://ruta?d=%7B%22p%22%3A%5B%5B0%2C0%2C0%5D%2C%5B0%2C0%2C-1%5D%2C%5B0.5%2C0%2C-1%5D%5D%2C%22i%22%3A%7B%22nombre%22%3A%22Destino%20de%20prueba%22%7D%2C%22a%22%3A%22TEST-1%22%2C%22l%22%3A10%2C%22v%22%3A%22flechas%22%2C%22c%22%3A%22suelo%22%2C%22g%22%3A45%2C%22q%22%3A%2221%3Afea3fc14d06e94bb7505dba52ec10d07faafe01f00b75a5b8dc393c443aaa3a3a6dd004b8bfa64f05c1bba4bfdd53baeb25104e64fe80b0%22%7D")!
           guard let ruta = Recorrido.desdeURL(url) else { fatalError("No se pudo abrir el enlace desde Safari") }
           precondition(ruta.puntos == demo.puntos && ruta.modulos == demo.modulos)
           precondition(ruta.ladoCm == demo.ladoCm && ruta.info.nombre == demo.info.nombre)
           precondition(Recorrido.desdeURL(URL(string: "infolens://ruta")!) == nil)
           print("QR de prueba y enlace de Safari verificados")
+          let giro = simd_quatf(angle: 27 * .pi / 180, axis: SIMD3<Float>(0, 1, 0))
+          let centro = SIMD3<Float>(0.4, 0.6, -0.9)
+          func pose(_ q: simd_quatf, centro: SIMD3<Float>) -> PoseQR {
+              var matriz = simd_float4x4(q)
+              matriz.columns.3 = SIMD4<Float>(centro, 1)
+              return PoseQR(matriz)
+          }
+          func ejes(_ inclinacion: Float, delante: Float) {
+              let inclinada = giro * simd_quatf(angle: inclinacion, axis: SIMD3<Float>(1, 0, 0))
+              let marco = pose(inclinada, centro: centro).marcoRecorrido!
+              let adelante = marco * SIMD4<Float>(0, 0, -1, 0)
+              let derecha = marco * SIMD4<Float>(1, 0, 0, 0)
+              precondition(simd_distance(SIMD3<Float>(adelante.x, adelante.y, adelante.z), giro.act([0, 0, delante])) < 0.0001)
+              precondition(simd_distance(SIMD3<Float>(derecha.x, derecha.y, derecha.z), giro.act([-delante, 0, 0])) < 0.0001)
+              precondition(marco.columns.1 == SIMD4<Float>(0, 1, 0, 0))
+              precondition(marco.columns.3 == SIMD4<Float>(centro, 1))
+          }
+          ejes(0, delante: -1)
+          ejes(0.3, delante: -1)
+          ejes(.pi / 2, delante: -1)
+          ejes(.pi, delante: 1)
+          let a = pose(giro, centro: centro)
+          let cercano = pose(giro, centro: centro + [0.02, 0, 0])
+          precondition(a.cercana(a: cercano))
+          precondition(!a.cercana(a: pose(giro, centro: centro + [0.08, 0, 0])))
+          precondition(simd_distance(a.combinada(con: cercano, cantidad: 2).posicion, centro + [0.01, 0, 0]) < 0.0001)
+          print("Ejes del recorrido comprobados en suelo, inclinado, pared y techo")
           SWIFT
           xcrun swiftc ios/InfoLensVisor/Recorrido.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
           "$RUNNER_TEMP/infolens-smoke/revisar"

@@ -26,14 +26,29 @@ private struct PoseQR {
         return m
     }
 
-    func cercana(a otra: PoseQR, metros: Float = 0.045, grados: Float = 6) -> Bool {
-        simd_distance(posicion, otra.posicion) <= metros &&
-            abs(simd_dot(rotacion.vector, otra.rotacion.vector)) >= cos(grados * .pi / 360)
+    func cercana(a otra: PoseQR) -> Bool {
+        simd_distance(posicion, otra.posicion) <= 0.03 &&
+            abs(simd_dot(rotacion.vector, otra.rotacion.vector)) >= cos(Float(3) * .pi / 360)
     }
 
-    func afinada(hacia otra: PoseQR) -> PoseQR {
-        PoseQR(posicion: posicion + (otra.posicion - posicion) * 0.2,
-               rotacion: simd_slerp(rotacion, otra.rotacion, 0.2))
+    func combinada(con otra: PoseQR, cantidad: Int) -> PoseQR {
+        let peso = 1 / Float(cantidad)
+        return PoseQR(posicion: posicion + (otra.posicion - posicion) * peso,
+                      rotacion: simd_slerp(rotacion, otra.rotacion, peso))
+    }
+
+    var marcoRecorrido: simd_float4x4? {
+        let m = matriz
+        // En un QR horizontal se usa el borde superior impreso. En una pared se usa
+        // la normal del QR, igual que al guardar las medidas en InfoLens.
+        let normal = m.columns.1
+        let haciaAtras = abs(normal.y) >= sqrt(Float(0.5)) ? m.columns.2 : normal
+        let horizontal = SIMD3<Float>(haciaAtras.x, 0, haciaAtras.z)
+        guard simd_length_squared(horizontal) > 0.0001 else { return nil }
+        let z = simd_normalize(horizontal), arriba = SIMD3<Float>(0, 1, 0)
+        let x = simd_cross(arriba, z)
+        return simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(arriba, 0),
+                                      SIMD4<Float>(z, 0), m.columns.3))
     }
 }
 
@@ -42,7 +57,6 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var tramoActual: String?
     @Published private(set) var rumboGrados: Double?
     @Published var soloLinea: Bool { didSet { rehacer() } }
-    @Published var giro: Int { didSet { aplicarGiro() } }
 
     let vista = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let recorrido: Recorrido
@@ -51,8 +65,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private let marcaTramo = Contenido.bola(0.035, Contenido.oro)
     private var origen: AnchorEntity?
     private var contenido: Entity?
-    private var poseFija: PoseQR?
-    private var candidata: (id: UUID, pose: PoseQR, desde: TimeInterval)?
+    private var candidata: (id: UUID, referencia: PoseQR, media: PoseQR, cantidad: Int, desde: TimeInterval)?
     private var progreso = ProgresoRuta()
     private var ultimoAviso: TimeInterval = 0
     private var sesionId = UUID()
@@ -65,7 +78,6 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     init(recorrido: Recorrido) {
         self.recorrido = recorrido
         self.soloLinea = recorrido.soloLinea
-        self.giro = recorrido.giro
         super.init()
         vista.session.delegateQueue = .main
         vista.session.delegate = self
@@ -78,7 +90,6 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         marcoQR.removeFromParent()
         marcoRuta.removeFromParent()
         origen = nil
-        poseFija = nil
         candidata = nil
         progreso = ProgresoRuta()
         ultimoAviso = 0
@@ -106,7 +117,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         referencia.validate { [weak self] error in
             guard let error else { return }
             DispatchQueue.main.async {
-                guard let self, self.sesionId == id, self.poseFija == nil else { return }
+                guard let self, self.sesionId == id, self.origen == nil else { return }
                 self.avisoImagen = "⚠️ ARKit avisa del QR: \(error.localizedDescription)"
             }
         }
@@ -156,7 +167,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             .first { $0.isTracked && $0.referenceImage.name == recorrido.anclaId }
         if let qr { observar(qr, en: frame.timestamp) }
         else { candidata = nil }
-        guard poseFija != nil, !pideQR else {
+        guard origen != nil, !pideQR else {
             pausarGuia()
             mostrarEstado(qr == nil ? (avisoImagen ?? "🔍 Busca el QR del ancla (\(recorrido.anclaId))")
                          : "Mantén el QR bien encuadrado un momento.")
@@ -188,50 +199,38 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func observar(_ imagen: ARImageAnchor, en tiempo: TimeInterval) {
+        guard pideQR else { return }
         let muestra = PoseQR(imagen.transform)
-        guard let candidata, candidata.id == imagen.identifier, candidata.pose.cercana(a: muestra) else {
-            candidata = (id: imagen.identifier, pose: muestra, desde: tiempo)
+        guard var estable = candidata, estable.id == imagen.identifier,
+              estable.referencia.cercana(a: muestra) else {
+            candidata = (imagen.identifier, muestra, muestra, 1, tiempo)
             return
         }
-        guard tiempo - candidata.desde >= 0.12 else { return }
-        if !pideQR, let fija = poseFija {
-            if !fija.cercana(a: muestra, metros: 0.015, grados: 1.5) {
-                colocar(fija.afinada(hacia: muestra))
-            }
-        } else {
-            colocar(muestra)
-        }
-    }
+        estable.cantidad += 1
+        estable.media = estable.media.combinada(con: muestra, cantidad: estable.cantidad)
+        candidata = estable
+        guard estable.cantidad >= 5, tiempo - estable.desde >= 0.25 else { return }
 
-    private func colocar(_ pose: PoseQR) {
-        let matriz = pose.matriz
-        // ARKit usa +Y como normal del QR y −Z hacia el borde superior de la imagen.
-        let normal = matriz.columns.1
-        let haciaAtras = abs(normal.y) >= sqrt(Float(0.5)) ? matriz.columns.2 : normal
-        let horizontal = SIMD3<Float>(haciaAtras.x, 0, haciaAtras.z)
-        guard simd_length_squared(horizontal) > 0.0001 else { return }
-        let z = simd_normalize(horizontal), arriba = SIMD3<Float>(0, 1, 0)
-        let x = simd_cross(arriba, z)
-        let ruta = simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(arriba, 0),
-                                           SIMD4<Float>(z, 0), matriz.columns.3))
         if origen == nil {
+            guard let ruta = estable.media.marcoRecorrido else { return }
             let fijo = AnchorEntity(world: SIMD3<Float>.zero)
             fijo.addChild(marcoQR)
             fijo.addChild(marcoRuta)
+            marcoQR.setTransformMatrix(estable.media.matriz, relativeTo: fijo)
+            marcoRuta.setTransformMatrix(ruta, relativeTo: fijo)
             vista.scene.addAnchor(fijo)
             origen = fijo
             rehacer()
         }
-        marcoQR.setTransformMatrix(matriz, relativeTo: origen)
-        marcoRuta.setTransformMatrix(ruta, relativeTo: origen)
-        poseFija = pose
+        // Volver a ver el QR reanuda la guía sin desplazar su origen en la sesión activa.
+        candidata = nil
         pideQR = false
     }
 
     private func actualizarTramo(_ frame: ARFrame) {
-        guard let contenido, frame.timestamp - ultimoAviso >= 0.12 else { return }
+        guard contenido != nil, frame.timestamp - ultimoAviso >= 0.12 else { return }
         ultimoAviso = frame.timestamp
-        let ruta = marcoRuta.transform.matrix * contenido.transform.matrix
+        let ruta = marcoRuta.transform.matrix
         let camara = frame.camera.transform
         let local = simd_inverse(ruta) * camara.columns.3
         let tramo = progreso.actualizar(puntos: recorrido.puntos, posicion: [local.x, local.y, local.z])
@@ -260,11 +259,6 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         c.addChild(marcaTramo)
         marcoRuta.addChild(c)
         contenido = c
-        aplicarGiro()
-    }
-
-    private func aplicarGiro() {
-        contenido?.orientation = simd_quatf(angle: Float(giro) * .pi / 180, axis: [0, 1, 0])
         ultimoAviso = 0
     }
 
