@@ -127,16 +127,25 @@ export async function borrarElemento(id) {
 
 // ---------- huellas visuales (reconocimiento sin QR) ----------
 
-export async function guardarHuella(huella) {
-  await db.huellas.put({ ...huella, fecha: Date.now() });
-}
-
 export async function obtenerHuella(elementoId) {
   return (await db.huellas.get(elementoId)) || null;
 }
 
-export async function borrarHuella(elementoId) {
-  await db.huellas.delete(elementoId);
+/** Aplica el cambio sobre la huella actual, incluso si otra pantalla la ha modificado. */
+export async function modificarHuella(elementoId, modificar) {
+  return db.transaction('rw', db.elementos, db.huellas, async () => {
+    if (!(await db.elementos.get(elementoId))) throw new Error('El elemento ya no existe.');
+    const anterior = await obtenerHuella(elementoId);
+    const nueva = modificar(anterior);
+    if (nueva === anterior) return anterior;
+    if (!nueva) {
+      await db.huellas.delete(elementoId);
+      return null;
+    }
+    nueva.fecha = Math.max(Date.now(), (anterior?.fecha || 0) + 1);
+    await db.huellas.put(nueva);
+    return nueva;
+  });
 }
 
 export async function listarHuellas() {

@@ -234,6 +234,11 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
   position: absolute; border: 3px dashed rgba(255, 214, 10, 0.9); border-radius: 18px;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25); pointer-events: none;
 }
+.guia-recorte::after {
+  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 12px; height: 12px; border: 2px solid #ffd60a; border-radius: 50%;
+  box-shadow: 0 0 0 1px #000;
+}
 .guia-recorte[hidden] { display: none; }
 .huella-panel, .rec-panel {
   position: absolute; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));

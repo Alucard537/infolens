@@ -9,6 +9,7 @@ import { crearSeguidor } from '../reconocer/seguimiento.js';
 import { prepararQuickLookEnQR } from '../ar/quicklook.js';
 import { gravedadEnQR } from '../ar/navegacion.js';
 import { crearCapaRecorrido, crearModoAncla } from '../ar/modo-navegacion.js';
+import { fuentePoseAncla, VIGENCIA_QR_MS, VIGENCIA_ENTORNO_MS, MAX_ENTORNO_SIN_QR_MS } from '../ar/guia-recorrido.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearEscaneo } from '../ar/escaneo.js';
 import { mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia, guardarGravedadAncla } from '../maquinas.js';
@@ -281,29 +282,44 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   const entorno = modo !== 'escaner' ? new Worker(new URL('../ar/entorno-worker.js', import.meta.url), { type: 'module' }) : null;
   const lienzoEntorno = document.createElement('canvas');
   const ctxEntorno = lienzoEntorno.getContext('2d', { willReadFrequently: true });
-  let entornoOcupado = false, idAnclaEntorno = null, infoEntorno = { puntos: 0, encajan: 0 };
+  let pendienteEntorno = null, turnoEntorno = 0, idAnclaEntorno = null;
+  let infoEntorno = { puntos: 0, encajan: 0, aprendidos: 0 };
+  let fotogramaEntorno = -1;
+  function reiniciarEntorno(id = null) {
+    const ancla = seguidos.get(idAnclaEntorno);
+    if (ancla) ancla.ultimoEntorno = undefined;
+    idAnclaEntorno = id;
+    turnoEntorno++;
+    fotogramaEntorno = -1;
+    infoEntorno = { puntos: 0, encajan: 0, aprendidos: 0 };
+    entorno?.postMessage({ tipo: 'reiniciar' });
+  }
   if (entorno) {
     entorno.onmessage = (e) => {
-      entornoOcupado = false;
-      if (!activo) return;
       const d = e.data;
+      if (!pendienteEntorno || d.t !== pendienteEntorno.t || d.turno !== pendienteEntorno.turno) return;
+      pendienteEntorno = null;
+      if (!activo || d.turno !== turnoEntorno) return;
       if (d.error) console.warn('Entorno:', d.error);
       infoEntorno = d;
-      if (!d.pose || !idAnclaEntorno || ajustes.entorno === false) return;
       const s = seguidos.get(idAnclaEntorno);
       const ahora = performance.now();
-      if (!s || ahora - (s.vistoQR || 0) < 150) return; // con el QR a la vista manda el QR
+      if (!s || !d.pose || ajustes.entorno === false || d.encajan < 18 || ahora - d.t > VIGENCIA_ENTORNO_MS) return;
+      const sinQR = ahora - s.vistoQR;
+      if (!Number.isFinite(sinQR) || d.t < s.vistoQR || sinQR <= VIGENCIA_QR_MS || sinQR > MAX_ENTORNO_SIN_QR_MS) return;
       ponerPose(s, d.pose);
       s.esquinas = null;
       s.visto = ahora;
       s.porEntorno = true;
-      s.ultimoEntorno = ahora;
+      s.ultimoEntorno = d.t;
     };
-    entorno.onerror = (e) => { entornoOcupado = false; console.warn('Entorno:', e.message); };
+    entorno.onerror = (e) => { pendienteEntorno = null; console.warn('Entorno:', e.message); };
   }
   function capturarEntorno(tiempo) {
-    if (!entorno || entornoOcupado || ajustes.entorno === false || !idAnclaEntorno) return;
-    if (video.readyState < 2 || !video.videoWidth) return;
+    if (!entorno || pendienteEntorno || ajustes.entorno === false || !idAnclaEntorno) return;
+    if (tiempo - seguidos.get(idAnclaEntorno)?.vistoQR > MAX_ENTORNO_SIN_QR_MS) return;
+    if (video.readyState < 2 || !video.videoWidth || video.currentTime === fotogramaEntorno) return;
+    fotogramaEntorno = video.currentTime;
     const vw = video.videoWidth, vh = video.videoHeight;
     const k = Math.min(1, LADO_ENTORNO / Math.max(vw, vh));
     const w = Math.round(vw * k), h = Math.round(vh * k);
@@ -312,16 +328,17 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     ctxEntorno.drawImage(video, 0, 0, w, h);
     const datos = ctxEntorno.getImageData(0, 0, w, h);
     const g = geometria();
-    entornoOcupado = true;
-    entorno.postMessage({ tipo: 'fotograma', t: tiempo, w, h, f: g.f * k, cx: g.cx * k, cy: g.cy * k, buffer: datos.data.buffer }, [datos.data.buffer]);
+    pendienteEntorno = { t: tiempo, turno: turnoEntorno };
+    entorno.postMessage({ tipo: 'fotograma', ...pendienteEntorno, w, h, f: g.f * k, cx: g.cx * k, cy: g.cy * k, buffer: datos.data.buffer }, [datos.data.buffer]);
   }
   const estadoSeg = $('.estado-seguimiento');
   function pintarEstadoSeguimiento(ahora) {
     const s = idAnclaEntorno && seguidos.get(idAnclaEntorno);
+    const fuente = fuentePoseAncla(s, ahora);
     let txt = '', clase = '';
-    if (s && ahora - (s.vistoQR || 0) < 400) { txt = '🟢 QR del ancla a la vista'; clase = 'verde'; }
-    else if (s && s.porEntorno && ahora - (s.ultimoEntorno || 0) < 400) { txt = `🔵 Siguiendo con el entorno · ${infoEntorno.encajan} puntos`; clase = 'azul'; }
-    else if (s && s.vistoQR) { txt = ajustes.entorno === false ? '🟠 Solo el giro del móvil: vuelve a enfocar el QR del ancla' : '🟠 Posición perdida: vuelve a enfocar el QR del ancla (o apunta al suelo con textura)'; clase = 'naranja'; }
+    if (fuente === 'qr') { txt = '🟢 QR del ancla a la vista'; clase = 'verde'; }
+    else if (fuente === 'entorno') { txt = `🔵 Siguiendo con el entorno · ${infoEntorno.encajan} puntos`; clase = 'azul'; }
+    else if (s?.vistoQR) { txt = '🟠 Posición en pausa. Vuelve a enfocar el QR.'; clase = 'naranja'; }
     estadoSeg.hidden = !txt;
     if (txt && estadoSeg.textContent !== txt) estadoSeg.textContent = txt;
     estadoSeg.className = 'estado-seguimiento ' + clase;
@@ -333,8 +350,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   let ultimoArriba = null;
   const marcoManual = $('.marco-manual');
   function anclarAMano() {
-    const id = modo === 'guia' ? guiaActual && guiaActual.anclaId
-      : [...(anclas || new Map()).values()].find((a) => a.maquinaId === maquinaId)?.id;
+    const id = modo === 'guia' ? guiaActual?.anclaId
+      : modulo?.anclaActivaId || [...(anclas || new Map()).values()].find((a) => a.maquinaId === maquinaId)?.id;
     if (!id) { avisar('No hay un ancla para anclar.'); return; }
     if (!ultimoArriba || !sensor.activo) { avisar('Activa el sensor de movimiento para anclar.'); return; }
     const g = geometria();
@@ -350,10 +367,11 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     const h = caja.width / 2 / g.s;
     s.esquinas = [[u - h, v - h], [u + h, v - h], [u + h, v + h], [u - h, v + h]];
     s.visto = s.vistoQR = performance.now();
+    s.porEntorno = false;
     s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
     if (entorno) {
-      if (idAnclaEntorno !== id) { entorno.postMessage({ tipo: 'reiniciar' }); idAnclaEntorno = id; }
-      entorno.postMessage({ tipo: 'qr', t: performance.now(), R: pose.R, tv: pose.t });
+      reiniciarEntorno(id);
+      entorno.postMessage({ tipo: 'qr', t: s.vistoQR, R: pose.R, tv: pose.t });
     }
     const gL = gravedadEnQR(s.objetivoRot, ultimoArriba);
     escaneo.anclarManual(id, [gL.x, gL.y, gL.z]);
@@ -383,10 +401,12 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       s.visto = performance.now();
       // Ancla activa: su pose enseña al seguimiento con el entorno dónde está el plano del QR
       if (entorno && s.tipo === 'ancla-activa') {
-        if (idAnclaEntorno !== id) { entorno.postMessage({ tipo: 'reiniciar' }); idAnclaEntorno = id; }
-        entorno.postMessage({ tipo: 'qr', t: tiempo, R: pose.R, tv: pose.t });
-        s.vistoQR = s.visto;
+        s.vistoQR = tiempo;
         s.porEntorno = false;
+        const preferida = modulo?.anclaActivaId;
+        if (preferida ? preferida !== id : idAnclaEntorno && idAnclaEntorno !== id && seguidos.get(idAnclaEntorno)?.visible) continue;
+        if (idAnclaEntorno !== id) reiniciarEntorno(id);
+        entorno.postMessage({ tipo: 'qr', t: tiempo, R: pose.R, tv: pose.t });
       }
     }
   }
@@ -397,6 +417,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   const ctxCaptura = lienzoCaptura.getContext('2d', { willReadFrequently: true });
   let ocupado = false;
   let peticion = 0;
+  let fotogramaQR = -1;
   const pendientes = new Map();
 
   worker.onmessage = (e) => {
@@ -414,7 +435,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   };
 
   function capturar(tiempo) {
-    if (ocupado || video.readyState < 2 || !video.videoWidth) return;
+    if (ocupado || video.readyState < 2 || !video.videoWidth || video.currentTime === fotogramaQR) return;
+    fotogramaQR = video.currentTime;
     const vw = video.videoWidth, vh = video.videoHeight;
     const k = Math.min(1, MAX_LADO_CAPTURA / Math.max(vw, vh));
     const w = Math.round(vw * k), h = Math.round(vh * k);
@@ -453,7 +475,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
 
   // ---------- datos y modos ANCLA / GUÍA ----------
   let verEjes = false; // ejes X/Y/Z del ancla: solo si el administrador los enciende en ⚙
-  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes: () => verEjes && esAdmin() });
+  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes: () => verEjes && esAdmin() });
   let guiaActual = null;
   // Escaneo inicial del entorno: hasta que no termina, no se muestran flechas (ver ar/escaneo.js)
   const escaneo = modo !== 'escaner' ? crearEscaneo({
@@ -468,8 +490,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     },
     alAnclarAMano: () => anclarAMano(),
     alReiniciar: () => {
-      if (entorno) entorno.postMessage({ tipo: 'reiniciar' });
-      infoEntorno = { puntos: 0, encajan: 0, aprendidos: 0 };
+      reiniciarEntorno();
       capa.reiniciarReferencia();
     },
   }) : null;
@@ -972,6 +993,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       }
     }
 
+    fotogramaQR = fotogramaEntorno = -1;
     video.srcObject = stream;
     try { await video.play(); } catch {}
     estado.textContent = 'Apunta a un código QR';
@@ -1068,7 +1090,10 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     }
   });
   panel.addEventListener('change', (e) => {
-    if (e.target.dataset.ajuste === 'entorno') ajustes = guardarAjustes({ entorno: e.target.checked });
+    if (e.target.dataset.ajuste === 'entorno') {
+      ajustes = guardarAjustes({ entorno: e.target.checked });
+      reiniciarEntorno(idAnclaEntorno);
+    }
     if (e.target.dataset.ajuste === 'camaraId') {
       ajustes = guardarAjustes({ camaraId: e.target.value });
       iniciarCamara();

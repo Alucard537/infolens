@@ -1,13 +1,15 @@
 // Pantalla "Huella para reconocer sin QR".
 // - Cada grabación (cámara, vídeos o fotos) se AÑADE a la huella del elemento.
 // - "Ver y borrar imágenes" muestra todas las imágenes, agrupadas por grabación, para quitar las malas.
-import { obtenerElemento, guardarHuella, obtenerHuella, borrarHuella } from '../db.js';
+import { obtenerElemento, modificarHuella, obtenerHuella } from '../db.js';
 import {
   cargarReconocedor, capturarImagen, fotogramasDeVideo, ajustarGuia,
 } from '../reconocer/huella.js';
 import {
-  anadirAHuella, quitarDeHuella, normalizarHuella, posicionesMini, MAX_IMAGENES,
+  anadirAHuella, elegirCapturas, quitarDeHuella, normalizarHuella, posicionesMini,
+  MAX_IMAGENES, RECORTE_OBJETO, tieneRecorteObjeto,
 } from '../reconocer/vectores.js';
+import { cargarSegmentador } from '../reconocer/recorte-objeto.js';
 
 const SEGUNDOS = 15;
 const INTERVALO_MS = 400;   // una imagen cada 0,4 s -> unas 37 imágenes por grabación
@@ -17,10 +19,12 @@ const ORIGEN = { 'cámara': '📷 Cámara', 'vídeo': '🎞️ Vídeo', fotos: '
 export function pantallaHuella(app, id, { volver }) {
   let activo = true;
   let stream = null;
+  let ocupada = false;
   let grabando = false;
   let parar = false;
+  let elementoListo = false;
   let huella = null;     // huella guardada (normalizada)
-  let embedder = null;
+  const cancelar = new AbortController();
   const urlsGaleria = [];
 
   app.innerHTML = `
@@ -34,14 +38,13 @@ export function pantallaHuella(app, id, { volver }) {
       <div class="huella-panel">
         <div class="huella-titulo"></div>
         <div class="huella-resumen"></div>
-        <p class="nota huella-ayuda">Mete el elemento en el recuadro y pulsa <b>Grabar</b>. Muévete despacio a su alrededor
-          (de frente, de lado, cerca y lejos) e incluye lo que lo rodea. Cada grabación se <b>suma</b> a las anteriores:
-          graba otro día o con otra luz para que sea más fiable.</p>
+        <p class="nota huella-ayuda">Pon el punto central sobre la pieza y deja visibles sus bordes. Graba de frente y
+          desde los lados, moviéndote despacio. En fotos y vídeos, coloca la pieza en el centro para recortar el fondo.</p>
         <div class="barra"><div class="barra-relleno"></div></div>
         <div class="botones-archivo">
           <button class="boton" data-accion="grabar" disabled>⏺ Grabar</button>
           <label class="boton secundario">🎞️ Vídeos o fotos
-            <input type="file" accept="video/*,image/*" multiple class="entrada-oculta" data-entrada="medios"></label>
+            <input type="file" accept="video/*,image/*" multiple class="entrada-oculta" data-entrada="medios" disabled></label>
         </div>
         <button class="boton secundario" data-accion="galeria" hidden>🖼️ Ver y borrar imágenes</button>
       </div>
@@ -63,7 +66,17 @@ export function pantallaHuella(app, id, { volver }) {
   const estado = $('.esc-estado');
   const barra = $('.barra-relleno');
   const btnGrabar = $('[data-accion="grabar"]');
+  const btnGal = $('[data-accion="galeria"]');
+  const medios = $('[data-entrada="medios"]');
   const guia = $('.guia-recorte');
+  const instruccionesIniciales = 'Permite el uso de la cámara o elige «Vídeos o fotos».';
+  const controles = () => {
+    btnGrabar.disabled = !elementoListo || !stream || (ocupada && !grabando);
+    btnGrabar.textContent = grabando ? '⏹ Parar' : '⏺ Grabar';
+    medios.disabled = !elementoListo || ocupada;
+    medios.parentElement.classList.toggle('desactivado', medios.disabled);
+    btnGal.disabled = ocupada;
+  };
   const recolocar = () => ajustarGuia(guia, video);
   video.addEventListener('loadedmetadata', recolocar);
   window.addEventListener('resize', recolocar);
@@ -71,9 +84,10 @@ export function pantallaHuella(app, id, { volver }) {
 
   function pintarResumen() {
     const r = $('.huella-resumen');
-    const btnGal = $('[data-accion="galeria"]');
     if (!huella) { r.textContent = 'Sin huella todavía.'; btnGal.hidden = true; return; }
-    r.textContent = `Huella: ${huella.n} imágenes de ${huella.grabaciones.length} grabación${huella.grabaciones.length === 1 ? '' : 'es'} (máximo ${MAX_IMAGENES}).`;
+    const muestras = huella.n === 1 ? '1 imagen' : `${huella.n} imágenes`;
+    r.textContent = `${muestras} · ${huella.grabaciones.length} grabación${huella.grabaciones.length === 1 ? '' : 'es'} · máximo ${MAX_IMAGENES}`;
+    if (!tieneRecorteObjeto(huella)) r.textContent += ' · Añade tomas para activar el recorte del fondo.';
     btnGal.hidden = false;
     btnGal.textContent = `🖼️ Ver y borrar imágenes (${huella.n})`;
   }
@@ -82,8 +96,12 @@ export function pantallaHuella(app, id, { volver }) {
     const elemento = await obtenerElemento(id);
     huella = normalizarHuella(await obtenerHuella(id));
     if (!activo) return;
-    $('.huella-titulo').textContent = elemento ? `${elemento.nombre} · ${elemento.id}` : id;
+    if (!elemento) { estado.textContent = 'El elemento ya no existe.'; return; }
+    $('.huella-titulo').textContent = `${elemento.nombre} · ${elemento.id}`;
     pintarResumen();
+    elementoListo = true;
+    controles();
+    estado.textContent = instruccionesIniciales;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -91,85 +109,126 @@ export function pantallaHuella(app, id, { volver }) {
       if (!activo) { stream.getTracks().forEach((t) => t.stop()); return; }
       video.srcObject = stream;
       await video.play().catch(() => {});
-    } catch (e) {
-      estado.textContent = 'No se pudo abrir la cámara: ' + e.message + '. Puedes usar "Vídeos o fotos".';
-    }
-    estado.textContent = 'Cargando el reconocimiento… (la primera vez necesita internet)';
-    try {
-      embedder = await cargarReconocedor();
       if (!activo) return;
-      btnGrabar.disabled = !stream;
-      estado.textContent = 'Listo para grabar.';
+      controles();
+      if (estado.textContent === instruccionesIniciales) estado.textContent = 'Listo para grabar.';
     } catch (e) {
-      estado.textContent = 'No se pudo cargar el reconocimiento: ' + (e.message || e) + '. Conéctate a internet y vuelve a entrar.';
+      if (activo && estado.textContent === instruccionesIniciales) estado.textContent = 'Cámara no disponible. Puedes usar «Vídeos o fotos».';
     }
   })();
 
-  // Añade las imágenes capturadas a la huella y la guarda
-  async function anadir(capturas, origen) {
-    const lista = [];
-    for (const c of capturas) lista.push({ v: c.v, mini: await c.mini });
-    if (!lista.length) throw new Error('No se ha capturado ninguna imagen.');
-    const libres = MAX_IMAGENES - (huella ? huella.n : 0);
-    if (libres <= 0) throw new Error(`La huella ya tiene ${MAX_IMAGENES} imágenes (el máximo). Borra algunas antes de añadir más.`);
-    const usadas = lista.length > libres ? lista.filter((_, i) => i % Math.ceil(lista.length / libres) === 0).slice(0, libres) : lista;
-    huella = anadirAHuella(huella, id, usadas, origen);
-    await guardarHuella(huella);
-    pintarResumen();
-    estado.textContent = `✅ Añadidas ${usadas.length} imágenes${usadas.length < lista.length ? ` (de ${lista.length}; se llegó al máximo)` : ''}. Total: ${huella.n}.`;
+  async function usarCapturas(capturas, origen, totales) {
+    const lista = await Promise.all(capturas.filter((c) => c.v).map(async (c) => ({ v: c.v, mini: await c.mini })));
+    if (!activo) return;
+    totales.descartadas += capturas.length - lista.length;
+    const rechazada = capturas.find((c) => c.motivo);
+    if (rechazada) totales.motivo = rechazada.motivo;
+    if (!lista.length) return;
+    let seleccionadas;
+    const nueva = await modificarHuella(id, (anterior) => {
+      const libres = Math.max(0, MAX_IMAGENES - (anterior?.n || 0));
+      seleccionadas = elegirCapturas(lista, anterior, libres, RECORTE_OBJETO);
+      const { elegidas } = seleccionadas;
+      return elegidas.length ? anadirAHuella(anterior, id, elegidas, origen, RECORTE_OBJETO) : anterior;
+    });
+    totales.añadidas += seleccionadas.elegidas.length;
+    totales.repetidas += seleccionadas.repetidas;
+    totales.sinEspacio += seleccionadas.sinEspacio;
+    huella = normalizarHuella(nueva);
+    if (activo) pintarResumen();
   }
 
-  btnGrabar.addEventListener('click', async () => {
-    if (!embedder) return;
-    if (grabando) { parar = true; return; }      // el mismo botón sirve para parar
-    grabando = true; parar = false;
-    btnGrabar.textContent = '⏹ Parar';
-    const capturas = [];
-    const inicio = performance.now();
-    while (activo && !parar && performance.now() - inicio < SEGUNDOS * 1000) {
-      if (video.videoWidth) capturas.push(capturarImagen(embedder, video, video.videoWidth, video.videoHeight));
-      const frac = (performance.now() - inicio) / (SEGUNDOS * 1000);
-      barra.style.width = Math.min(100, frac * 100) + '%';
-      estado.textContent = `Grabando… ${Math.ceil(SEGUNDOS * (1 - frac))} s · ${capturas.length} imágenes`;
-      await new Promise((r) => setTimeout(r, INTERVALO_MS));
+  async function entrenar(conCamara, recoger) {
+    if (ocupada || !elementoListo) return;
+    ocupada = true;
+    grabando = conCamara;
+    parar = false;
+    controles();
+    barra.style.width = '0%';
+    estado.textContent = 'Preparando el reconocimiento…';
+    const totales = { añadidas: 0, descartadas: 0, repetidas: 0, sinEspacio: 0, motivo: '' };
+    try {
+      const embedder = await cargarReconocedor();
+      if (!activo) return;
+      const segmentador = await cargarSegmentador();
+      if (!activo) return;
+      if (parar) { estado.textContent = 'Grabación detenida.'; return; }
+      const capturar = (fuente, ancho, alto) => capturarImagen(embedder, segmentador, fuente, ancho, alto);
+      await recoger(capturar, totales);
+      if (!activo) return;
+      const { añadidas, descartadas, repetidas, sinEspacio, motivo } = totales;
+      const partes = [añadidas === 1 ? 'Guardada 1 imagen.' : añadidas ? `Guardadas ${añadidas} imágenes.` : 'Sin imágenes nuevas.'];
+      if (repetidas) partes.push(`${repetidas} ${repetidas === 1 ? 'repetida' : 'repetidas'}. Cambia de ángulo o distancia.`);
+      if (descartadas) partes.push(`${descartadas} descartadas por calidad. ${motivo}.`);
+      if (sinEspacio) partes.push(`Límite de ${MAX_IMAGENES} imágenes. Borra alguna en la galería para añadir otras.`);
+      estado.textContent = partes.join(' ');
+    } catch (e) {
+      if (activo) estado.textContent = (totales.añadidas ? `Guardadas ${totales.añadidas} imágenes. ` : '') + e.message;
+    } finally {
+      ocupada = grabando = false;
+      if (activo) controles();
     }
-    grabando = false;
-    btnGrabar.textContent = '⏺ Grabar';
-    if (!activo) return;
-    try { await anadir(capturas, 'cámara'); } catch (e) { estado.textContent = '❌ ' + e.message; }
+  }
+
+  btnGrabar.addEventListener('click', () => {
+    if (grabando) { parar = true; estado.textContent = 'Guardando las muestras…'; return; }
+    entrenar(true, async (capturar, totales) => {
+      const capturas = [];
+      const inicio = performance.now();
+      while (activo && !parar && performance.now() - inicio < SEGUNDOS * 1000) {
+        const frac = (performance.now() - inicio) / (SEGUNDOS * 1000);
+        barra.style.width = Math.min(100, frac * 100) + '%';
+        let motivo = 'Espera a que se vea la cámara';
+        if (video.readyState >= 2 && video.videoWidth) {
+          const c = capturar(video, video.videoWidth, video.videoHeight);
+          capturas.push(c);
+          motivo = c.motivo;
+        }
+        const consejo = motivo || (frac < 0.25 ? 'Vista de frente' : frac < 0.65 ? 'Cambia de ángulo despacio' : 'Cambia un poco la distancia');
+        estado.textContent = `${Math.ceil(SEGUNDOS * (1 - frac))} s · ${consejo}`;
+        await new Promise((r) => setTimeout(r, INTERVALO_MS));
+      }
+      grabando = false;
+      if (activo) controles();
+      await usarCapturas(capturas, 'cámara', totales);
+    });
   });
 
-  app.querySelector('[data-entrada="medios"]').addEventListener('change', async (e) => {
+  medios.addEventListener('change', (e) => {
     const archivos = [...(e.target.files || [])];
     e.target.value = '';
     if (!archivos.length) return;
-    try {
-      if (!embedder) { estado.textContent = 'Cargando el reconocimiento…'; embedder = await cargarReconocedor(); }
+    entrenar(false, async (capturar, totales) => {
       const videos = archivos.filter((f) => f.type.startsWith('video/') || /\.(mov|mp4|m4v|webm)$/i.test(f.name));
       const fotos = archivos.filter((f) => !videos.includes(f));
       // Cada vídeo es una grabación distinta; todas las fotos elegidas juntas, otra
       for (let k = 0; k < videos.length; k++) {
+        if (!activo) return;
         const capturas = [];
-        await fotogramasDeVideo(videos[k], DE_VIDEO, (fuente, w, h, i) => {
-          capturas.push(capturarImagen(embedder, fuente, w, h));
-          estado.textContent = `Leyendo vídeo ${k + 1} de ${videos.length}… ${i + 1}/${DE_VIDEO}`;
-          barra.style.width = ((i + 1) / DE_VIDEO) * 100 + '%';
-        });
-        await anadir(capturas, 'vídeo');
+        await fotogramasDeVideo(videos[k], DE_VIDEO, (fuente, w, h, i, n) => {
+          capturas.push(capturar(fuente, w, h));
+          estado.textContent = `Leyendo vídeo ${k + 1} de ${videos.length}… ${i + 1}/${n}`;
+          barra.style.width = ((i + 1) / n) * 100 + '%';
+        }, cancelar.signal);
+        await usarCapturas(capturas, 'vídeo', totales);
       }
       if (fotos.length) {
         const capturas = [];
         for (let i = 0; i < fotos.length; i++) {
+          if (!activo) return;
           const bmp = await createImageBitmap(fotos[i]);
-          capturas.push(capturarImagen(embedder, bmp, bmp.width, bmp.height));
-          bmp.close && bmp.close();
+          try {
+            if (!activo) return;
+            capturas.push(capturar(bmp, bmp.width, bmp.height));
+          } finally {
+            bmp.close();
+          }
           estado.textContent = `Leyendo fotos… ${i + 1} de ${fotos.length}`;
+          barra.style.width = ((i + 1) / fotos.length) * 100 + '%';
         }
-        await anadir(capturas, 'fotos');
+        await usarCapturas(capturas, 'fotos', totales);
       }
-    } catch (err) {
-      estado.textContent = '❌ ' + err.message;
-    }
+    });
   });
 
   // ---------- galería: ver y borrar imágenes ----------
@@ -204,7 +263,8 @@ export function pantallaHuella(app, id, { volver }) {
       cab.className = 'galeria-cab';
       const fecha = new Date(g.fecha).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
       cab.innerHTML = '<span class="galeria-cab-txt"></span><button class="boton-mini" data-grupo>Marcar todas</button>';
-      cab.querySelector('.galeria-cab-txt').textContent = `${ORIGEN[g.origen] || g.origen} · ${fecha} · ${indices.length} imágenes`;
+      const recorte = g.recorte === RECORTE_OBJETO ? ' · Fondo recortado' : '';
+      cab.querySelector('.galeria-cab-txt').textContent = `${ORIGEN[g.origen] || g.origen} · ${fecha} · ${indices.length} imágenes${recorte}`;
       bloque.appendChild(cab);
       const rejilla = document.createElement('div');
       rejilla.className = 'galeria-rejilla';
@@ -240,27 +300,42 @@ export function pantallaHuella(app, id, { volver }) {
 
   $('[data-accion="galeria"]').addEventListener('click', () => { galeria.hidden = false; pintarGaleria(); });
   $('[data-accion="cerrar-galeria"]').addEventListener('click', () => { galeria.hidden = true; liberarGaleria(); });
-  btnBorrarSel.addEventListener('click', async () => {
-    if (!seleccion.size || !huella) return;
-    if (!confirm(`¿Borrar ${seleccion.size} imágenes de la huella?`)) return;
-    huella = quitarDeHuella(huella, seleccion);
-    if (huella) await guardarHuella(huella); else await borrarHuella(id);
-    pintarResumen();
-    pintarGaleria();
-    estado.textContent = huella ? `Quedan ${huella.n} imágenes.` : 'Huella borrada.';
+  async function borrar(registros) {
+    if (ocupada || !huella) return;
+    const fecha = huella.fecha;
+    ocupada = true;
+    controles();
+    try {
+      let actualizada = false;
+      const nueva = await modificarHuella(id, (anterior) => {
+        actualizada = !anterior || anterior.fecha !== fecha;
+        if (actualizada) return anterior;
+        return registros ? quitarDeHuella(anterior, registros) : null;
+      });
+      huella = normalizarHuella(nueva);
+      if (!activo) return;
+      pintarResumen();
+      pintarGaleria();
+      estado.textContent = actualizada ? 'La huella se ha actualizado. Revisa la selección.'
+        : huella ? `Quedan ${huella.n} imágenes.` : 'Huella borrada.';
+    } catch (e) {
+      if (activo) estado.textContent = e.message;
+    } finally {
+      ocupada = false;
+      if (activo) controles();
+    }
+  }
+  btnBorrarSel.addEventListener('click', () => {
+    if (seleccion.size && confirm(`¿Borrar ${seleccion.size} imágenes de la huella?`)) borrar(new Set(seleccion));
   });
-  $('[data-accion="borrar-todo"]').addEventListener('click', async () => {
-    if (!confirm('¿Borrar la huella entera? Dejará de reconocerse sin QR.')) return;
-    await borrarHuella(id);
-    huella = null;
-    pintarResumen();
-    pintarGaleria();
-    estado.textContent = 'Huella borrada.';
+  $('[data-accion="borrar-todo"]').addEventListener('click', () => {
+    if (confirm('¿Borrar la huella entera? Dejará de reconocerse sin QR.')) borrar(null);
   });
 
   return () => {
     activo = false;
     parar = true;
+    cancelar.abort();
     liberarGaleria();
     window.removeEventListener('resize', recolocar);
     if (stream) stream.getTracks().forEach((t) => t.stop());

@@ -8,9 +8,8 @@ import { obtenerArchivo } from '../db.js';
 import { localizacionesDeAncla, TIPOS_GUIA } from '../maquinas.js';
 import { hayQuickLook, crearEnlaceAR } from './boton-ar.js';
 import { gravedadEnQR } from './navegacion.js';
+import { textoTramo } from './guia-recorrido.js';
 import { deG, describir } from '../coordenadas.js';
-
-const fmtM = (m) => m.toFixed(1).replace('.', ',');
 
 export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDetalle, abrirImagen, alSalir, ladoCm = () => 10 }) {
   let iniciada = false;
@@ -253,7 +252,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
   panel.hidden = false;
 
   return {
-    actualizar(dt, arriba, ahora) {
+    actualizar(_dt, arriba, ahora) {
       if (terminada) return;
       const sa = seguidos.get(guia.anclaId);
       capa.actualizarEjes(arriba, sa);
@@ -271,7 +270,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       }
       if (!iniciada || !infoAR) return;
       const p = guia.pasos[paso];
-      const est = capa.actualizar(dt, arriba, ahora, sa);
+      const est = capa.actualizar(arriba, ahora, sa);
       if (p.sinFlechas) {
         infoAR.className = 'nota guia-ar aviso-recalibrar';
         infoAR.textContent = '⚠️ Este paso tiene las flechas desactivadas: márcalas en el editor de la guía (casilla "Mostrar flechas 3D").';
@@ -284,8 +283,8 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       } else {
         infoAR.className = 'nota guia-ar' + (est.fiable ? '' : ' aviso-recalibrar');
         infoAR.textContent = est.fiable
-          ? `🧭 Sigue las flechas · a ${fmtM(est.distancia)} m${p.diagnostico ? ' · ' + p.diagnostico : ''}`
-          : '⚠️ Precisión perdida: vuelve a apuntar al QR del ancla para recalibrar.';
+          ? `🧭 ${textoTramo(est)}${p.diagnostico ? ' · ' + p.diagnostico : ''}`
+          : '⚠️ Guía en pausa. Vuelve a enfocar el QR del ancla.';
       }
     },
     etiquetas(g) { capa.etiquetas(g); },

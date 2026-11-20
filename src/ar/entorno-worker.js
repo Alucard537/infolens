@@ -8,13 +8,13 @@ self.onmessage = (e) => {
   try {
     if (m.tipo === 'fotograma') {
       const r = seguidor.fotograma({ ...m, rgba: new Uint8ClampedArray(m.buffer) });
-      self.postMessage({ tipo: 'pose', t: m.t, ...r });
+      self.postMessage({ tipo: 'pose', t: m.t, turno: m.turno, ...r });
     } else if (m.tipo === 'qr') {
       seguidor.poseQR(m.t, m.R, m.tv);
     } else if (m.tipo === 'reiniciar') {
       seguidor.reiniciar();
     }
   } catch (err) {
-    self.postMessage({ tipo: 'pose', t: m.t, pose: null, puntos: 0, encajan: 0, error: String(err) });
+    self.postMessage({ tipo: 'pose', t: m.t, turno: m.turno, pose: null, puntos: 0, encajan: 0, error: String(err) });
   }
 };

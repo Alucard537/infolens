@@ -7,8 +7,11 @@
 //                 SOLO de la posición del QR.
 import * as THREE from 'three';
 import { gravedadEnQR, colocacionQR } from './navegacion.js';
+import { fuentePoseAncla } from './guia-recorrido.js';
 
-const MUESTRAS = 30;            // ~1 s de medidas con el QR a la vista
+const MUESTRAS = 5;             // mediciones de fotogramas distintos
+const TIEMPO_ESTABLE_MS = 650;
+const VENTANA_MEDIDAS_MS = 1300;
 const DISPERSION_MAX = 3;       // grados: si las medidas varían más, el móvil se está moviendo
 
 const TEXTO_COLOCACION = {
@@ -67,7 +70,7 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar, alAn
 
   /** Cada fotograma. Devuelve true cuando el QR está bien definido y ya se puede mostrar el 3D. */
   function actualizar(arriba, ahora) {
-    const conQR = (s) => !!(s && s.tipo === 'ancla-activa' && s.vistoQR && ahora - s.vistoQR < 250);
+    const conQR = (s) => s?.tipo === 'ancla-activa' && fuentePoseAncla(s, ahora) === 'qr';
     if (fase === 'manual') { pintar(); return false; }
     if (fase === 'qr') {
       const s = [...seguidos.values()].find(conQR);
@@ -76,16 +79,19 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar, alAn
     const sa = anclaId ? seguidos.get(anclaId) : null;
     vistoAhora = conQR(sa);
     if (fase === 'estable') {
-      if (vistoAhora) {
-        muestras.push(gravedadEnQR(sa.rot, arriba));
-        if (muestras.length > MUESTRAS) muestras.shift();
+      if (!vistoAhora) muestras = [];
+      else if (muestras.at(-1)?.t !== sa.vistoQR) {
+        muestras = muestras.filter((m) => sa.vistoQR - m.t <= VENTANA_MEDIDAS_MS);
+        muestras.push({ t: sa.vistoQR, gravedad: gravedadEnQR(sa.rot, arriba) });
       }
       media.set(0, 0, 0);
-      for (const m of muestras) media.add(m);
+      for (const m of muestras) media.add(m.gravedad);
       media.normalize();
       let peor = 0;
-      for (const m of muestras) peor = Math.max(peor, THREE.MathUtils.radToDeg(m.angleTo(media)));
-      const lleno = muestras.length >= MUESTRAS;
+      for (const m of muestras) peor = Math.max(peor, THREE.MathUtils.radToDeg(m.gravedad.angleTo(media)));
+      const intervalo = muestras.length ? muestras.at(-1).t - muestras[0].t : 0;
+      const fraccion = Math.min(muestras.length / MUESTRAS, intervalo / TIEMPO_ESTABLE_MS);
+      const lleno = fraccion >= 1;
       if (lleno && peor <= DISPERSION_MAX) {
         const g = [media.x, media.y, media.z];
         medida = { id: anclaId, g, colocacion: colocacionQR(g) };
@@ -93,7 +99,7 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar, alAn
         alMedir?.(anclaId, g);
         fase = 'listo';
       } else {
-        progreso(muestras.length / MUESTRAS * (lleno ? 0.95 : 1),
+        progreso(lleno ? 0.95 : fraccion,
           !vistoAhora ? '⚠️ Se ha perdido el QR: vuelve a apuntarlo.' : lleno ? 'Te estás moviendo: quédate quieto.' : 'Midiendo…');
       }
     }

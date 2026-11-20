@@ -5,10 +5,11 @@ import SwiftUI
 @main
 struct InfoLensVisorApp: App {
     @State private var controlador: ControladorAR?
+    @State private var enlaceInvalido = false
 
     var body: some Scene {
         WindowGroup {
-            Group {
+            ZStack {
                 if let c = controlador {
                     PantallaAR(controlador: c) {
                         c.detener()
@@ -16,27 +17,48 @@ struct InfoLensVisorApp: App {
                     }
                     .id(c.recorrido.clave)
                 } else {
-                    Bienvenida()
+                    Bienvenida { abrir(Recorrido.prueba()) }
                 }
             }
             .onOpenURL { url in
-                guard let r = Recorrido.desdeURL(url) else { return }
-                controlador?.detener()
-                controlador = ControladorAR(recorrido: r)
+                guard let recorrido = Recorrido.desdeURL(url) else {
+                    enlaceInvalido = true
+                    return
+                }
+                abrir(recorrido)
+            }
+            .alert("No se pudo abrir el recorrido", isPresented: $enlaceInvalido) {
+                Button("Aceptar", role: .cancel) {}
+            } message: {
+                Text("Vuelve a Safari, abre el paso de la guía y pulsa «Abrir en el visor nativo».")
             }
         }
+    }
+
+    private func abrir(_ recorrido: Recorrido) {
+        controlador?.detener()
+        controlador = ControladorAR(recorrido: recorrido)
     }
 }
 
 struct Bienvenida: View {
+    let iniciarPrueba: () -> Void
+
     var body: some View {
         VStack(spacing: 18) {
             Text("⚓ InfoLens Visor").font(.largeTitle.bold())
-            Text("Abre un recorrido desde la app InfoLens: en el paso de la guía, toca «📱 Abrir en el visor nativo».")
+            Button(action: iniciarPrueba) {
+                Label("Iniciar prueba con QR", systemImage: "qrcode.viewfinder")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            Text("Apunta al QR de prueba TEST-1, impreso con 10 cm de lado, para ver el recorrido.")
                 .multilineTextAlignment(.center)
-            Text("Para probar: InfoLens → 🔬 Diagnóstico del AR → «📱 Prueba en el visor nativo».")
+            Text("Para seguir una guía, abre su paso en InfoLens y pulsa «Abrir en el visor nativo».")
                 .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
         }
+        .frame(maxWidth: 420)
         .padding(28)
     }
 }
@@ -49,20 +71,27 @@ struct PantallaAR: View {
         ZStack {
             VistaAR(controlador: controlador).ignoresSafeArea()
             VStack {
-                Text(controlador.estado)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .padding(12)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.black.opacity(0.65))
-                    .foregroundColor(.white)
-                    .cornerRadius(14)
-                    .padding(.horizontal, 12)
-                if !controlador.detectado {
-                    Text("Apunta la cámara al QR del ancla impreso. El recorrido no aparece hasta que lo detecte.")
-                        .font(.subheadline).foregroundColor(.white).padding(10)
-                        .background(Color.black.opacity(0.5)).cornerRadius(12).padding(.horizontal, 12)
+                VStack(spacing: 8) {
+                    Text(controlador.estado).font(.headline)
+                    if let tramo = controlador.tramoActual {
+                        HStack(spacing: 8) {
+                            if let rumbo = controlador.rumboGrados {
+                                Image(systemName: "location.north.fill")
+                                    .rotationEffect(.degrees(rumbo))
+                                    .foregroundColor(.yellow)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(tramo).font(.headline)
+                        }
+                    }
                 }
+                .multilineTextAlignment(.center)
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(Color.black.opacity(0.65))
+                .foregroundColor(.white)
+                .cornerRadius(14)
+                .padding(.horizontal, 12)
                 Spacer()
                 VStack(spacing: 10) {
                     Picker("Mostrar", selection: $controlador.soloLinea) {
@@ -73,7 +102,7 @@ struct PantallaAR: View {
                     HStack(spacing: 10) {
                         Button("↺ Girar 90°") { controlador.giro = (controlador.giro + 90) % 360 }
                             .buttonStyle(.bordered)
-                        Button("🔄 Buscar QR") { controlador.arrancar() }
+                        Button("🔄 Buscar QR") { controlador.buscarQR() }
                             .buttonStyle(.bordered)
                         Button("✕ Cerrar") { cerrar() }
                             .buttonStyle(.borderedProminent)

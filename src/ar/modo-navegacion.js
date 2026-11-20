@@ -1,14 +1,13 @@
 // Realidad aumentada de navegación con QR ancla.
 //
 // crearCapaRecorrido: dibuja un recorrido (flechas 3D + icono de destino + etiqueta) en el sistema de
-//   coordenadas del QR ancla. Con el QR a la vista es exacto. Si deja de verse, se mantiene con el giro
-//   del móvil; pasados unos segundos se considera POCO FIABLE: las flechas se atenúan y se pide
-//   recalibrar (volver a apuntar al QR del ancla).
+//   coordenadas del QR ancla. Usa el QR o el seguimiento del entorno mientras la pose sea reciente.
 //
 // crearModoAncla: botón ANCLA. Activa un ancla de la máquina activa, muestra el menú de sus
 //   componentes localizados y guía hasta el elegido. El administrador puede "Posicionar" componentes.
 import * as THREE from 'three';
 import { marcoQR, gravedadEnQR, puntosRecorrido, crearFlechas } from './navegacion.js';
+import { fuentePoseAncla, progresoRecorrido, textoTramo } from './guia-recorrido.js';
 import { anclaTresD } from './recorrido-lidar.js';
 import { leerAjustes } from '../ajustes.js';
 import { crearIcono } from './icono.js';
@@ -21,20 +20,18 @@ import {
 } from '../maquinas.js';
 
 const TAM_I = 0.1;                 // diámetro de la "i" de destino (m)
-const SEGUNDOS_FIABLE = 4;         // sin ver el QR del ancla más tiempo: poco fiable, recalibrar
-const fmtCm = (m) => Math.round(m * 100);
-const fmtM = (m) => m.toFixed(1).replace('.', ',');
 
 // ======================================================================
 // Capa de recorrido (la usan el modo ANCLA y las GUÍAS)
 // ======================================================================
-export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, mostrarEjes = () => false }) {
+export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes = () => false }) {
   let r = null; // recorrido actual
-  const matG = new THREE.Matrix4(), giroInv = new THREE.Matrix4();
+  const matG = new THREE.Matrix4(), inversa = new THREE.Matrix4();
   const v = new THREE.Vector3(), hacia = new THREE.Vector3(), lateral = new THREE.Vector3();
-  const destinoCam = new THREE.Vector3();
+  const objetivoCam = new THREE.Vector3(), posicionG = new THREE.Vector3();
+  const marcaTramo = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffc83d }));
 
-  // Flecha en el borde de la pantalla que señala el destino cuando no se ve
+  // Flecha en el borde de la pantalla que señala el siguiente punto del recorrido.
   const indicador = document.createElement('div');
   indicador.className = 'indicador-destino';
   indicador.innerHTML = '<span class="ind-flecha">➤</span><span class="ind-texto"></span>';
@@ -102,15 +99,14 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
     ocultar();
     const puntos = puntosRecorrido({ pos: loc.pos, ruta: rutaPropia || loc.ruta || [] });
     const destinoG = new THREE.Vector3(...(loc.posIcono || loc.pos));
-    r = { puntos, destinoG, alTocar, mundo: prev ? prev.mundo : null, visto: prev ? prev.visto : false, perdido: prev ? prev.perdido : 0 };
+    r = { puntos, destinoG, alTocar, visto: prev?.visto || false, indice: 1, tramo: null };
     if (conFlechas) {
       const linea = leerAjustes().lidarVista === 'linea';
       r.flechas = crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: linea ? 0.018 : 0.008 });
       r.flechas.add(anclaTresD(0.14)); // el ⚓ centrado en el QR del ancla (origen)
+      r.flechas.add(marcaTramo);
       r.flechas.matrixAutoUpdate = false;
       r.flechas.visible = false;
-      r.materiales = r.flechas.userData.materiales || [];
-      r.materiales.forEach((m) => { m.transparent = true; m.userData.opacidad = m.opacity; });
       escena.add(r.flechas);
     }
     if (conIcono) {
@@ -121,7 +117,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
       escena.add(r.destino);
       const e = document.createElement('div');
       e.className = 'etiqueta nav-destino';
-      e.innerHTML = '<div class="et-textos"><div class="et-nombre"></div><div class="et-ref"></div><div class="et-desc"></div><div class="et-aviso" hidden>⚠️ Poco fiable: apunta al QR del ancla</div></div>'
+      e.innerHTML = '<div class="et-textos"><div class="et-nombre"></div><div class="et-ref"></div><div class="et-desc"></div></div>'
         + (alTocar ? '<button class="et-mas" aria-label="Ver ficha">+</button>' : '');
       e.querySelector('.et-nombre').textContent = titulo;
       e.querySelector('.et-ref').textContent = subtitulo;
@@ -136,35 +132,33 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
   }
 
   /** Cada fotograma. seguidoAncla: el QR del ancla (o null). Devuelve el estado del recorrido. */
-  function actualizar(dt, arriba, ahora, seguidoAncla) {
+  function actualizar(arriba, ahora, seguidoAncla) {
     if (!r) return null;
-    const q = sensor.giro(0);
-    if (seguidoAncla && seguidoAncla.visible) {
-      marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matG, gravedadDe(seguidoAncla));
-      if (q) (r.mundo ||= new THREE.Matrix4()).makeRotationFromQuaternion(q).multiply(matG);
-      r.visto = true;
-      r.perdido = 0;
-    } else {
-      r.perdido += dt;
-      if (r.mundo && q) {
-        giroInv.makeRotationFromQuaternion(q).invert();
-        matG.multiplyMatrices(giroInv, r.mundo);
-      } else if (!r.visto) {
-        if (r.flechas) r.flechas.visible = false;
-        if (r.destino) r.destino.visible = false;
-        return { visto: false, fiable: false, distancia: 0, esperandoAncla: true };
-      }
+    const fuente = fuentePoseAncla(seguidoAncla, ahora);
+    if (!fuente) {
+      if (r.flechas) r.flechas.visible = false;
+      if (r.destino) r.destino.visible = false;
+      if (r.etiqueta) r.etiqueta.hidden = true;
+      indicador.hidden = true;
+      r.tramo = null;
+      return { fiable: false, esperandoAncla: !r.visto };
     }
-    const fiable = r.perdido < SEGUNDOS_FIABLE;
+    r.visto = true;
+    marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matG, gravedadDe(seguidoAncla));
+    posicionG.set(0, 0, 0).applyMatrix4(inversa.copy(matG).invert());
+    const tramo = progresoRecorrido(r.puntos, posicionG, r.indice);
+    r.indice = tramo.indice;
+    r.tramo = tramo;
+    objetivoCam.copy(tramo.punto).applyMatrix4(matG);
     if (r.flechas) {
       r.flechas.visible = true;
       r.flechas.matrix.copy(matG);
       r.flechas.matrixWorldNeedsUpdate = true;
-      (r.materiales || []).forEach((m) => { m.opacity = (m.userData.opacidad ?? 1) * (fiable ? 1 : 0.3); });
+      marcaTramo.visible = !tramo.llegada;
+      marcaTramo.position.copy(tramo.punto);
+      marcaTramo.position.y += 0.04;
     }
     const d = v.copy(r.destinoG).applyMatrix4(matG).addScaledVector(arriba, TAM_I * 0.8 + 0.01 * Math.sin(ahora / 400));
-    destinoCam.copy(d);
-    r.hayDestino = true;
     if (r.destino) {
       r.destino.visible = true;
       hacia.copy(d).negate();
@@ -174,9 +168,8 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
       lateral.crossVectors(arriba, hacia).normalize();
       r.destino.matrix.makeBasis(lateral, arriba, hacia).scale(escalaI).setPosition(d);
       r.destino.matrixWorldNeedsUpdate = true;
-      r.etiqueta.querySelector('.et-aviso').hidden = fiable;
     }
-    return { visto: !!(seguidoAncla && seguidoAncla.visible), fiable, distancia: d.length(), perdido: r.perdido };
+    return { ...tramo, fuente, fiable: true };
   }
 
   function etiquetas(g) {
@@ -187,24 +180,22 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
       et.hidden = p.z > 1 || Math.abs(p.x) > 1.1 || Math.abs(p.y) > 1.1;
       if (!et.hidden) et.style.transform = `translate(${((p.x + 1) / 2) * g.W - 12}px, ${((1 - p.y) / 2) * g.H - 12}px)`;
     }
-    // Destino fuera de la pantalla: flecha en el borde señalando hacia dónde girar el móvil
-    if (r && r.hayDestino) {
-      const p = v.copy(destinoCam).project(camara);
-      const detras = destinoCam.z > 0; // la cámara mira hacia -Z: z > 0 es detrás
+    if (r?.flechas && r.tramo && !r.tramo.llegada) {
+      const p = v.copy(objetivoCam).project(camara);
+      const detras = objetivoCam.z >= 0;
       const fuera = detras || Math.abs(p.x) > 0.92 || Math.abs(p.y) > 0.92;
       indicador.hidden = !fuera;
       if (fuera) {
-        let dx = p.x, dy = p.y;
-        if (detras) { dx = -dx; dy = -dy; }
+        let dx = detras ? objetivoCam.x : p.x, dy = detras ? objetivoCam.y : p.y;
         if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1; // justo detrás: "gírate"
         const ang = Math.atan2(-dy, dx); // en pantalla (y hacia abajo)
         const radio = Math.min(g.W, g.H) / 2 - 60;
         const cx = g.W / 2 + Math.cos(ang) * radio, cy = g.H / 2 + Math.sin(ang) * radio;
         indicador.style.transform = `translate(${cx - 40}px, ${cy - 30}px)`;
         indicador.querySelector('.ind-flecha').style.transform = `rotate(${ang}rad)`;
-        indicador.querySelector('.ind-texto').textContent = `Destino · ${fmtM(destinoCam.length())} m${detras ? ' (detrás)' : ''}`;
+        indicador.querySelector('.ind-texto').textContent = textoTramo(r.tramo);
       }
-    }
+    } else indicador.hidden = true;
     if (!r || !r.destino || !r.destino.visible) { if (r && r.etiqueta) r.etiqueta.hidden = true; return; }
     v.set(0, 0.75, 0).applyMatrix4(r.destino.matrixWorld).project(camara);
     if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) { r.etiqueta.hidden = true; return; }
@@ -223,7 +214,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, sensor, most
   }
 
   /** Olvidar el sistema de referencia (al cambiar de ancla). */
-  function reiniciarReferencia() { if (r) { r.mundo = null; r.visto = false; r.perdido = 0; } }
+  function reiniciarReferencia() { if (r) { r.visto = false; r.indice = 1; } }
 
   return {
     mostrar, ocultar, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
@@ -413,7 +404,8 @@ export function crearModoAncla({
   panel.hidden = false;
 
   return {
-    actualizar(dt, arriba, ahora) {
+    get anclaActivaId() { return anclaId; },
+    actualizar(_dt, arriba, ahora) {
       arribaActual = arriba;
       capa.actualizarEjes(arriba, anclaId ? seguidos.get(anclaId) : [...seguidos.values()].find((s) => s.visible && s.tipo === 'ancla-activa'));
       if (!anclaId && !cargando) {
@@ -422,21 +414,21 @@ export function crearModoAncla({
       }
       if (posicionar) pintarPosicionar(arriba, ahora);
       if (!nav) return;
-      const est = capa.actualizar(dt, arriba, ahora, seguidos.get(anclaId));
+      const est = capa.actualizar(arriba, ahora, seguidos.get(anclaId));
       if (!est) return;
       const c = nav.loc.elemento;
       if (est.esperandoAncla) {
-        nav.titulo.textContent = `🧭 Hacia: ${c.nombre}`;
+        nav.titulo.textContent = `🧭 ${c.nombre}`;
         nav.aviso.textContent = 'Apunta al QR del ancla para ver el recorrido.';
         return;
       }
-      nav.titulo.textContent = `🧭 Hacia: ${c.nombre} · a ${fmtM(est.distancia)} m`;
+      nav.titulo.textContent = `🧭 ${c.nombre}${est.fiable ? ' · ' + textoTramo(est) : ''}`;
       nav.aviso.className = 'nota nav-aviso' + (est.fiable ? '' : ' aviso-recalibrar');
-      nav.aviso.textContent = est.visto
-        ? 'Sigue las flechas verdes. Toca la "i" del destino para ver su ficha.'
-        : est.fiable
-          ? 'QR fuera de la vista: las flechas se mantienen con el giro del móvil.'
-          : '⚠️ Precisión perdida: vuelve a apuntar al QR del ancla para recalibrar. Para andar con las flechas, usa "Recorrido con LiDAR".';
+      nav.aviso.textContent = !est.fiable
+        ? '⚠️ Guía en pausa. Vuelve a enfocar el QR del ancla.'
+        : est.llegada ? 'Toca la «i» del destino para ver su ficha.'
+          : est.fuente === 'entorno' ? 'Siguiendo con la cámara. Ve hacia el punto amarillo.'
+            : 'Sigue las flechas hasta el punto amarillo.';
     },
     etiquetas(g) { capa.etiquetas(g); },
     tocado(raycaster) { return capa.tocado(raycaster); },

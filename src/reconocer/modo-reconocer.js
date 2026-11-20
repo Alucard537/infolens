@@ -4,25 +4,28 @@
 // 2. RECONOCIDO: cuando el mismo elemento sale claramente varias veces seguidas (o el usuario toca
 //    un candidato), se "bloquea": deja de buscar y avisa al escáner para que ancle su modelo 3D.
 import { listarHuellas, mapaElementos, obtenerArchivo } from '../db.js';
-import { cargarReconocedor, huellaDe, comparar, ajustarGuia } from './huella.js';
+import { cargarReconocedor, huellaDe, ajustarGuia } from './huella.js';
+import { comparar, coincidenciaClara, tieneRecorteObjeto } from './vectores.js';
+import { cargarSegmentador } from './recorte-objeto.js';
 import { bloqueLidar } from '../ar/quicklook.js';
 import { maquinaActivaId } from '../maquinas.js';
 
 const CADA_MS = 500;
 const MINIMO = 0.45;      // por debajo: "no reconozco nada"
-const PROBABLE = 0.68;    // a partir de aquí, y con ventaja sobre el 2º, cuenta como positivo
-const VENTAJA = 0.025;
-const SEGUIDAS = 2;       // positivos seguidos del mismo elemento para darlo por reconocido (~1 s)
+const SEGUIDAS = 3;       // deben ser fotogramas distintos y consecutivos
 const PESO_NUEVO = 0.5;   // suavizado: cuánto cuenta cada comparación nueva (menos = más estable)
 
 export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActivo, alBloquear, alDesbloquear, alFijar }) {
   let encendido = false;
   let temporizador = 0;
+  let turnoPreparacion = 0;
   let huellas = null, elementos = null, embedder = null;
+  let opcionesRecorte = null;
   const suavizado = new Map(); // elementoId -> parecido suavizado
   const fotos = new Map();     // elementoId -> blob: URL de la miniatura
   let ultimaLista = '';
   let racha = { id: null, n: 0 };
+  let tiempoVideo = -1, ultimaMuestra = 0;
   let bloqueado = null;        // id del elemento reconocido
   let estadoFijar = () => {};  // para que el escáner avise si se ha fijado arrastrando
 
@@ -34,23 +37,33 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     ultimaLista = '';
   };
 
-  async function preparar() {
+  async function preparar(turno) {
+    const vigente = () => turno === turnoPreparacion && encendido && estaActivo();
     mensaje('Cargando el reconocimiento… (la primera vez necesita internet)');
     try {
-      [huellas, elementos, embedder] = await Promise.all([listarHuellas(), mapaElementos(), cargarReconocedor()]);
+      const [guardadas, mapa] = await Promise.all([listarHuellas(), mapaElementos()]);
+      if (!vigente()) return;
+      const maq = maquinaActivaId();
+      const propios = new Map([...mapa].filter(([, e]) => e.maquinaId === maq));
+      const candidatas = guardadas.filter((h) => propios.has(h.elementoId));
+      if (!candidatas.length) {
+        mensaje('Ningún elemento de esta máquina tiene huella todavía. El administrador la graba desde el detalle de cada elemento.');
+        return;
+      }
+      const modelo = await cargarReconocedor();
+      if (!vigente()) return;
+      const conRecuadro = candidatas.some((h) => !tieneRecorteObjeto(h));
+      const segmentador = candidatas.some(tieneRecorteObjeto) ? await cargarSegmentador() : null;
+      if (!vigente()) return;
+      huellas = candidatas;
+      elementos = propios;
+      embedder = modelo;
+      opcionesRecorte = { segmentador, conRecuadro };
+      mensaje('Pon el punto central sobre la pieza.');
+      paso();
     } catch (e) {
-      mensaje('No se pudo cargar el reconocimiento: ' + (e.message || e) + '. Conéctate a internet y prueba otra vez.');
-      return false;
+      if (vigente()) mensaje('No se pudo cargar el reconocimiento: ' + (e.message || e) + '. Conéctate a internet y prueba otra vez.');
     }
-    // Solo elementos de la MÁQUINA ACTIVA: nunca se reconoce uno de otra máquina, aunque sea igual
-    const maq = maquinaActivaId();
-    elementos = new Map([...elementos].filter(([, e]) => e.maquinaId === maq));
-    huellas = huellas.filter((h) => elementos.has(h.elementoId));
-    if (!huellas.length) {
-      mensaje('Ningún elemento de esta máquina tiene huella todavía. El administrador la graba desde el detalle de cada elemento.');
-      return false;
-    }
-    return true;
   }
 
   async function miniatura(id) {
@@ -127,6 +140,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     bloqueado = null;
     racha = { id: null, n: 0 };
     suavizado.clear();
+    tiempoVideo = -1;
     alDesbloquear && alDesbloquear();
     if (encendido) { guia.hidden = false; mensaje('Mete el elemento en el recuadro…'); paso(); }
   }
@@ -134,14 +148,14 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
   function pintar(lista) {
     const visibles = lista.filter((x) => x.parecido >= MINIMO).slice(0, 3);
     // Porcentajes redondeados de 5 en 5: así no cambian a cada momento
-    const clave = visibles.map((r) => r.elementoId + ':' + Math.round(r.parecido * 20) * 5).join('|');
+    const clave = [racha.n, ...visibles.map((r) => r.elementoId + ':' + Math.round(r.parecido * 20) * 5)].join('|');
     if (clave === ultimaLista) return;
     if (!visibles.length) { mensaje('No reconozco ningún elemento. Acércate y mételo en el recuadro.'); ultimaLista = clave; return; }
     ultimaLista = clave;
     const frag = document.createDocumentFragment();
     const t = document.createElement('div');
     t.className = 'rec-titulo';
-    t.textContent = racha.n > 0 ? `Comprobando… (${racha.n}/${SEGUIDAS})` : '🤔 Se parece a (toca el correcto):';
+    t.textContent = racha.n > 0 ? `Comprobando… (${racha.n}/${SEGUIDAS})` : 'Parecido visual · toca la pieza si la identificas';
     frag.appendChild(t);
     visibles.forEach((r, i) => {
       const el = elementos.get(r.elementoId);
@@ -156,21 +170,35 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
   function paso() {
     if (!encendido || bloqueado || !estaActivo()) return;
     ajustarGuia(guia, video);
-    if (video.readyState >= 2 && video.videoWidth && embedder && huellas && huellas.length) {
+    if (video.readyState >= 2 && video.videoWidth && video.currentTime !== tiempoVideo) {
       try {
-        const res = comparar(huellaDe(embedder, video, video.videoWidth, video.videoHeight), huellas);
-        for (const r of res) {
-          const prev = suavizado.get(r.elementoId);
-          r.parecido = prev === undefined ? r.parecido : prev * (1 - PESO_NUEVO) + r.parecido * PESO_NUEVO;
-          suavizado.set(r.elementoId, r.parecido);
+        tiempoVideo = video.currentTime;
+        const ahora = performance.now();
+        const muestra = huellaDe(embedder, video, video.videoWidth, video.videoHeight, opcionesRecorte);
+        const { motivo } = muestra;
+        if (motivo || ahora - ultimaMuestra > CADA_MS * 3) {
+          racha = { id: null, n: 0 };
+          suavizado.clear();
         }
-        res.sort((a, b) => b.parecido - a.parecido);
-        const [p1, p2] = res;
-        const positivo = p1 && p1.parecido >= PROBABLE && (!p2 || p1.parecido - p2.parecido >= VENTAJA);
-        racha = positivo ? { id: p1.elementoId, n: racha.id === p1.elementoId ? racha.n + 1 : 1 } : { id: null, n: 0 };
-        if (racha.n >= SEGUIDAS) { bloquear(racha.id); return; }
-        pintar(res);
+        ultimaMuestra = ahora;
+        if (motivo) {
+          mensaje(motivo + '. Centra la pieza y mantén el móvil quieto un momento.');
+        } else {
+          const res = comparar(muestra, huellas);
+          const candidato = coincidenciaClara(res);
+          for (const r of res) {
+            const prev = suavizado.get(r.elementoId);
+            r.parecido = prev === undefined ? r.parecido : prev * (1 - PESO_NUEVO) + r.parecido * PESO_NUEVO;
+            suavizado.set(r.elementoId, r.parecido);
+          }
+          res.sort((a, b) => b.parecido - a.parecido);
+          const positivo = candidato && coincidenciaClara(res) === candidato;
+          racha = positivo ? { id: candidato, n: racha.id === candidato ? racha.n + 1 : 1 } : { id: null, n: 0 };
+          if (racha.n >= SEGUIDAS) { bloquear(racha.id); return; }
+          pintar(res);
+        }
       } catch (e) {
+        racha = { id: null, n: 0 };
         console.warn('Reconocimiento:', e);
       }
     }
@@ -184,12 +212,14 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       panel.hidden = !encendido;
       guia.hidden = !encendido;
       clearTimeout(temporizador);
+      const turno = ++turnoPreparacion;
       if (bloqueado) { bloqueado = null; alDesbloquear && alDesbloquear(); }
       racha = { id: null, n: 0 };
       if (encendido) {
         suavizado.clear();
+        tiempoVideo = -1;
         ajustarGuia(guia, video);
-        preparar().then((ok) => { if (ok && encendido) { mensaje('Mete el elemento en el recuadro…'); paso(); } });
+        preparar(turno);
       }
       return encendido;
     },

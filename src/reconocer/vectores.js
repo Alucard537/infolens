@@ -7,6 +7,10 @@
 //   grabaciones: [{ fecha, origen }], fecha }
 export const MODELO = 'mobilenet_v3_small';
 export const MAX_IMAGENES = 400;
+export const RECORTE_OBJETO = 'magic_touch_v1';
+const PARECIDO_DUPLICADO = 0.985;
+const PARECIDO_SEGURO = 0.74;
+const VENTAJA_SEGURA = 0.04;
 
 // Para ocupar poco: cada número se guarda en 1 byte (con una escala por imagen)
 export function empaquetar(lista) {
@@ -45,7 +49,7 @@ export function normalizarHuella(h) {
  * Añade imágenes nuevas a la huella (o la crea).
  * lista: [{ v: Float32Array, mini: Uint8Array }]; origen: 'cámara' | 'vídeo' | 'fotos'.
  */
-export function anadirAHuella(huella, elementoId, lista, origen) {
+export function anadirAHuella(huella, elementoId, lista, origen, recorte) {
   if (!lista.length) throw new Error('No hay imágenes nuevas.');
   const nuevo = empaquetar(lista.map((x) => x.v));
   const b = normalizarHuella(huella) || {
@@ -65,7 +69,7 @@ export function anadirAHuella(huella, elementoId, lista, origen) {
     miniaturas: unir(Uint8Array, b.miniaturas, todas),
     tamMini: unir(Uint32Array, b.tamMini, Uint32Array.from(minis.map((m) => m.length))),
     grupo: unir(Uint16Array, b.grupo, new Uint16Array(nuevo.n).fill(g)),
-    grabaciones: [...b.grabaciones, { fecha: Date.now(), origen }],
+    grabaciones: [...b.grabaciones, { fecha: Date.now(), origen, recorte }],
     fecha: Date.now(),
   };
 }
@@ -146,24 +150,67 @@ export function deserializarHuella(buf, meta, elementoId) {
   };
 }
 
-/**
- * Compara una huella con las guardadas de cada elemento.
- * Devuelve [{ elementoId, parecido (0-1) }] de mayor a menor. Parecido = media de las 3 mejores imágenes.
- */
-export function comparar(huella, guardadas) {
+function parecidoGuardado(vector, huella, i) {
+  let puntos = 0;
+  const offset = i * huella.dim;
+  for (let j = 0; j < huella.dim; j++) puntos += vector[j] * huella.vectores[offset + j];
+  return Math.min(1, puntos * huella.escalas[i]);
+}
+
+export function tieneRecorteObjeto(huella) {
+  return !!huella.grabaciones?.some((g) => g.recorte === RECORTE_OBJETO);
+}
+
+function tipoRecorte(huella, i) {
+  return huella.grabaciones?.[huella.grupo?.[i]]?.recorte;
+}
+
+/** Conserva fotos distintas, incluso cuando vienen de una sesión anterior. */
+export function elegirCapturas(capturas, anterior, limite, recorte) {
+  const unicas = [];
+  let repetidas = 0;
+  for (const captura of capturas) {
+    const { v } = captura;
+    let duplicada = false;
+    if (anterior?.dim === v.length) {
+      for (let i = 0; i < anterior.n && !duplicada; i++) {
+        duplicada = tipoRecorte(anterior, i) === recorte && parecidoGuardado(v, anterior, i) >= PARECIDO_DUPLICADO;
+      }
+    }
+    if (!duplicada) duplicada = unicas.some(({ v: otra }) => {
+      let puntos = 0;
+      for (let j = 0; j < v.length; j++) puntos += v[j] * otra[j];
+      return puntos >= PARECIDO_DUPLICADO;
+    });
+    if (duplicada) repetidas++;
+    else unicas.push(captura);
+  }
+  const n = Math.min(limite, unicas.length);
+  const elegidas = Array.from({ length: n }, (_, i) => unicas[Math.floor((i + 0.5) * unicas.length / n)]);
+  return { elegidas, repetidas, sinEspacio: unicas.length - n };
+}
+
+/** Favorece una vista que encaje bien y usa una segunda vista como apoyo. */
+export function comparar({ objeto, recuadro }, guardadas) {
   const res = [];
   for (const h of guardadas) {
-    if (h.dim !== huella.length) continue;
-    const mejores = [-1, -1, -1];
+    const recorte = tieneRecorteObjeto(h) ? RECORTE_OBJETO : undefined;
+    const vector = recorte ? objeto : recuadro;
+    if (h.dim !== vector?.length || (h.modelo && h.modelo !== MODELO) || !h.n) continue;
+    let mejor = -1, apoyo = -1;
     for (let i = 0; i < h.n; i++) {
-      let s = 0;
-      const o = i * h.dim;
-      for (let j = 0; j < h.dim; j++) s += huella[j] * h.vectores[o + j];
-      s *= h.escalas[i];
-      if (s > mejores[2]) { mejores[2] = s; mejores.sort((a, b) => b - a); }
+      if (tipoRecorte(h, i) !== recorte) continue;
+      const s = parecidoGuardado(vector, h, i);
+      if (s > mejor) { apoyo = mejor; mejor = s; }
+      else if (s > apoyo) apoyo = s;
     }
-    const validos = mejores.filter((x) => x > -1);
-    res.push({ elementoId: h.elementoId, parecido: validos.reduce((a, b) => a + b, 0) / (validos.length || 1) });
+    const diferencia = Math.min(0.15, mejor - apoyo);
+    res.push({ elementoId: h.elementoId, parecido: Math.max(0, mejor - 0.2 * diferencia) });
   }
   return res.sort((a, b) => b.parecido - a.parecido);
+}
+
+export function coincidenciaClara([primero, segundo]) {
+  if (!primero || primero.parecido < PARECIDO_SEGURO) return null;
+  return !segundo || primero.parecido - segundo.parecido >= VENTAJA_SEGURA ? primero.elementoId : null;
 }

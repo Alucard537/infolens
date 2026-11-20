@@ -38,7 +38,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,mjs,css,html,wasm,svg,png,ico,pdf,webmanifest,bcmap,pfb,ttf,usdz}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         // El conversor de STEP (7,6 MB) no se descarga al instalar: se guarda la primera vez que se usa
-        // Lo mismo con el reconocimiento sin QR (MediaPipe + modelo, unos 18 MB)
+        // Lo mismo con el reconocimiento sin QR (MediaPipe y sus modelos).
         globIgnores: ['**/occt-import-js-*.wasm', '**/mediapipe/**', '**/modelos/**'],
         runtimeCaching: [{
           // Modelos de los elementos convertidos a .usdz en el teléfono (para el AR de Apple con LiDAR)

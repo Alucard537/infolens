@@ -1,7 +1,4 @@
-// Contenido 3D del recorrido, en coordenadas del QR del ancla (QR en el suelo o en una mesa):
-//   x = derecha del QR, y = arriba (sale del QR), z negativo = ADELANTE (borde de arriba del QR).
-// Son las mismas coordenadas que usa ARKit para el QR detectado, así que el contenido queda "pegado"
-// al QR: si el QR se mueve o se gira, todo se mueve y gira con él.
+// Contenido 3D en los ejes del recorrido: derecha, vertical del mundo y adelante (−Z).
 import RealityKit
 import UIKit
 import simd
@@ -30,7 +27,6 @@ enum Contenido {
     static func crear(_ r: Recorrido, ladoM: Float, soloLinea: Bool) -> Entity {
         let raiz = Entity()
         raiz.addChild(ancla(alto: max(0.12, ladoM * 1.4)))
-        raiz.addChild(bordeQR(ladoM))
         let pts = r.puntos
         for k in 0..<(pts.count - 1) {
             let a = pts[k], b = pts[k + 1], tramo = b - a
