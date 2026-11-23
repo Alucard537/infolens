@@ -8,7 +8,12 @@ struct PoseQR {
     init(_ matriz: simd_float4x4) {
         let p = matriz.columns.3
         posicion = [p.x, p.y, p.z]
-        rotacion = simd_quatf(matriz)
+        let x = SIMD3<Float>(matriz.columns.0.x, matriz.columns.0.y, matriz.columns.0.z)
+        let y = SIMD3<Float>(matriz.columns.1.x, matriz.columns.1.y, matriz.columns.1.z)
+        let z = simd_cross(x, y)
+        let derecha = simd_normalize(x)
+        let normal = simd_normalize(simd_cross(z, derecha))
+        rotacion = simd_quatf(simd_float3x3(columns: (derecha, normal, simd_cross(derecha, normal))))
     }
 
     private init(posicion: SIMD3<Float>, rotacion: simd_quatf) {
@@ -63,10 +68,9 @@ struct AnclajeQR {
     mutating func observar(_ muestra: PoseQR, id: UUID, en tiempo: TimeInterval) -> PoseQR? {
         let continua = tiempo - ultimaVista <= 0.20
         defer { ultimaVista = tiempo }
-        if continua, id == idVisible, let pose {
-            let actual = pose.combinada(con: muestra, peso: 0.35)
-            self.pose = actual
-            return actual
+        if continua, id == idVisible {
+            pose = muestra
+            return muestra
         }
         idVisible = nil
         guard continua, var estable = candidata,
@@ -84,9 +88,9 @@ struct AnclajeQR {
             // A partir de aquí la ruta queda fija en el sistema de coordenadas del papel.
             rutaDesdeQR = simd_inverse(estable.media.matriz) * ruta
         }
-        pose = estable.media
+        pose = muestra
         idVisible = id
         candidata = nil
-        return estable.media
+        return muestra
     }
 }

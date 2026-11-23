@@ -55,6 +55,8 @@ struct Bienvenida: View {
             .controlSize(.large)
             Text("Apunta al QR de prueba TEST-1, impreso con 10 cm de lado, para ver el recorrido.")
                 .multilineTextAlignment(.center)
+            Text("El punto blanco marca el centro del QR. La flecha azul señala ADELANTE.")
+                .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
             Text("Para seguir una guía, abre su paso en InfoLens y pulsa «Abrir en el visor nativo».")
                 .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
         }
