@@ -16,7 +16,7 @@ db.version(2).stores({
 // Versión 3: máquinas, anclas, localizaciones y guías (cada máquina es un entorno independiente)
 //  maquinas:        { id, nombre, modelo, descripcion, creado, modificado }
 //  elementos:       + maquinaId (la máquina a la que pertenece; null = sin asignar)
-//  anclas:          { id (= el que va en su QR), maquinaId, nombre, descripcion, gravedad: [x,y,z] | null }
+//  anclas:          { id (= el que va en su QR), maquinaId, nombre, descripcion, gravedad: [x,y,z] | null, cara?, subanclas? }
 //  localizaciones:  { id, maquinaId, anclaId, elementoId, pos: [x,y,z], ruta: [[x,y,z]…], posIcono: [x,y,z] | null }
 //  guias:           { id, maquinaId, nombre, tipo, descripcion, anclaId, portadaId, estado, pasos: […] }
 db.version(3).stores({

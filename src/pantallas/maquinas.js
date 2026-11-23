@@ -11,6 +11,7 @@ import { listarElementos } from '../db.js';
 import { esAdmin } from '../permisos.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
+import { CARAS_MAQUINA } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
 
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -246,7 +247,8 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
         <div class="seccion-subanclas"></div>
       </details>`;
     li.querySelector('.fila-nombre').textContent = `⚓ ${a.nombre}`;
-    li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
+    const cara = Object.hasOwn(CARAS_MAQUINA, a.cara) ? CARAS_MAQUINA[a.cara] : 'Cara sin indicar';
+    li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${cara} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
     li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
       const { generarPdfQR } = await import('../qr-pdf.js');
       const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.id}`, ancla: true }], leerAjustes().qrCm);
@@ -275,18 +277,25 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
       <label>Identificador (es lo que lleva su QR)<input name="id" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
       <label>Nombre<input name="nombre" autocomplete="off" placeholder="Por ejemplo Frontal izquierdo"></label>
       <label>Descripción<input name="descripcion" autocomplete="off"></label>
+      <label>Cara del QR principal <select name="cara" aria-describedby="ayuda-cara-principal">
+        <option value="">Sin indicar (se toma como frontal)</option>
+        ${Object.entries(CARAS_MAQUINA).map(([id, nombre]) => `<option value="${id}">${nombre}</option>`).join('')}
+      </select></label>
+      <p class="nota" id="ayuda-cara-principal">Elige dónde está pegado el QR. La izquierda y la derecha se toman mirando la máquina desde el frontal.</p>
       <p class="error-form" hidden></p>
       <div class="botones-archivo"><button class="boton" type="submit">💾 Guardar ancla</button><button class="boton secundario" type="button" data-a="cancelar">Cancelar</button></div>`;
     fo.elements.id.value = a ? a.id : await siguienteIdAncla(m.id);
     fo.elements.id.readOnly = !!a;
     fo.elements.nombre.value = a ? a.nombre : '';
     fo.elements.descripcion.value = a ? a.descripcion || '' : '';
+    fo.elements.cara.value = Object.hasOwn(CARAS_MAQUINA, a?.cara) ? a.cara : '';
     fo.querySelector('[data-a="cancelar"]').addEventListener('click', () => { fo.hidden = true; });
     fo.onsubmit = async (ev) => {
       ev.preventDefault();
       const er = fo.querySelector('.error-form');
       try {
-        await guardarAncla({ id: fo.elements.id.value, maquinaId: m.id, nombre: fo.elements.nombre.value, descripcion: fo.elements.descripcion.value }, !a);
+        await guardarAncla({ id: fo.elements.id.value, maquinaId: m.id, nombre: fo.elements.nombre.value,
+          descripcion: fo.elements.descripcion.value, cara: fo.elements.cara.value }, !a);
         repintar();
       } catch (ex) { er.hidden = false; er.textContent = ex.message; }
     };

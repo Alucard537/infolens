@@ -245,7 +245,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                 anclajeSubancla.dejarDeVerQR()
                 mensaje = "La subancla debe estar vertical, con ARRIBA hacia el techo."
             } else if let pose = anclajeSubancla.observar(muestra, id: imagen.identifier, en: frame.timestamp) {
-                guard aplicarSubancla(subancla.poseRecorrido(desde: pose), anclaId: subancla.anclaId) else {
+                let principal = anclas[subancla.anclaId]
+                let poseRuta = subancla.poseRecorrido(desde: pose, respectoA: principal?.cara)
+                guard aplicarSubancla(poseRuta, anclaId: subancla.anclaId) else {
                     pausarGuia()
                     mostrarEstado("La subancla no coincide con la calibración. Revisa sus medidas o vuelve a detectar el QR.")
                     return
@@ -395,7 +397,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let inversaCamara = frame.camera.viewMatrix(for: .portrait)
         if let colocacion = recorrido.colocacion, let punto = recorrido.puntos.last {
             let camaraLocal = simd_inverse(mundo) * frame.camera.transform.columns.3
-            let visible = colocacion.seVe(desde: [camaraLocal.x, camaraLocal.y, camaraLocal.z], punto: punto)
+            let visible = colocacion.seVe(desde: [camaraLocal.x, camaraLocal.y, camaraLocal.z], punto: punto,
+                                          respectoA: recorrido.ancla.cara)
             contenido.findEntity(named: "marcaColocacion")?.isEnabled = visible
             let caraOpuesta = !visible
             if desdeCaraOpuesta != caraOpuesta { desdeCaraOpuesta = caraOpuesta }

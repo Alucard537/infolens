@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   compilar:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,6 +28,11 @@ jobs:
         run: |
           brew install xcodegen
           cd ios && xcodegen generate
+      - name: Comprobar la calibración entre caras
+        run: |
+          swiftc ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/Recorrido.swift \
+            scripts/prueba-cara-principal.swift -o "$RUNNER_TEMP/prueba-cara-principal"
+          "$RUNNER_TEMP/prueba-cara-principal"
       - name: Compilar
         run: |
           cd ios

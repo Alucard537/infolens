@@ -5,7 +5,7 @@ import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearModoAncla } from '../ar/modo-navegacion.js';
 import { datosDelVisor, enviarARKit, modulosQR } from '../ar/visor-nativo.js';
-import { subanclasDe, textoQRSubancla } from '../subanclas.js';
+import { CARAS_MAQUINA, subanclasDe, textoQRSubancla } from '../subanclas.js';
 
 const DIRECCIONES_DESTINO = {
   izquierda: ['←', 'Mira a la izquierda'], derecha: ['→', 'Mira a la derecha'],
@@ -159,7 +159,8 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
       }
       const referencias = (enGuia ? anclas.filter((a) => a.id === guia.anclaId) : anclas)
         .flatMap((a) => [
-          { id: a.id, ladoCm, patron: modulosQR('INFOLENS:' + a.id) },
+          { id: a.id, ladoCm, patron: modulosQR('INFOLENS:' + a.id),
+            ...(Object.hasOwn(CARAS_MAQUINA, a.cara) ? { cara: a.cara } : {}) },
           ...subanclasDe(a).map((s) => {
             const id = textoQRSubancla(s.id);
             return { id, ladoCm: s.ladoCm, patron: modulosQR(id),

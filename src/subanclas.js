@@ -1,4 +1,4 @@
-export const CARAS_SUBANCLA = {
+export const CARAS_MAQUINA = {
   frontal: 'Frontal',
   derecha: 'Lateral derecho',
   trasera: 'Trasera',
@@ -10,7 +10,7 @@ export const textoQRSubancla = (id) => `INFOLENS-SUB:${id}`;
 
 export function calibracionSubanclaValida({ pos, cara, ladoCm }) {
   return Array.isArray(pos) && pos.length === 3 && pos.every((n) => Number.isFinite(n) && Math.abs(n) < 1000) &&
-    pos.some((n) => n !== 0) && Object.hasOwn(CARAS_SUBANCLA, cara) && Number.isFinite(ladoCm) && ladoCm >= 2 && ladoCm <= 16;
+    pos.some((n) => n !== 0) && Object.hasOwn(CARAS_MAQUINA, cara) && Number.isFinite(ladoCm) && ladoCm >= 2 && ladoCm <= 16;
 }
 
 export function subanclasDe(ancla) {

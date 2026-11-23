@@ -23,14 +23,15 @@ private struct DatosRecorrido: Decodable {
     var icono: Bool?
     var posIcono: [Double]?
     var colocacion: ColocacionSubancla?
+    var caraPrincipal: SubanclaAR.Cara?
 }
 
 struct ColocacionSubancla: Decodable {
     let cara: SubanclaAR.Cara
     let ladoCm: Double
 
-    func seVe(desde camara: SIMD3<Float>, punto: SIMD3<Float>) -> Bool {
-        simd_dot(camara - punto, cara.normal) > 0.04
+    func seVe(desde camara: SIMD3<Float>, punto: SIMD3<Float>, respectoA principal: SubanclaAR.Cara? = nil) -> Bool {
+        simd_dot(camara - punto, cara.normal(respectoA: principal)) > 0.04
     }
 }
 
@@ -38,12 +39,14 @@ struct AnclaAR: Decodable {
     let id: String
     let ladoCm: Double
     let patron: String?
+    let cara: SubanclaAR.Cara?
     let subancla: SubanclaAR?
 
-    init(id: String, ladoCm: Double, patron: String?, subancla: SubanclaAR? = nil) {
+    init(id: String, ladoCm: Double, patron: String?, cara: SubanclaAR.Cara? = nil, subancla: SubanclaAR? = nil) {
         self.id = id
         self.ladoCm = ladoCm
         self.patron = patron
+        self.cara = cara
         self.subancla = subancla
     }
 
@@ -70,10 +73,19 @@ struct SubanclaAR: Decodable {
             }
         }
 
-        var ejesMarca: simd_float3x3 {
-            // Ejes de la marca en la máquina: derecha, normal exterior, abajo.
+        func normal(respectoA principal: Cara?) -> SIMD3<Float> {
+            // Las caras se nombran mirando la máquina desde el frontal. Las medidas de la
+            // guía ya están en los ejes del QR principal: solo hay que cambiar de base la normal.
+            let exterior = (principal ?? .frontal).normal
+            let derecha = simd_cross(SIMD3<Float>(0, 1, 0), exterior)
+            return [simd_dot(normal, derecha), normal.y, simd_dot(normal, exterior)]
+        }
+
+        func ejesMarca(respectoA principal: Cara?) -> simd_float3x3 {
+            // Ejes de la marca en el recorrido: derecha, normal exterior, abajo.
+            let exterior = normal(respectoA: principal)
             let abajo = SIMD3<Float>(0, -1, 0)
-            return simd_float3x3(columns: (simd_cross(normal, abajo), normal, abajo))
+            return simd_float3x3(columns: (simd_cross(exterior, abajo), exterior, abajo))
         }
     }
 
@@ -88,8 +100,8 @@ struct SubanclaAR: Decodable {
     }
 
     /// Lleva los ejes del QR de ARKit (derecha, normal, abajo) a los ejes de la guía.
-    func poseRecorrido(desde poseQR: PoseQR) -> PoseQR {
-        let ejes = cara.ejesMarca.columns
+    func poseRecorrido(desde poseQR: PoseQR, respectoA principal: Cara? = nil) -> PoseQR {
+        let ejes = cara.ejesMarca(respectoA: principal).columns
         let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0),
             SIMD4<Float>(ejes.2, 0), SIMD4<Float>(pos[0], pos[1], pos[2], 1)))
         return PoseQR(poseQR.matriz * simd_inverse(desdeMarca))
@@ -133,7 +145,7 @@ struct Recorrido {
         guard datos.count <= 100_000,
               let r = try? JSONDecoder().decode(DatosRecorrido.self, from: datos),
               (2...200).contains(r.p.count) else { return nil }
-        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q)
+        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q, cara: r.caraPrincipal)
         let pts = r.p.compactMap(punto)
         guard ancla.valida, pts.count == r.p.count else { return nil }
         if let colocacion = r.colocacion {

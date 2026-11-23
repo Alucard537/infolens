@@ -12,7 +12,8 @@ import { puntosDeTramos, tramosDePuntos, describir, deG, deSimple, simplesDeTram
 import { pintarListaTramos } from '../ui/tramos.js';
 import { leerAjustes } from '../ajustes.js';
 import { datosDelVisor, enviarARKit, tieneARKitIntegrado } from '../ar/visor-nativo.js';
-import { CARAS_SUBANCLA, subanclasDe } from '../subanclas.js';
+import { CARAS_MAQUINA, subanclasDe } from '../subanclas.js';
+import { montarSubanclas } from './subanclas.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
 // Lee un número aunque se escriba "X=-130", "-130 cm" o con coma decimal ("1,5")
@@ -88,6 +89,10 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           <div class="titulo-archivo">⚓ Nueva ancla de ${maquina.nombre}</div>
           <label>Identificador (lo que llevará su QR)<input name="anclaNuevaId" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
           <label>Nombre<input name="anclaNuevaNombre" autocomplete="off" placeholder="Por ejemplo Frontal izquierdo"></label>
+          <label>Cara del QR principal <select name="anclaNuevaCara">
+            <option value="">Sin indicar (se toma como frontal)</option>
+            ${Object.entries(CARAS_MAQUINA).map(([id, nombre]) => `<option value="${id}">${nombre}</option>`).join('')}
+          </select></label>
           <p class="error-form error-ancla" hidden></p>
           <div class="botones-archivo">
             <button type="button" class="boton" data-a="guardar-ancla">💾 Crear y usar en la guía</button>
@@ -157,7 +162,8 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       const er = $('.error-ancla');
       er.hidden = true;
       try {
-        const a = await guardarAncla({ id: campo('anclaNuevaId').value, maquinaId: g.maquinaId, nombre: campo('anclaNuevaNombre').value }, true);
+        const a = await guardarAncla({ id: campo('anclaNuevaId').value, maquinaId: g.maquinaId,
+          nombre: campo('anclaNuevaNombre').value, cara: campo('anclaNuevaCara').value }, true);
         anclas = await listarAnclas(g.maquinaId);
         const sel = campo('ancla');
         sel.innerHTML = '<option value="">— Elige un ancla —</option>';
@@ -205,55 +211,27 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
   function pintarColocacion() {
     const cont = app.querySelector('.opciones-colocacion');
     const principal = anclas.find((a) => a.id === g.anclaId);
-    const lista = principal ? subanclasDe(principal) : [];
-    if (!lista.length) {
+    if (!principal) {
       const aviso = document.createElement('p');
       aviso.className = 'nota';
-      aviso.textContent = principal ? 'Crea una subancla para este QR en Gestión de anclas.' : 'Elige el ancla principal de la guía.';
+      aviso.textContent = 'Elige el ancla principal de la guía.';
       cont.replaceChildren(aviso);
       return;
     }
-    cont.innerHTML = `
-      <label>Subancla <select name="subanclaColocacion"></select></label>
-      <p class="nota medidas-colocacion"></p>
-      <p class="nota ayuda-colocacion"></p>
-      ${tieneARKitIntegrado() ? '<button class="boton secundario" type="button" data-a="colocar-subancla">Marcar punto con la cámara</button>' : ''}
-      <p class="error-form" hidden></p>`;
-    const selector = cont.querySelector('select');
-    const medidas = cont.querySelector('.medidas-colocacion');
-    const error = cont.querySelector('.error-form');
-    for (const s of lista) selector.add(new Option(s.nombre, s.id));
-    const indicarMedidas = () => {
-      const s = lista.find((item) => item.id === selector.value);
-      medidas.textContent = `${CARAS_SUBANCLA[s.cara]} · ${describir(deG(s.pos))} · QR de ${s.ladoCm} cm`;
-      error.hidden = true;
-    };
-    selector.addEventListener('change', indicarMedidas);
-    indicarMedidas();
-    cont.querySelector('.ayuda-colocacion').textContent = tieneARKitIntegrado()
-      ? `Enfoca el QR principal «${principal.nombre}» para ver dónde pegar la subancla.`
-      : 'Para ver la marca sobre la máquina, abre este editor en InfoLens en el iPhone.';
-    const boton = cont.querySelector('[data-a="colocar-subancla"]');
-    boton?.addEventListener('click', async () => {
-      boton.disabled = true;
-      error.hidden = true;
-      const id = selector.value;
-      try {
-        const a = await obtenerAncla(principal.id);
-        if (!activo || !boton.isConnected || g.anclaId !== principal.id || selector.value !== id) return;
-        const s = a?.maquinaId === g.maquinaId && subanclasDe(a).find((item) => item.id === id);
-        if (!s) throw new Error('La subancla ya no está disponible para esta guía.');
-        const recorrido = datosDelVisor({
-          anclaId: a.id, ladoCm: leerAjustes().qrCm || 10, puntos: [[0, 0, 0], s.pos],
-          info: { nombre: s.nombre, referencia: CARAS_SUBANCLA[s.cara], descripcion: describir(deG(s.pos)) },
-          colocacion: { cara: s.cara, ladoCm: s.ladoCm }, flechas: false,
-        });
-        enviarARKit({ accion: 'prueba', recorrido });
-      } catch (e) {
-        error.textContent = e.message;
-        error.hidden = false;
-      } finally { boton.disabled = false; }
-    });
+    async function colocar(id, boton) {
+      const a = await obtenerAncla(principal.id);
+      if (!activo || !boton.isConnected || g.anclaId !== principal.id) return;
+      const s = a?.maquinaId === g.maquinaId && subanclasDe(a).find((item) => item.id === id);
+      if (!s) throw new Error('La subancla ya no está disponible para esta guía.');
+      const recorrido = datosDelVisor({
+        anclaId: a.id, ladoCm: leerAjustes().qrCm || 10, puntos: [[0, 0, 0], s.pos],
+        info: { nombre: s.nombre, referencia: CARAS_MAQUINA[s.cara], descripcion: describir(deG(s.pos)) },
+        caraPrincipal: Object.hasOwn(CARAS_MAQUINA, a.cara) ? a.cara : undefined,
+        colocacion: { cara: s.cara, ladoCm: s.ladoCm }, flechas: false,
+      });
+      enviarARKit({ accion: 'prueba', recorrido });
+    }
+    montarSubanclas(cont, principal, { colocar: tieneARKitIntegrado() ? colocar : undefined });
   }
 
   function mensaje(err, ok) {
