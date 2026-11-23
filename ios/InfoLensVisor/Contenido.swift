@@ -54,7 +54,12 @@ enum Contenido {
                 }
             }
         }
-        if r.icono, let fin = r.posIcono ?? pts.last {
+        if let colocacion = r.colocacion, let fin = pts.last {
+            let marca = marcaQR(Float(colocacion.ladoCm / 100), acento: oro)
+            marca.orientation = simd_quatf(colocacion.cara.ejesMarca)
+            marca.position = fin
+            raiz.addChild(marca)
+        } else if r.icono, let fin = r.posIcono ?? pts.last {
             let destino = bola(0.025, azul)
             destino.position = fin + [0, 0.025, 0]
             raiz.addChild(destino)
@@ -85,7 +90,7 @@ enum Contenido {
     }
 
     /// Centro y flecha ADELANTE en el plano del papel: −Z va hacia el borde impreso de arriba.
-    static func marcaQR(_ lado: Float) -> Entity {
+    static func marcaQR(_ lado: Float, acento: UIColor = azul) -> Entity {
         let e = Entity()
         let h = lado / 2
         let relieve = lado * 0.012
@@ -111,7 +116,7 @@ enum Contenido {
             segmento(b - d, b, ancho: lado * 0.025, color: verde)
         }
 
-        let centro = pieza(lado * 0.13, lado * 0.13, azul)
+        let centro = pieza(lado * 0.13, lado * 0.13, acento)
         centro.position = [0, relieve, 0]
         let punto = pieza(lado * 0.055, lado * 0.055, .white)
         punto.position = [0, relieve * 1.5, 0]
@@ -119,9 +124,9 @@ enum Contenido {
         e.addChild(punto)
 
         let punta = SIMD3<Float>(0, 0, -lado * 0.64)
-        segmento([0, 0, -lado * 0.09], punta, ancho: lado * 0.045, color: azul)
-        segmento([-lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: azul)
-        segmento([lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: azul)
+        segmento([0, 0, -lado * 0.09], punta, ancho: lado * 0.045, color: acento)
+        segmento([-lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: acento)
+        segmento([lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: acento)
         return e
     }
 }

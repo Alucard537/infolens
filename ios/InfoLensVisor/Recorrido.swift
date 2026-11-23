@@ -12,7 +12,7 @@ struct InfoElemento: Codable {
     var descripcion: String?
 }
 
-private struct DatosRecorrido: Codable {
+private struct DatosRecorrido: Decodable {
     var p: [[Double]]
     var i: InfoElemento?
     var a: String?
@@ -22,6 +22,12 @@ private struct DatosRecorrido: Codable {
     var flechas: Bool?
     var icono: Bool?
     var posIcono: [Double]?
+    var colocacion: ColocacionSubancla?
+}
+
+struct ColocacionSubancla: Decodable {
+    let cara: SubanclaAR.Cara
+    let ladoCm: Double
 }
 
 struct AnclaAR: Decodable {
@@ -59,6 +65,12 @@ struct SubanclaAR: Decodable {
             case .izquierda: return [-1, 0, 0]
             }
         }
+
+        var ejesMarca: simd_float3x3 {
+            // Ejes de la marca en la máquina: derecha, normal exterior, abajo.
+            let abajo = SIMD3<Float>(0, -1, 0)
+            return simd_float3x3(columns: (simd_cross(normal, abajo), normal, abajo))
+        }
     }
 
     let anclaId: String
@@ -73,11 +85,9 @@ struct SubanclaAR: Decodable {
 
     /// Lleva los ejes del QR de ARKit (derecha, normal, abajo) a los ejes de la guía.
     func poseRecorrido(desde poseQR: PoseQR) -> PoseQR {
-        let y = cara.normal
-        let z = SIMD3<Float>(0, -1, 0)
-        let x = simd_cross(y, z)
-        let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(y, 0),
-            SIMD4<Float>(z, 0), SIMD4<Float>(pos[0], pos[1], pos[2], 1)))
+        let ejes = cara.ejesMarca.columns
+        let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0),
+            SIMD4<Float>(ejes.2, 0), SIMD4<Float>(pos[0], pos[1], pos[2], 1)))
         return PoseQR(poseQR.matriz * simd_inverse(desdeMarca))
     }
 }
@@ -91,6 +101,7 @@ struct Recorrido {
     var flechas = true
     var icono = true
     var posIcono: SIMD3<Float>?
+    var colocacion: ColocacionSubancla?
 
     var anclaId: String { ancla.id }
     var ladoCm: Double { ancla.ladoCm }
@@ -121,14 +132,18 @@ struct Recorrido {
         let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q)
         let pts = r.p.compactMap(punto)
         guard ancla.valida, pts.count == r.p.count else { return nil }
+        if let colocacion = r.colocacion {
+            guard pts.count == 2, pts[0] == .zero, pts[1] != .zero, (2...16).contains(colocacion.ladoCm) else { return nil }
+        }
         return Recorrido(
             puntos: pts,
             info: r.i ?? InfoElemento(nombre: "Destino"),
             ancla: ancla,
             soloLinea: r.v == "linea",
-            flechas: r.flechas ?? true,
-            icono: r.icono ?? true,
-            posIcono: r.posIcono.flatMap(punto)
+            flechas: r.colocacion == nil && (r.flechas ?? true),
+            icono: r.colocacion != nil || (r.icono ?? true),
+            posIcono: r.colocacion == nil ? r.posIcono.flatMap(punto) : nil,
+            colocacion: r.colocacion
         )
     }
 

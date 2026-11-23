@@ -31,10 +31,10 @@ export function modulosQR(texto) {
 }
 
 /** puntos: [[x,y,z]…] en metros desde el QR (el primero [0,0,0]). */
-export function datosDelVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas', flechas, icono, posIcono }) {
+export function datosDelVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas', flechas, icono, posIcono, colocacion }) {
   const redondo = (n) => Math.round(n * 1000) / 1000;
   return {
-    p: puntos.map((q) => q.map(redondo)),
+    p: colocacion ? puntos : puntos.map((q) => q.map(redondo)),
     ...(info ? { i: info } : {}),
     a: anclaId,
     l: ladoCm,
@@ -43,6 +43,7 @@ export function datosDelVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas'
     ...(typeof flechas === 'boolean' ? { flechas } : {}),
     ...(typeof icono === 'boolean' ? { icono } : {}),
     ...(posIcono ? { posIcono } : {}),
+    ...(colocacion ? { colocacion } : {}),
   };
 }
 

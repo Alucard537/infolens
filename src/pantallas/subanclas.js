@@ -1,8 +1,22 @@
 import { leerAjustes } from '../ajustes.js';
-import { aG, deG, describir } from '../coordenadas.js';
+import { deG, describir, deSimple, puntosDeTramos, simplesDeTramos } from '../coordenadas.js';
 import { borrarSubancla, guardarSubancla, obtenerAncla } from '../maquinas.js';
 import { CARAS_SUBANCLA, subanclasDe, textoQRSubancla } from '../subanclas.js';
 import { guardarOCompartir } from '../ui/descargar.js';
+import { pintarListaTramos } from '../ui/tramos.js';
+
+function posicionPorTramos(lista) {
+  const tramos = lista.filter((t) => String(t.cm).trim());
+  if (!tramos.length) throw new Error('Añade al menos una distancia desde el QR principal.');
+  const medidas = tramos.map((t) => {
+    const cm = String(t.cm).trim();
+    if (!/^\d+(?:[.,]\d+)?$/.test(cm) || !(Number(cm.replace(',', '.')) > 0)) {
+      throw new Error('Escribe distancias positivas y elige el sentido en «Dirección».');
+    }
+    return deSimple(t);
+  });
+  return puntosDeTramos(medidas).at(-1);
+}
 
 export function montarSubanclas(cont, ancla) {
   cont.innerHTML = `
@@ -60,20 +74,35 @@ export function montarSubanclas(cont, ancla) {
         <option value="">Elige una cara</option>
         ${Object.entries(CARAS_SUBANCLA).map(([id, nombre]) => `<option value="${id}">${nombre}</option>`).join('')}
       </select></label>
-      <p class="nota">Medidas en cm referidas al QR principal. Usa valores negativos para atrás, izquierda o abajo.</p>
-      <div class="fila-xyz">
-        <label>Adelante <input name="adelante" type="number" inputmode="decimal" step="any" required></label>
-        <label>Derecha <input name="derecha" type="number" inputmode="decimal" step="any" required></label>
-        <label>Arriba <input name="arriba" type="number" inputmode="decimal" step="any" required></label>
-      </div>
+      <p class="nota">Indica la posición desde el QR principal. Para cada medida, elige una dirección y escribe la distancia en cm.</p>
+      <ol class="tramos-subancla"></ol>
+      <button class="boton-mini" type="button" data-s="tramo">Añadir tramo</button>
+      <p class="nota posicion-subancla" aria-live="polite"></p>
       <label>Lado del QR (cm, zona negra) <input name="ladoCm" type="number" inputmode="decimal" min="2" max="16" step="any" required></label>
       <div class="botones-archivo"><button class="boton" type="submit">Guardar subancla</button><button type="button" class="boton secundario" data-s="cancelar">Cancelar</button></div>`;
     const campos = formulario.elements;
-    const pos = deG(s?.pos || [0, 0, 0]);
     campos.nombre.value = s?.nombre || '';
     campos.cara.value = s?.cara || '';
-    for (const [eje, valor] of Object.entries(pos)) campos[eje].value = valor;
     campos.ladoCm.value = s?.ladoCm || leerAjustes().qrCm || 10;
+    const tramos = s ? simplesDeTramos([deG(s.pos)]) : [{ dir: 'adelante', cm: '' }];
+    const listaTramos = formulario.querySelector('.tramos-subancla');
+    const resumen = formulario.querySelector('.posicion-subancla');
+    let conservarPosicion = !!s;
+    function actualizarPosicion() {
+      conservarPosicion = false;
+      try {
+        resumen.textContent = `Posición desde el QR principal · ${describir(deG(posicionPorTramos(tramos)))}`;
+      } catch {
+        resumen.textContent = '';
+      }
+    }
+    pintarListaTramos(listaTramos, tramos, actualizarPosicion);
+    if (s) resumen.textContent = `Posición desde el QR principal · ${describir(deG(s.pos))}`;
+    formulario.querySelector('[data-s="tramo"]').onclick = () => {
+      tramos.push({ dir: 'adelante', cm: '' });
+      pintarListaTramos(listaTramos, tramos, actualizarPosicion);
+      listaTramos.lastElementChild.querySelector('select').focus();
+    };
     formulario.querySelector('[data-s="cancelar"]').onclick = () => { formulario.hidden = true; avisar(''); };
     formulario.onsubmit = async (ev) => {
       ev.preventDefault();
@@ -83,7 +112,7 @@ export function montarSubanclas(cont, ancla) {
       try {
         await guardarSubancla(ancla.id, ancla.maquinaId, {
           id: s?.id, nombre: campos.nombre.value, cara: campos.cara.value, ladoCm: campos.ladoCm.valueAsNumber,
-          pos: aG({ adelante: campos.adelante.valueAsNumber, derecha: campos.derecha.valueAsNumber, arriba: campos.arriba.valueAsNumber }),
+          pos: conservarPosicion ? s.pos : posicionPorTramos(tramos),
         });
         formulario.hidden = true;
         await pintar();

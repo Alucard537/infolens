@@ -164,6 +164,18 @@ jobs:
           avanceDesdeSubancla.ubicarTramo(puntos: itinerario, posicion: [3,1.7,-2.15])
           precondition(avanceDesdeSubancla.indice == 2)
           precondition(!avanceDesdeSubancla.actualizar(puntos: itinerario, posicion: [3,1.7,-2.15]).llegada)
+          let colocacionDatos = Data("""
+          {"a":"PRINCIPAL","l":10,"p":[[0,0,0],[-4.005,-0.8,2]],"i":{"nombre":"Punto lateral","referencia":"Lateral derecho"},"colocacion":{"cara":"derecha","ladoCm":9},"flechas":true,"icono":false,"posIcono":[0,1,0]}
+          """.utf8)
+          let colocacion = Recorrido.desdeDatos(colocacionDatos)!
+          precondition(colocacion.anclaId == "PRINCIPAL" && colocacion.ancla.subancla == nil)
+          precondition(colocacion.puntos == [[0,0,0],[-4.005,-0.8,2]])
+          precondition(colocacion.colocacion?.cara == .derecha && colocacion.colocacion?.ladoCm == 9)
+          precondition(!colocacion.flechas && colocacion.icono && colocacion.posIcono == nil)
+          precondition(colocacion.colocacion?.cara.ejesMarca.columns.2 == SIMD3<Float>(0,-1,0))
+          let fueraDeLimite = String(decoding: colocacionDatos, as: UTF8.self).replacingOccurrences(of: "\"ladoCm\":9", with: "\"ladoCm\":30")
+          precondition(Recorrido.desdeDatos(Data(fueraDeLimite.utf8)) == nil)
+          precondition(Recorrido.prueba().colocacion == nil)
           SWIFT
           xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/GeometriaFlecha.swift ios/InfoLensVisor/ProgresoRuta.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
           "$RUNNER_TEMP/infolens-smoke/revisar"
