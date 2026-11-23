@@ -73,9 +73,20 @@ jobs:
               let cuartoDeVuelta = simd_quatf(angle: .pi / 2, axis: eje)
               let traslado = SIMD3<Float>(0.31, 0.08, 0.23)
               let movida = pose(cuartoDeVuelta * inicial, centro: centro + traslado)
-              for i in 1...25 {
-                  precondition(anclaje.observar(movida, id: id, en: 1.26 + 0.03 * Double(i)) != nil)
+              // ARKit puede indicar una escala distinta para el papel. Los ejes deben seguir siendo unitarios.
+              var medida = movida.matriz
+              medida.columns.0 *= 1.3
+              medida.columns.1 *= 1.3
+              medida.columns.2 *= 1.3
+              guard let actual = anclaje.observar(PoseQR(medida), id: id, en: 1.29) else {
+                  fatalError("El movimiento debe aplicarse en el primer fotograma")
               }
+              let centroQR = actual.matriz * SIMD4<Float>(0, 0, 0, 1)
+              let punta = actual.matriz * SIMD4<Float>(0, 0, -0.064, 1)
+              let superior = (cuartoDeVuelta * inicial).act([0, 0, -0.064])
+              precondition(simd_distance(SIMD3<Float>(centroQR.x, centroQR.y, centroQR.z), centro + traslado) < 0.0001)
+              let flecha = punta - centroQR
+              precondition(simd_distance(SIMD3<Float>(flecha.x, flecha.y, flecha.z), superior) < 0.0001)
               let puntoInicial = rutaInicial * destino
               let desplazamiento = SIMD3<Float>(puntoInicial.x, puntoInicial.y, puntoInicial.z) - centro
               let esperado = centro + traslado + cuartoDeVuelta.act(desplazamiento)

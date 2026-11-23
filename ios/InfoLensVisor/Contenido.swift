@@ -24,9 +24,8 @@ enum Contenido {
         return simd_quatf(from: menosZ, to: d)
     }
 
-    static func crear(_ r: Recorrido, ladoM: Float, soloLinea: Bool) -> Entity {
+    static func crear(_ r: Recorrido, soloLinea: Bool) -> Entity {
         let raiz = Entity()
-        raiz.addChild(ancla(alto: max(0.12, ladoM * 1.4)))
         let pts = r.puntos
         for k in 0..<(pts.count - 1) {
             let a = pts[k], b = pts[k + 1], tramo = b - a
@@ -72,42 +71,44 @@ enum Contenido {
         return e
     }
 
-    /// ⚓ dorado de pie sobre el centro del QR.
-    static func ancla(alto: Float) -> Entity {
-        let k = alto / 0.16
+    /// Centro y flecha ADELANTE en el plano del papel: −Z va hacia el borde impreso de arriba.
+    static func marcaQR(_ lado: Float) -> Entity {
         let e = Entity()
-        let cana = caja([0.012 * k, 0.12 * k, 0.012 * k], oro); cana.position = [0, 0.075 * k, 0]
-        let cruz = caja([0.07 * k, 0.012 * k, 0.012 * k], oro); cruz.position = [0, 0.12 * k, 0]
-        let aro = bola(0.016 * k, oro); aro.position = [0, 0.15 * k, 0]
-        e.addChild(cana); e.addChild(cruz); e.addChild(aro)
-        for s: Float in [-1, 1] {
-            let brazo = caja([0.06 * k, 0.012 * k, 0.012 * k], oro)
-            brazo.orientation = simd_quatf(angle: s * 0.6, axis: [0, 0, 1])
-            brazo.position = [s * 0.026 * k, 0.03 * k, 0]
-            let punta = bola(0.012 * k, oro); punta.position = [s * 0.05 * k, 0.05 * k, 0]
-            e.addChild(brazo); e.addChild(punta)
-        }
-        let base = caja([0.04 * k, 0.004, 0.04 * k], azul); base.position = [0, 0.002, 0]
-        e.addChild(base)
-        return e
-    }
+        let h = lado / 2
+        let relieve = lado * 0.012
 
-    /// Borde del QR con líneas discontinuas verdes (el de arriba, ADELANTE, más grueso).
-    static func bordeQR(_ lado: Float) -> Entity {
-        let e = Entity()
-        let h = lado / 2, raya = lado / 8, grosor: Float = 0.004
-        let lados: [(SIMD3<Float>, SIMD3<Float>, Float)] = [
-            ([-h, 0, -h], [h, 0, -h], 2.2), ([h, 0, -h], [h, 0, h], 1), ([h, 0, h], [-h, 0, h], 1), ([-h, 0, h], [-h, 0, -h], 1),
-        ]
-        for (a, b, g) in lados {
-            let d = b - a
-            for i in stride(from: 0, to: 8, by: 2) {
-                let t = (Float(i) + 0.5) / 8
-                let r = caja([abs(d.x) > 0 ? raya : grosor * g, 0.003, abs(d.z) > 0 ? raya : grosor * g], verde)
-                r.position = a + d * t + [0, 0.002, 0]
-                e.addChild(r)
-            }
+        func pieza(_ ancho: Float, _ largo: Float, _ color: UIColor) -> ModelEntity {
+            ModelEntity(mesh: .generateBox(size: [ancho, relieve, largo]), materials: [UnlitMaterial(color: color)])
         }
+
+        func segmento(_ a: SIMD3<Float>, _ b: SIMD3<Float>, ancho: Float, color: UIColor) {
+            let d = b - a
+            let r = pieza(ancho, simd_length(d), color)
+            r.position = a + d / 2 + [0, relieve, 0]
+            r.orientation = giro(hacia: d)
+            e.addChild(r)
+        }
+
+        let esquinas: [SIMD3<Float>] = [
+            [-h, 0, -h], [h, 0, -h], [h, 0, h], [-h, 0, h], [-h, 0, -h],
+        ]
+        for (a, b) in zip(esquinas, esquinas.dropFirst()) {
+            let d = (b - a) * 0.25
+            segmento(a, a + d, ancho: lado * 0.025, color: verde)
+            segmento(b - d, b, ancho: lado * 0.025, color: verde)
+        }
+
+        let centro = pieza(lado * 0.13, lado * 0.13, azul)
+        centro.position = [0, relieve, 0]
+        let punto = pieza(lado * 0.055, lado * 0.055, .white)
+        punto.position = [0, relieve * 1.5, 0]
+        e.addChild(centro)
+        e.addChild(punto)
+
+        let punta = SIMD3<Float>(0, 0, -lado * 0.64)
+        segmento([0, 0, -lado * 0.09], punta, ancho: lado * 0.045, color: azul)
+        segmento([-lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: azul)
+        segmento([lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: azul)
         return e
     }
 

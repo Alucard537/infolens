@@ -15,6 +15,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     let recorrido: Recorrido
     private let marcoQR = Entity()
     private let marcoRuta = Entity()
+    private let marcaQR: Entity
     private let marcaTramo = Contenido.bola(0.035, Contenido.oro)
     private var origen: AnchorEntity?
     private var contenido: Entity?
@@ -27,15 +28,14 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var interrumpida = false
     private var pideQR = true
     private var avisoImagen: String?
-    private var ladoM: Float { Float(recorrido.ladoCm / 100) }
-
     init(recorrido: Recorrido) {
         self.recorrido = recorrido
         self.soloLinea = recorrido.soloLinea
+        self.marcaQR = Contenido.marcaQR(Float(recorrido.ladoCm / 100))
         super.init()
         vista.session.delegateQueue = .main
         vista.session.delegate = self
-        marcoQR.addChild(Contenido.bordeQR(ladoM))
+        marcoQR.addChild(marcaQR)
         marcoQR.addChild(marcoRuta)
         arrancar()
     }
@@ -68,6 +68,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) { config.sceneReconstruction = .mesh }
         config.detectionImages = [referencia]
         config.maximumNumberOfTrackedImages = 1
+        config.automaticImageScaleEstimationEnabled = true
         let id = sesionId
         referencia.validate { [weak self] error in
             guard let error else { return }
@@ -121,7 +122,11 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let qr = frame.anchors.lazy.compactMap { $0 as? ARImageAnchor }
             .first { $0.isTracked && $0.referenceImage.name == recorrido.anclaId }
         let poseActual = qr.flatMap { anclaje.observar(PoseQR($0.transform), id: $0.identifier, en: frame.timestamp) }
-        if let poseActual { aplicarPoseQR(poseActual) }
+        if let qr, let poseActual {
+            aplicarPoseQR(poseActual)
+            let escala = Float(qr.estimatedScaleFactor)
+            if escala.isFinite, escala > 0 { marcaQR.scale = SIMD3<Float>(repeating: escala) }
+        }
         guard origen != nil, !pideQR, qr == nil || poseActual != nil else {
             pausarGuia()
             mostrarEstado(qr == nil ? (avisoImagen ?? "🔍 Busca el QR del ancla (\(recorrido.anclaId))")
@@ -129,6 +134,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         marcoQR.isEnabled = true
+        marcaQR.isEnabled = poseActual != nil
         mostrarEstado(qr == nil ? "📍 Última posición del QR en el entorno" : "✅ Siguiendo el QR del ancla")
         actualizarTramo(frame)
     }
@@ -197,7 +203,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private func rehacer() {
         guard origen != nil else { return }
         contenido?.removeFromParent()
-        let c = Contenido.crear(recorrido, ladoM: ladoM, soloLinea: soloLinea)
+        let c = Contenido.crear(recorrido, soloLinea: soloLinea)
         marcaTramo.removeFromParent()
         marcaTramo.isEnabled = false
         c.addChild(marcaTramo)
