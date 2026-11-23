@@ -56,6 +56,8 @@ enum Contenido {
         }
         if let colocacion = r.colocacion, let fin = pts.last {
             let marca = marcaQR(Float(colocacion.ladoCm / 100), acento: oro)
+            marca.name = "marcaColocacion"
+            marca.isEnabled = false
             marca.orientation = simd_quatf(colocacion.cara.ejesMarca)
             marca.position = fin
             raiz.addChild(marca)

@@ -31,6 +31,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var tramoActual: String?
     @Published private(set) var rumboGrados: Double?
     @Published private(set) var destinoEnPantalla: EstadoAR.PuntoPantalla?
+    @Published private(set) var desdeCaraOpuesta = false
     @Published var soloLinea: Bool { didSet { rehacer() } }
     var alCambiarEstado: ((EstadoAR) -> Void)?
 
@@ -375,6 +376,17 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         guard pantalla.width > 1, pantalla.height > 1 else { return }
         let mundo = marcoRuta.transformMatrix(relativeTo: nil)
         let inversaCamara = simd_inverse(frame.camera.transform)
+        if let colocacion = recorrido.colocacion, let punto = recorrido.puntos.last {
+            let camaraLocal = simd_inverse(mundo) * frame.camera.transform.columns.3
+            let visible = colocacion.seVe(desde: [camaraLocal.x, camaraLocal.y, camaraLocal.z], punto: punto)
+            contenido.findEntity(named: "marcaColocacion")?.isEnabled = visible
+            let caraOpuesta = !visible
+            if desdeCaraOpuesta != caraOpuesta { desdeCaraOpuesta = caraOpuesta }
+            if !visible {
+                if destinoEnPantalla != nil { destinoEnPantalla = nil }
+                return
+            }
+        }
         if recorrido.flechas && !soloLinea {
             let localACamara = inversaCamara * mundo
             let proyeccion = frame.camera.projectionMatrix(for: .portrait, viewportSize: pantalla, zNear: 0.05, zFar: 50)
@@ -424,6 +436,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         if destinoEnPantalla != nil { destinoEnPantalla = nil }
         if tramoActual != nil { tramoActual = nil }
         if rumboGrados != nil { rumboGrados = nil }
+        if desdeCaraOpuesta { desdeCaraOpuesta = false }
     }
 
     private func mostrarEstado(_ texto: String) {

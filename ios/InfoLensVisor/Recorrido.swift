@@ -28,6 +28,10 @@ private struct DatosRecorrido: Decodable {
 struct ColocacionSubancla: Decodable {
     let cara: SubanclaAR.Cara
     let ladoCm: Double
+
+    func seVe(desde camara: SIMD3<Float>, punto: SIMD3<Float>) -> Bool {
+        simd_dot(camara - punto, cara.normal) > 0.04
+    }
 }
 
 struct AnclaAR: Decodable {

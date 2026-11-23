@@ -83,6 +83,8 @@ private struct PanelPrueba: View {
                     if controlador.destinoEnPantalla != nil {
                         Text("Pega el QR de \(colocacion.ladoCm.formatted()) cm en el recuadro, con ARRIBA hacia el techo.")
                             .font(.subheadline)
+                    } else if controlador.desdeCaraOpuesta {
+                        Text("Sitúate en la cara indicada de la máquina para ver el recuadro.").font(.subheadline)
                     } else if let rumbo = controlador.rumboGrados {
                         HStack {
                             Image(systemName: "arrow.up").rotationEffect(.degrees(rumbo))

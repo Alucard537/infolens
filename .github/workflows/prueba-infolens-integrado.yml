@@ -175,6 +175,10 @@ jobs:
           precondition(colocacion.colocacion?.cara.ejesMarca.columns.2 == SIMD3<Float>(0,-1,0))
           let fueraDeLimite = String(decoding: colocacionDatos, as: UTF8.self).replacingOccurrences(of: "\"ladoCm\":9", with: "\"ladoCm\":30")
           precondition(Recorrido.desdeDatos(Data(fueraDeLimite.utf8)) == nil)
+          let objetivo = colocacion.puntos[1]
+          precondition(colocacion.colocacion!.seVe(desde: objetivo + [1,0,0], punto: objetivo))
+          precondition(!colocacion.colocacion!.seVe(desde: objetivo - [1,0,0], punto: objetivo))
+          precondition(!colocacion.colocacion!.seVe(desde: objetivo + [0,0,1], punto: objetivo))
           precondition(Recorrido.prueba().colocacion == nil)
           SWIFT
           xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/GeometriaFlecha.swift ios/InfoLensVisor/ProgresoRuta.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
