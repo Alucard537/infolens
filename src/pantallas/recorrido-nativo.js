@@ -13,6 +13,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   let modulo;
   let sesion;
   let destinoId = 0;
+  let destinoPendiente = null;
   let mirada = {};
   const seguidos = new Map();
   const enGuia = !!guiaId;
@@ -46,6 +47,12 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     if (sesion) enviarARKit({ accion, sesion, ...datos });
   }
 
+  function enviarDestino() {
+    if (!destinoPendiente || destinoPendiente.enviado || !mirada.fiable || mirada.anclaId !== destinoPendiente.anclaId) return;
+    destinoPendiente.enviado = true;
+    enviar('recorrido', destinoPendiente.datos);
+  }
+
   $('[data-r="salir"]').addEventListener('click', volver);
   $('[data-r="buscar"]').addEventListener('click', () => enviar('buscar'));
   $('[data-r="posicionar"]')?.addEventListener('click', posicionar);
@@ -56,23 +63,30 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
 
   const capa = {
     mostrar(loc, { conFlechas = true, conIcono = true, nombre, fotos = [] } = {}) {
-      if (!mirada.anclaId) return;
+      const anclaId = loc.anclaId || modulo?.anclaActivaId;
+      if (!anclaId) return;
       const id = ++destinoId;
       ficha.limpiar();
       if (conIcono && nombre) ficha.mostrar(id, nombre, fotos);
-      enviar('recorrido', {
+      const datos = {
         destinoId: id,
         recorrido: datosDelVisor({
           puntos: [[0, 0, 0], ...(loc.ruta || []), loc.pos],
-          anclaId: mirada.anclaId, ladoCm, vista: selector.value,
+          anclaId, ladoCm, vista: selector.value,
           flechas: conFlechas, icono: conIcono, posIcono: loc.posIcono,
         }),
-      });
+      };
+      destinoPendiente = { anclaId, datos, enviado: false, conIcono };
+      enviarDestino();
     },
-    ocultar() { ficha.limpiar(); enviar('ocultar'); },
+    ocultar() { destinoPendiente = null; ficha.limpiar(); enviar('ocultar'); },
     actualizar() {
+      const coincide = destinoPendiente && mirada.destinoId === destinoPendiente.datos.destinoId;
+      if (coincide && mirada.errorDestino) return { error: mirada.errorDestino };
       if (!mirada.fiable) return { fiable: false, esperandoAncla: !mirada.anclaId };
-      return mirada.tramo ? { ...mirada.tramo, fiable: true } : null;
+      if (!destinoPendiente) return null;
+      if (!coincide || !mirada.tramo) return { pendiente: true };
+      return { ...mirada.tramo, fiable: true, fueraDeCamara: destinoPendiente.conIcono && !mirada.destino };
     },
     actualizarEjes() {},
     reiniciarReferencia() {},
@@ -82,6 +96,10 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     const { sesion: id, estado: datos } = evento.detail || {};
     if (!activo || id !== sesion || !datos) return;
     mirada = datos;
+    if (destinoPendiente && (!datos.fiable || datos.anclaId !== destinoPendiente.anclaId) && datos.destinoId !== destinoPendiente.datos.destinoId) {
+      destinoPendiente.enviado = false;
+    }
+    enviarDestino();
     estado.textContent = datos.mensaje;
     ficha.proyectar(datos.destinoId, datos.fiable ? datos.destino : null);
     if (datos.anclaId) seguidos.set(datos.anclaId, { id: datos.anclaId, tipo: 'ancla-activa', visible: datos.fiable });
@@ -118,6 +136,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         enviar('cerrar');
         seguidos.clear();
         mirada = {};
+        if (destinoPendiente) destinoPendiente.enviado = false;
         sesion = crypto.randomUUID();
         enviar('iniciar', { anclas: referencias, vista: selector.value });
       }

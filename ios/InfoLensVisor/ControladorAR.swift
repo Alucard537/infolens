@@ -24,6 +24,7 @@ struct EstadoAR: Encodable, Equatable {
     let rumbo: Double?
     let destino: PuntoPantalla?
     let destinoId: Int?
+    let errorDestino: String?
 }
 
 final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
@@ -62,6 +63,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var ultimoTramo: EstadoAR.Tramo?
     private var estadoEnviado: EstadoAR?
     private var destinoId: Int?
+    private var errorDestino: String?
 
     init(recorrido: Recorrido) {
         self.anclas = [recorrido.anclaId: recorrido.ancla]
@@ -85,9 +87,17 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         arrancar()
     }
 
-    func cambiarRecorrido(_ nuevo: Recorrido?, destinoId: Int? = nil) {
-        if let nuevo, nuevo.anclaId != anclaFijada { return }
-        recorrido = nuevo
+    func cambiarRecorrido(_ nuevo: Recorrido?, destinoId: Int? = nil, error: String? = nil) {
+        let anclaActual = anclaFijada ?? anclaBuscada
+        if let nuevo, anclas[nuevo.anclaId]?.subancla != nil || anclas[nuevo.anclaId] == nil ||
+            (anclaActual != nil && anclaActual != nuevo.anclaId) {
+            recorrido = nil
+            errorDestino = "La posición del elemento corresponde a otro QR principal."
+        } else {
+            recorrido = nuevo
+            errorDestino = error
+            if let nuevo, anclaFijada == nil { anclaBuscada = nuevo.anclaId }
+        }
         self.destinoId = destinoId
         progreso = ProgresoRuta()
         buscarTramoCercano = usaSubancla
@@ -103,7 +113,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     func emitirEstado() {
         guard let alCambiarEstado else { return }
         let actual = EstadoAR(anclaId: anclaFijada, fiable: enMarcha && marcoQR.isEnabled, mensaje: estado,
-                             tramo: ultimoTramo, rumbo: rumboGrados, destino: destinoEnPantalla, destinoId: destinoId)
+                             tramo: ultimoTramo, rumbo: rumboGrados, destino: destinoEnPantalla, destinoId: destinoId,
+                             errorDestino: errorDestino)
         guard actual != estadoEnviado else { return }
         estadoEnviado = actual
         alCambiarEstado(actual)
@@ -357,7 +368,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         marcaTramo.isEnabled = recorrido.flechas && !tramo.llegada
         marcaTramo.position = objetivo + [0, 0.04, 0]
         if tramo.llegada || !recorrido.flechas {
-            if rumboGrados != nil { rumboGrados = nil }
+            if recorrido.icono, destinoEnPantalla == nil, let fin = recorrido.posIcono ?? recorrido.puntos.last {
+                actualizarRumbo(simd_inverse(camara) * (ruta * SIMD4<Float>(fin, 1)))
+            } else if rumboGrados != nil { rumboGrados = nil }
         } else {
             let direccion = simd_inverse(camara) * (ruta * SIMD4<Float>(objetivo, 1))
             actualizarRumbo(direccion)

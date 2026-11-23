@@ -437,8 +437,9 @@ export function crearModoAncla({
       if (!avisoRecorrido) return;
       const est = capa.actualizar(arriba, ahora, seguidos.get(anclaId));
       if (!est) return;
-      const texto = est.fiable ? textoTramo(est)
-        : est.esperandoAncla ? 'Apunta al QR del ancla.' : 'Guía en pausa. Vuelve a enfocar el QR.';
+      const texto = est.error || (est.pendiente ? 'Preparando la marca del elemento…'
+        : est.fiable ? textoTramo(est) + (est.fueraDeCamara ? ' · Marca fuera de cámara' : '')
+          : est.esperandoAncla ? 'Apunta al QR del ancla.' : 'Guía en pausa. Vuelve a enfocar el QR.');
       avisoRecorrido.classList.toggle('aviso-recalibrar', !est.fiable);
       if (avisoRecorrido.textContent !== texto) avisoRecorrido.textContent = texto;
     },
