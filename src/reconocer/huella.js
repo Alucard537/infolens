@@ -41,7 +41,7 @@ const ctxMuestra = muestra.getContext('2d', { willReadFrequently: true });
 const grises = new Float32Array(LADO_MINI * LADO_MINI);
 export const PROPORCION_RECORTE = 0.7; // el recuadro ocupa el 70 % del lado corto
 
-export function recortarCentro(fuente, ancho, alto, fotoCompleta = false) {
+export function recortarCentro(fuente, ancho, alto, fotoCompleta = false, proporcion = PROPORCION_RECORTE) {
   if (fotoCompleta) {
     const escala = 248 / Math.max(ancho, alto);
     ctx.fillStyle = '#808080';
@@ -49,7 +49,7 @@ export function recortarCentro(fuente, ancho, alto, fotoCompleta = false) {
     ctx.drawImage(fuente, (256 - ancho * escala) / 2, (256 - alto * escala) / 2, ancho * escala, alto * escala);
     return lienzo;
   }
-  const lado = Math.min(ancho, alto) * PROPORCION_RECORTE;
+  const lado = Math.min(ancho, alto) * proporcion;
   ctx.clearRect(0, 0, 256, 256);
   ctx.drawImage(fuente, (ancho - lado) / 2, (alto - lado) / 2, lado, lado, 0, 0, 256, 256);
   return lienzo;
@@ -99,8 +99,8 @@ function calidadDelRecorte(recorte, aislada = false) {
 }
 
 /** Evalúa el mismo encuadre para entrenar y para reconocer. */
-export function huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro, fotoCompleta = false }) {
-  const recorte = recortarCentro(fuente, ancho, alto, fotoCompleta);
+export function huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro, fotoCompleta = false, proporcion }) {
+  const recorte = recortarCentro(fuente, ancho, alto, fotoCompleta, proporcion);
   const vector = (lienzo) => Float32Array.from(embedder.embed(lienzo).embeddings[0].floatEmbedding);
   const aislada = segmentador ? recortarObjeto(segmentador, recorte) : null;
   const falloObjeto = aislada?.imagen ? calidadDelRecorte(aislada.imagen, true) : aislada?.motivo;
@@ -117,7 +117,12 @@ export function huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuad
 
 /** Añade una miniatura del encuadre aceptado para revisarlo en la galería. */
 export function capturarImagen(embedder, segmentador, fuente, ancho, alto, fotoCompleta = false) {
-  const { objeto: v, imagen, motivo } = huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro: false, fotoCompleta });
+  const opciones = { segmentador, conRecuadro: false };
+  let resultado = huellaDe(embedder, fuente, ancho, alto, opciones);
+  if (fotoCompleta && !resultado.objeto) {
+    resultado = huellaDe(embedder, fuente, ancho, alto, { ...opciones, fotoCompleta });
+  }
+  const { objeto: v, imagen, motivo } = resultado;
   if (!v) return { motivo };
   ctxMuestra.drawImage(imagen, 0, 0, LADO_MINI, LADO_MINI);
   const mini = new Promise((ok) => muestra.toBlob(ok, 'image/jpeg', 0.6))

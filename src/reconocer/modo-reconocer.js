@@ -26,6 +26,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
   let ultimaLista = '';
   let racha = { id: null, n: 0 };
   let perdidas = 0;
+  let recorteCercano = false;
   let tiempoVideo = -1, ultimaMuestra = 0;
   let bloqueado = null;        // id del elemento reconocido
   let estadoFijar = () => {};  // para que el escáner avise si se ha fijado arrastrando
@@ -154,6 +155,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     bloqueado = null;
     borrarCoincidencias();
     tiempoVideo = -1;
+    recorteCercano = false;
     alDesbloquear && alDesbloquear();
     if (encendido) { guia.hidden = false; mensaje('Mete el elemento en el recuadro…'); paso(); }
   }
@@ -194,10 +196,15 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       try {
         tiempoVideo = video.currentTime;
         if (ahora - ultimaMuestra > CADA_MS * 4) borrarCoincidencias();
-        const muestra = huellaDe(embedder, video, video.videoWidth, video.videoHeight, opcionesRecorte);
+        const muestra = huellaDe(embedder, video, video.videoWidth, video.videoHeight, {
+          ...opcionesRecorte,
+          proporcion: recorteCercano ? 0.56 : undefined,
+          conRecuadro: opcionesRecorte.conRecuadro && !recorteCercano,
+        });
         const { motivo, objeto, recuadro } = muestra;
         if (!objeto && !recuadro) {
           if (++perdidas > 1) borrarCoincidencias();
+          if (opcionesRecorte.segmentador && !racha.n) recorteCercano = !recorteCercano;
           pintar([], motivo ? `${motivo}.` : 'No se ve la pieza con claridad.');
         } else {
           const res = comparar(muestra, huellas);
@@ -215,6 +222,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
             racha = { id: candidato, n: racha.id === candidato ? racha.n + 1 : 1 };
           } else if (!motivo || ++perdidas > 1) {
             racha = { id: null, n: 0 };
+            if (opcionesRecorte.segmentador && (res[0]?.parecido ?? 0) < MINIMO) recorteCercano = !recorteCercano;
           }
           if (racha.n >= SEGUIDAS) { bloquear(racha.id); return; }
           pintar(res, motivo ? `${motivo}.` : '');
@@ -241,6 +249,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       borrarCoincidencias();
       if (encendido) {
         tiempoVideo = -1;
+        recorteCercano = false;
         ajustarGuia(guia, video);
         preparar(turno);
       }

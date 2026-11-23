@@ -41,12 +41,16 @@ try {
   assert(registro.v?.length > 0 && registro.v.every(Number.isFinite), 'La muestra no produjo huella: ' + registro.motivo);
   const guardada = anadirAHuella(null, 'TEST', [{v:registro.v, mini:await registro.mini}], 'fotos', RECORTE_OBJETO);
   cuadro('#4f6673', 0.78, 0.87);
-  const consulta = huellaDe(embedder, imagen, 520, 520, {segmentador, conRecuadro:true});
-  const candidatos = comparar(consulta, [guardada]);
+  const compararEn = (proporcion) => {
+    const consulta = huellaDe(embedder, imagen, 520, 520, {segmentador, conRecuadro:true, proporcion});
+    return {consulta, candidatos: comparar(consulta, [guardada])};
+  };
+  let {consulta, candidatos} = compararEn(undefined);
+  if (!coincidenciaClara(candidatos)) ({consulta, candidatos} = compararEn(0.56));
   assert(coincidenciaClara(candidatos) === 'TEST', 'No reconoció la pieza con el fondo cambiado: ' + JSON.stringify(candidatos));
   const indistinguible = {...guardada, elementoId:'SEGUNDO'};
   assert(coincidenciaClara(comparar(consulta, [guardada, indistinguible])) === null, 'Confirmó una pieza ambigua');
   terminar({ok:true, dimensiones:registro.v.length, parecido:candidatos[0].parecido, reintento:true});
 } catch (error) {
-  terminar({ok:false, error:error?.stack || String(error), causa:error?.cause?.message || ''});
+  terminar({ok:false, error:String(error) + ' ' + (error?.stack || ''), causa:error?.cause?.message || ''});
 }
