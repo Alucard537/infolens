@@ -62,18 +62,20 @@ enum Contenido {
 
     private static let mallaFlecha: MeshResource = {
         var forma = MeshDescriptor(name: "Chevrón")
-        forma.positions = MeshBuffers.Positions([
+        let puntos: [SIMD3<Float>] = [
             [0, 0, -0.070], [0.073, 0, 0.027], [0.045, 0, 0.050],
             [0, 0, -0.009], [-0.045, 0, 0.050], [-0.073, 0, 0.027],
+        ]
+        forma.positions = MeshBuffers.Positions(puntos + puntos)
+        forma.primitives = .triangles([
+            0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5,
+            6, 8, 7, 6, 9, 8, 6, 10, 9, 6, 11, 10,
         ])
-        forma.primitives = .triangles([0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5])
         return (try? MeshResource.generate(from: [forma])) ?? .generateBox(size: 0.02)
     }()
 
     static func flecha() -> Entity {
-        var color = UnlitMaterial(color: menta)
-        color.faceCulling = .none
-        let e = ModelEntity(mesh: mallaFlecha, materials: [color])
+        let e = ModelEntity(mesh: mallaFlecha, materials: [UnlitMaterial(color: menta)])
         e.name = "flecha"
         return e
     }
