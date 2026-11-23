@@ -163,7 +163,8 @@ export function pantallaHuella(app, id, { volver }) {
       if (sinEspacio) partes.push(`Límite de ${MAX_IMAGENES} imágenes. Borra alguna en la galería para añadir otras.`);
       estado.textContent = partes.join(' ');
     } catch (e) {
-      if (activo) estado.textContent = (totales.añadidas ? `Guardadas ${totales.añadidas} imágenes. ` : '') + e.message;
+      if (activo) estado.textContent = (totales.añadidas ? `Guardadas ${totales.añadidas} imágenes. ` : '') +
+        (e?.message || 'No se pudo preparar la grabación.');
     } finally {
       ocupada = grabando = false;
       if (activo) controles();

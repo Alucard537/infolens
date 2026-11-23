@@ -39,7 +39,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
 
   async function preparar(turno) {
     const vigente = () => turno === turnoPreparacion && encendido && estaActivo();
-    mensaje('Cargando el reconocimiento… (la primera vez necesita internet)');
+    mensaje('Cargando el reconocimiento…');
     try {
       const [guardadas, mapa] = await Promise.all([listarHuellas(), mapaElementos()]);
       if (!vigente()) return;
@@ -62,7 +62,14 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       mensaje('Pon el punto central sobre la pieza.');
       paso();
     } catch (e) {
-      if (vigente()) mensaje('No se pudo cargar el reconocimiento: ' + (e.message || e) + '. Conéctate a internet y prueba otra vez.');
+      if (!vigente()) return;
+      console.warn('Preparación del reconocimiento:', e);
+      mensaje(e?.message || 'No se pudo cargar el reconocimiento.');
+      const reintentar = document.createElement('button');
+      reintentar.className = 'boton secundario';
+      reintentar.textContent = 'Reintentar';
+      reintentar.addEventListener('click', () => preparar(++turnoPreparacion), { once: true });
+      panel.appendChild(reintentar);
     }
   }
 
