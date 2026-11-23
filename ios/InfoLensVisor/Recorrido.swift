@@ -105,17 +105,48 @@ struct SubanclaAR: Decodable {
 
     /// Lleva los ejes del QR de ARKit (derecha, normal, abajo) a los ejes de la guía.
     func poseRecorrido(desde poseQR: PoseQR, respectoA principal: Cara? = nil) -> PoseQR {
-        let centro = SIMD4<Float>(pos[0], pos[1], pos[2], 1)
-        if let giroQR, let marcoQR = poseQR.marcoInicialRecorrido {
-            let giro = simd_quatf(angle: Float(giroQR), axis: SIMD3<Float>(0, 1, 0))
-            var desdeMarca = simd_float4x4(giro)
-            desdeMarca.columns.3 = centro
-            return PoseQR(marcoQR * simd_inverse(desdeMarca))
+        if let giroQR, let medida = poseRecorrido(desde: poseQR, rumbo: giroQR) {
+            return medida
         }
         let ejes = cara.ejesMarca(respectoA: principal).columns
         let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0),
-            SIMD4<Float>(ejes.2, 0), centro))
+            SIMD4<Float>(ejes.2, 0), centroLocal))
         return PoseQR(poseQR.matriz * simd_inverse(desdeMarca))
+    }
+
+    private var centroLocal: SIMD4<Float> { [pos[0], pos[1], pos[2], 1] }
+
+    func centro(en marco: PoseQR) -> SIMD3<Float> {
+        let punto = marco.matriz * centroLocal
+        return [punto.x, punto.y, punto.z]
+    }
+
+    private func poseRecorrido(desde poseQR: PoseQR, rumbo: Double) -> PoseQR? {
+        guard let marcoQR = poseQR.marcoInicialRecorrido else { return nil }
+        let giro = simd_quatf(angle: Float(rumbo), axis: SIMD3<Float>(0, 1, 0))
+        var desdeMarca = simd_float4x4(giro)
+        desdeMarca.columns.3 = centroLocal
+        return PoseQR(marcoQR * simd_inverse(desdeMarca))
+    }
+
+    /// Izquierda y derecha pueden nombrarse desde el operador. Esto invierte las caras
+    /// perpendiculares al principal. Se acepta la otra lectura solo si coincide con el QR principal medido.
+    func poseConCaraOpuesta(desde poseQR: PoseQR, respectoA principal: Cara?, principalMedido: PoseQR) -> PoseQR? {
+        let normal = cara.normal(respectoA: principal)
+        guard giroQR == nil, normal.z == 0,
+              let opuesta = poseRecorrido(desde: poseQR, rumbo: atan2(Double(-normal.x), Double(-normal.z))),
+              principalMedido.cercana(a: opuesta, metros: 0.25, grados: 8) else { return nil }
+        return opuesta
+    }
+
+    /// En una referencia medida, un pequeño ruido angular del teléfono no debe
+    /// convertirse en un gran desplazamiento del origen al otro lado de la máquina.
+    func poseConRumboFijado(observada: PoseQR, nominal: PoseQR, base: PoseQR) -> PoseQR? {
+        guard giroQR != nil, base.diferenciaAngular(con: nominal) <= 15 else { return nil }
+        let diferencia = observada.posicion - centro(en: base)
+        var matriz = base.matriz
+        matriz.columns.3 += SIMD4<Float>(diferencia, 0)
+        return PoseQR(matriz)
     }
 }
 

@@ -30,6 +30,23 @@ struct PruebaCaraPrincipal {
             let recuperada = subancla.poseRecorrido(desde: observada, respectoA: referencias[0].cara)
             precondition(recuperada.cercana(a: esperada, metros: 0.001, grados: 0.5), "Cara \(caso.cara)")
 
+            var invertida = marca
+            invertida.columns.0 = -marca.columns.0
+            invertida.columns.1 = -marca.columns.1
+            let observacionInvertida = PoseQR(marcoPrincipal * invertida)
+            let corregida = subancla.poseConCaraOpuesta(desde: observacionInvertida, respectoA: .izquierda, principalMedido: esperada)
+            if caso.normal.x != 0 {
+                precondition(corregida?.cercana(a: esperada, metros: 0.001, grados: 0.5) == true)
+                invertida.columns.3.x += 0.10
+                precondition(subancla.poseConCaraOpuesta(desde: PoseQR(marcoPrincipal * invertida), respectoA: .izquierda,
+                                                        principalMedido: esperada) != nil)
+                invertida.columns.3.x += 0.30
+                precondition(subancla.poseConCaraOpuesta(desde: PoseQR(marcoPrincipal * invertida), respectoA: .izquierda,
+                                                        principalMedido: esperada) == nil)
+            } else {
+                precondition(corregida == nil)
+            }
+
             let colocacion = ColocacionSubancla(cara: caso.cara, ladoCm: 10)
             precondition(colocacion.seVe(desde: caso.centro + caso.normal, punto: caso.centro, respectoA: referencias[0].cara))
             precondition(!colocacion.seVe(desde: caso.centro - caso.normal, punto: caso.centro, respectoA: referencias[0].cara))
@@ -58,6 +75,22 @@ struct PruebaCaraPrincipal {
         otraSesion.columns.3 = [-4, -0.2, 5, 1]
         let recuperada = calibrada.poseRecorrido(desde: PoseQR(otraSesion * imagen), respectoA: .izquierda)
         precondition(recuperada.cercana(a: PoseQR(otraSesion), metros: 0.001, grados: 0.5))
+
+        let lejana = SubanclaAR(anclaId: "PRINCIPAL", nombre: "Subancla distante", pos: [6, -0.3, -2], cara: .trasera,
+                                giroQR: Double(rumbo))
+        let inclinacion = rumbo + 7 * .pi / 180
+        let normalRuidosa: SIMD3<Float> = [sin(inclinacion), 0, cos(inclinacion)]
+        let imagenRuidosa = simd_float4x4(columns: (SIMD4<Float>(simd_cross(normalRuidosa, abajo), 0),
+            SIMD4<Float>(normalRuidosa, 0), SIMD4<Float>(abajo, 0), [6.1, -0.3, -2, 1]))
+        let observada = PoseQR(otraSesion * imagenRuidosa)
+        let nominal = lejana.poseRecorrido(desde: observada)
+        let base = PoseQR(otraSesion)
+        precondition(!nominal.cercana(a: base, metros: 0.50, grados: 15))
+        guard let corregida = lejana.poseConRumboFijado(observada: observada, nominal: nominal, base: base) else {
+            preconditionFailure("El ruido angular cercano no debe impedir una corrección pequeña")
+        }
+        precondition(simd_length(lejana.centro(en: corregida) - observada.posicion) < 0.001)
+        precondition(corregida.diferenciaAngular(con: base) < 0.5)
         print("Cara del principal y recuperación de las subanclas verificadas")
     }
 }

@@ -270,10 +270,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                     medicionSubancla = MedicionSubancla(principal: marcoRuta.transformMatrix(relativeTo: origen), subancla: pose)
                     mensaje = medicionSubancla == nil ? "Acerca la cámara al QR para medirlo." : "Medición lista. Comprueba y guarda."
                 } else {
-                    let poseRuta = subancla.poseRecorrido(desde: pose, respectoA: anclas[subancla.anclaId]?.cara)
-                    mensaje = aplicarSubancla(poseRuta, id: referencia.id, origen: origen)
-                        ? "✅ Subancla: \(subancla.nombre)"
-                        : "⚠️ \(subancla.nombre) no coincide. Guía con la última posición. Calibra el QR."
+                    mensaje = ajustarConSubancla(subancla, observada: pose, id: referencia.id, origen: origen)
                 }
             } else {
                 mensaje = "Mantén la subancla bien encuadrada un momento."
@@ -348,18 +345,31 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         return fijo
     }
 
-    private func aplicarSubancla(_ estimada: PoseQR, id: String, origen: AnchorEntity) -> Bool {
+    private func ajustarConSubancla(_ subancla: SubanclaAR, observada: PoseQR, id: String, origen: AnchorEntity) -> String {
         let anterior = PoseQR(marcoRuta.transformMatrix(relativeTo: origen))
         let base = baseAjusteSubancla.flatMap { $0.id == id ? $0.pose : nil } ?? anterior
+        let caraPrincipal = anclas[subancla.anclaId]?.cara
+        let nominal = subancla.poseRecorrido(desde: observada, respectoA: caraPrincipal)
+        var estimada = subancla.poseConRumboFijado(observada: observada, nominal: nominal, base: base) ?? nominal
+        if !base.cercana(a: estimada, metros: 0.50, grados: 15),
+           let posePrincipal = anclaje.pose, let rutaDesdeQR = anclaje.rutaDesdeQR,
+           let verificada = subancla.poseConCaraOpuesta(desde: observada, respectoA: caraPrincipal,
+                                                        principalMedido: PoseQR(posePrincipal.matriz * rutaDesdeQR)) {
+            estimada = verificada
+        }
         guard base.cercana(a: estimada, metros: 0.50, grados: 15),
-              anterior.cercana(a: estimada, metros: 0.50, grados: 15) else { return false }
+              anterior.cercana(a: estimada, metros: 0.50, grados: 15) else {
+            let desfase = simd_distance(observada.posicion, subancla.centro(en: base))
+            let cm = ((desfase * 20).rounded() * 5).formatted(.number.precision(.fractionLength(0)))
+            let grados = ((base.diferenciaAngular(con: nominal) / 5).rounded() * 5).formatted(.number.precision(.fractionLength(0)))
+            return "⚠️ \(subancla.nombre) no coincide (\(cm) cm · \(grados)°). Guía con la última posición."
+        }
         let pose = anterior.combinada(con: estimada, peso: 0.20)
         baseAjusteSubancla = (id, base)
         marcoRuta.setTransformMatrix(pose.matriz, relativeTo: origen)
         poseParaProgreso = pose
         usaSubancla = true
-        pideQR = false
-        return true
+        return "✅ Subancla: \(subancla.nombre)"
     }
 
     private func dejarDeVerReferencias() {

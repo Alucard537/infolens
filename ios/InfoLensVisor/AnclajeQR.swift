@@ -32,6 +32,11 @@ struct PoseQR {
             abs(simd_dot(rotacion.vector, otra.rotacion.vector)) >= cos(grados * .pi / 360)
     }
 
+    func diferenciaAngular(con otra: PoseQR) -> Float {
+        let coseno = min(1, abs(simd_dot(rotacion.vector, otra.rotacion.vector)))
+        return acos(coseno) * 360 / .pi
+    }
+
     func combinada(con otra: PoseQR, peso: Float) -> PoseQR {
         PoseQR(posicion: posicion + (otra.posicion - posicion) * peso,
                rotacion: simd_slerp(rotacion, otra.rotacion, peso))
