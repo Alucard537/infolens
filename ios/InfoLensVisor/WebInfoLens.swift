@@ -10,6 +10,7 @@ final class AplicacionInfoLens: ObservableObject {
     private var servidor: ServidorWeb?
     private weak var web: WKWebView?
     private var sesion: String?
+    private var solicitudCalibracion: String?
 
     func cargar(en web: WKWebView) {
         self.web = web
@@ -35,6 +36,7 @@ final class AplicacionInfoLens: ObservableObject {
         controlador?.detener()
         controlador = nil
         sesion = nil
+        solicitudCalibracion = nil
         pruebaAbierta = false
     }
 
@@ -44,21 +46,40 @@ final class AplicacionInfoLens: ObservableObject {
         pruebaAbierta = true
     }
 
+    func terminarCalibracion(guardar: Bool) {
+        guard let solicitud = solicitudCalibracion else { return }
+        var medicion: Any = NSNull()
+        if guardar {
+            guard let medida = controlador?.medicionSubancla, let datos = try? JSONEncoder().encode(medida),
+                  let objeto = try? JSONSerialization.jsonObject(with: datos) else { return }
+            medicion = objeto
+        }
+        cerrar()
+        web?.callAsyncJavaScript(
+            "window.dispatchEvent(new CustomEvent('infolens:calibracion', {detail: {solicitud, medicion}}));",
+            arguments: ["solicitud": solicitud, "medicion": medicion], in: nil, in: .page, completionHandler: nil
+        )
+    }
+
     func recibir(_ mensaje: [String: Any]) {
         guard let accion = mensaje["accion"] as? String else { return }
         if accion == "prueba", let r = leerRecorrido(mensaje["recorrido"]) {
             abrirPrueba(r)
             return
         }
+        if accion == "calibrarSubancla" {
+            guard let solicitud = mensaje["solicitud"] as? String, UUID(uuidString: solicitud) != nil,
+                  let anclas = leerAnclas(mensaje["anclas"]), anclas.count == 2,
+                  let subancla = anclas.first(where: { $0.subancla != nil }) else { return }
+            cerrar()
+            solicitudCalibracion = solicitud
+            controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla)
+            pruebaAbierta = true
+            return
+        }
         guard let id = mensaje["sesion"] as? String, (1...80).contains(id.count) else { return }
         if accion == "iniciar" {
-            guard let objetos = mensaje["anclas"], JSONSerialization.isValidJSONObject(objetos),
-                  let datos = try? JSONSerialization.data(withJSONObject: objetos), datos.count < 350_000,
-                  let anclas = try? JSONDecoder().decode([AnclaAR].self, from: datos),
-                  (1...100).contains(anclas.count), anclas.allSatisfy(\.valida) else { return }
-            let principales = Set(anclas.filter { $0.subancla == nil }.map(\.id))
-            guard !principales.isEmpty, Set(anclas.map(\.id)).count == anclas.count,
-                  anclas.allSatisfy({ principales.contains($0.principalId) }) else { return }
+            guard let anclas = leerAnclas(mensaje["anclas"]) else { return }
             cerrar()
             sesion = id
             let ar = ControladorAR(anclas: anclas, soloLinea: mensaje["vista"] as? String == "linea")
@@ -82,6 +103,17 @@ final class AplicacionInfoLens: ObservableObject {
         case "cerrar": cerrar()
         default: break
         }
+    }
+
+    private func leerAnclas(_ objeto: Any?) -> [AnclaAR]? {
+        guard let objeto, JSONSerialization.isValidJSONObject(objeto),
+              let datos = try? JSONSerialization.data(withJSONObject: objeto), datos.count < 350_000,
+              let anclas = try? JSONDecoder().decode([AnclaAR].self, from: datos),
+              (1...100).contains(anclas.count), anclas.allSatisfy(\.valida) else { return nil }
+        let principales = Set(anclas.filter { $0.subancla == nil }.map(\.id))
+        guard !principales.isEmpty, Set(anclas.map(\.id)).count == anclas.count,
+              anclas.allSatisfy({ principales.contains($0.principalId) }) else { return nil }
+        return anclas
     }
 
     private func leerRecorrido(_ objeto: Any?) -> Recorrido? {

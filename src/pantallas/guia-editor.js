@@ -4,15 +4,15 @@
 // comprobaciones y confirmación. Solo se pueden elegir anclas y componentes de la máquina de la guía.
 import {
   obtenerGuia, guardarGuia, obtenerMaquina, listarAnclas, elementosDeMaquina, localizacionesDeAncla, guardarAncla, siguienteIdAncla,
-  pasoVacio, ESTADOS_GUIA, TIPOS_GUIA, obtenerAncla, guardarCaraAncla,
+  pasoVacio, ESTADOS_GUIA, TIPOS_GUIA, obtenerAncla, guardarCaraAncla, guardarMedicionSubancla,
 } from '../maquinas.js';
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
 import { puntosDeTramos, tramosDePuntos, describir, deG, deSimple, simplesDeTramos } from '../coordenadas.js';
 import { pintarListaTramos } from '../ui/tramos.js';
 import { leerAjustes } from '../ajustes.js';
-import { datosDelVisor, enviarARKit, tieneARKitIntegrado } from '../ar/visor-nativo.js';
-import { CARAS_MAQUINA, subanclasDe } from '../subanclas.js';
+import { datosDelVisor, enviarARKit, referenciasDelAncla, tieneARKitIntegrado } from '../ar/visor-nativo.js';
+import { CARAS_MAQUINA, giroSubanclaValido, subanclasDe } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
@@ -28,10 +28,20 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
   let g = null;                 // guía que se edita (copia)
   let anclas = [], elementos = [], locs = new Map();
   let escrituraCara = null;
+  let calibracionPendiente = null;
   const archivosNuevos = new Set(); // subidos en esta edición (se borran si no se guarda)
   let guardado = false;
   const urls = new Map();
   const abiertos = new Set();
+
+  function recibirMedicion(evento) {
+    const { solicitud, medicion } = evento.detail || {};
+    if (!calibracionPendiente || calibracionPendiente.solicitud !== solicitud) return;
+    const { resolver } = calibracionPendiente;
+    calibracionPendiente = null;
+    resolver(medicion);
+  }
+  window.addEventListener('infolens:calibracion', recibirMedicion);
 
   const urlDe = async (fid) => {
     if (urls.has(fid)) return urls.get(fid);
@@ -260,21 +270,42 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       cont.replaceChildren(aviso);
       return;
     }
-    async function colocar(id, boton) {
+    async function leerSubancla(id, boton) {
       await escrituraCara;
       const a = await obtenerAncla(principal.id);
-      if (!activo || !boton.isConnected || g.anclaId !== principal.id) return;
+      if (!activo || !boton.isConnected || g.anclaId !== principal.id || calibracionPendiente) return null;
       const s = a?.maquinaId === g.maquinaId && subanclasDe(a).find((item) => item.id === id);
       if (!s) throw new Error('La subancla ya no está disponible para esta guía.');
+      return { a, s };
+    }
+    async function colocar(id, boton) {
+      const actual = await leerSubancla(id, boton);
+      if (!actual) return;
+      const { a, s } = actual;
       const recorrido = datosDelVisor({
         anclaId: a.id, ladoCm: leerAjustes().qrCm || 10, puntos: [[0, 0, 0], s.pos],
         info: { nombre: s.nombre, referencia: CARAS_MAQUINA[s.cara], descripcion: describir(deG(s.pos)) },
         caraPrincipal: Object.hasOwn(CARAS_MAQUINA, a.cara) ? a.cara : undefined,
-        colocacion: { cara: s.cara, ladoCm: s.ladoCm }, flechas: false,
+        colocacion: { cara: s.cara, ladoCm: s.ladoCm, ...(giroSubanclaValido(s.giroQR) ? { giroQR: s.giroQR } : {}) }, flechas: false,
       });
       enviarARKit({ accion: 'prueba', recorrido });
     }
-    montarSubanclas(cont, principal, { colocar: tieneARKitIntegrado() ? colocar : undefined, mostrarCara: false });
+    async function calibrar(id, boton) {
+      const actual = await leerSubancla(id, boton);
+      if (!actual || calibracionPendiente) return false;
+      const { a, s } = actual;
+      const solicitud = crypto.randomUUID();
+      const referencias = referenciasDelAncla(a, leerAjustes().qrCm || 10, [s]);
+      const medicion = await new Promise((resolver, rechazar) => {
+        calibracionPendiente = { solicitud, resolver };
+        try { enviarARKit({ accion: 'calibrarSubancla', solicitud, anclas: referencias }); }
+        catch (e) { calibracionPendiente = null; rechazar(e); }
+      });
+      if (!medicion || !activo || g.anclaId !== a.id || !boton.isConnected) return false;
+      await guardarMedicionSubancla(a.id, a.maquinaId, id, s.ladoCm, medicion);
+      return true;
+    }
+    montarSubanclas(cont, principal, { ...(tieneARKitIntegrado() ? { colocar, calibrar } : {}), mostrarCara: false });
   }
 
   function mensaje(err, ok) {
@@ -477,6 +508,9 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
 
   return () => {
     activo = false;
+    window.removeEventListener('infolens:calibracion', recibirMedicion);
+    calibracionPendiente?.resolver(null);
+    calibracionPendiente = null;
     // Archivos subidos en esta edición que no llegaron a guardarse
     if (!guardado || archivosNuevos.size) borrarArchivos([...archivosNuevos]);
     urls.forEach((u) => u && URL.revokeObjectURL(u));

@@ -4,8 +4,7 @@ import { listarAnclas, obtenerGuia } from '../maquinas.js';
 import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearModoAncla } from '../ar/modo-navegacion.js';
-import { datosDelVisor, enviarARKit, modulosQR } from '../ar/visor-nativo.js';
-import { CARAS_MAQUINA, subanclasDe, textoQRSubancla } from '../subanclas.js';
+import { datosDelVisor, enviarARKit, referenciasDelAncla } from '../ar/visor-nativo.js';
 
 const DIRECCIONES_DESTINO = {
   izquierda: ['←', 'Mira a la izquierda'], derecha: ['→', 'Mira a la derecha'],
@@ -158,15 +157,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         return;
       }
       const referencias = (enGuia ? anclas.filter((a) => a.id === guia.anclaId) : anclas)
-        .flatMap((a) => [
-          { id: a.id, ladoCm, patron: modulosQR('INFOLENS:' + a.id),
-            ...(Object.hasOwn(CARAS_MAQUINA, a.cara) ? { cara: a.cara } : {}) },
-          ...subanclasDe(a).map((s) => {
-            const id = textoQRSubancla(s.id);
-            return { id, ladoCm: s.ladoCm, patron: modulosQR(id),
-              subancla: { anclaId: a.id, nombre: s.nombre, pos: s.pos, cara: s.cara } };
-          }),
-        ]);
+        .flatMap((a) => referenciasDelAncla(a, ladoCm));
       if (!referencias.length || referencias.length > 100) {
         estado.textContent = !referencias.length
           ? 'Esta máquina no tiene el QR de anclaje necesario.'

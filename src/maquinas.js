@@ -4,7 +4,7 @@
 // CONSULTAR (no solo en pantalla).
 import { db, normalizarId, borrarArchivos } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
-import { CARAS_MAQUINA, calibracionSubanclaValida, subanclasDe } from './subanclas.js';
+import { CARAS_MAQUINA, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
 
 export const ID_GENERAL = 'GENERAL';
 
@@ -209,10 +209,27 @@ export async function guardarSubancla(anclaId, maquinaId, datos) {
       if (ladoCm !== original.ladoCm) throw new Error('Vuelve a seleccionar el QR. Se actualizó su tamaño guardado.');
     }
     const subancla = { id: id || reutilizarId || 'S-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12), nombre, pos, cara, ladoCm };
+    const anterior = subanclas[indice];
+    if (anterior && giroSubanclaValido(anterior.giroQR) && anterior.cara === cara && anterior.ladoCm === ladoCm &&
+        anterior.pos.every((n, i) => n === pos[i])) subancla.giroQR = anterior.giroQR;
     if (indice < 0) subanclas.push(subancla);
     else subanclas[indice] = subancla;
     await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
     return subancla;
+  });
+}
+
+export async function guardarMedicionSubancla(anclaId, maquinaId, id, ladoCm, { pos, giroQR }) {
+  return db.transaction('rw', db.anclas, async () => {
+    const ancla = await obtenerAncla(anclaId);
+    if (!ancla || ancla.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
+    const subanclas = subanclasDe(ancla);
+    const indice = subanclas.findIndex((s) => s.id === id && s.ladoCm === ladoCm);
+    if (indice < 0) throw new Error('El QR cambió durante la medición. Vuelve a medirlo.');
+    const medida = { ...subanclas[indice], pos, giroQR };
+    if (!calibracionSubanclaValida(medida) || !giroSubanclaValido(giroQR)) throw new Error('La medición no es válida.');
+    subanclas[indice] = medida;
+    await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
   });
 }
 

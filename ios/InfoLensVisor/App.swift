@@ -18,8 +18,12 @@ struct InfoLensApp: App {
                     .opacity(aplicacion.pruebaAbierta ? 0 : 1)
                     .allowsHitTesting(!aplicacion.pruebaAbierta)
                 if aplicacion.pruebaAbierta, let controlador = aplicacion.controlador {
-                    NombreFlotantePrueba(controlador: controlador).ignoresSafeArea().allowsHitTesting(false)
-                    PanelPrueba(controlador: controlador, cerrar: aplicacion.cerrar)
+                    if controlador.subanclaParaCalibrar != nil {
+                        PanelCalibracion(controlador: controlador, terminar: aplicacion.terminarCalibracion)
+                    } else {
+                        NombreFlotantePrueba(controlador: controlador).ignoresSafeArea().allowsHitTesting(false)
+                        PanelPrueba(controlador: controlador, cerrar: aplicacion.cerrar)
+                    }
                 }
             }
             .onOpenURL { url in
@@ -35,6 +39,39 @@ struct InfoLensApp: App {
                 Text(aplicacion.error ?? "")
             }
         }
+    }
+}
+
+private struct PanelCalibracion: View {
+    @ObservedObject var controlador: ControladorAR
+    let terminar: (Bool) -> Void
+
+    var body: some View {
+        VStack {
+            Text(controlador.estado)
+                .font(.subheadline.weight(.semibold))
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Calibrar \(controlador.subanclaParaCalibrar?.subancla?.nombre ?? "subancla")").font(.headline)
+                if let medida = controlador.medicionSubancla {
+                    let distancia = Double(medida.pos.reduce(0) { $0 + $1 * $1 }).squareRoot()
+                    Text("Distancia entre los centros: \(distancia.formatted(.number.precision(.fractionLength(2)))) m.")
+                    Button("Guardar medición") { terminar(true) }.buttonStyle(.borderedProminent)
+                } else {
+                    Text("Enfoca el QR principal y rodea la máquina despacio hasta enfocar esta subancla. Mantén la cámara abierta durante el recorrido.")
+                }
+                HStack {
+                    Button("Repetir") { controlador.buscarQR() }.buttonStyle(.bordered)
+                    Spacer()
+                    Button("Cancelar", role: .cancel) { terminar(false) }.buttonStyle(.bordered)
+                }
+            }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .padding(12)
     }
 }
 

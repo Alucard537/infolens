@@ -2,6 +2,7 @@
 // Le pasa el recorrido dentro de la dirección: infolens://ruta?d={p, i, a, l, v, q}
 //   q = los módulos del QR del ancla tal como se imprime ("N:hex"), para que ARKit reconozca EXACTAMENTE ese QR.
 import QRCode from 'qrcode';
+import { CARAS_MAQUINA, giroSubanclaValido, subanclasDe, textoQRSubancla } from '../subanclas.js';
 
 export function tieneARKitIntegrado() {
   return typeof window.webkit?.messageHandlers?.infolens?.postMessage === 'function';
@@ -28,6 +29,20 @@ export function modulosQR(texto) {
   }
   if (k) hex += (acc << (4 - k)).toString(16);
   return `${n}:${hex}`;
+}
+
+export function referenciasDelAncla(ancla, ladoCm, subanclas = subanclasDe(ancla)) {
+  return [
+    { id: ancla.id, ladoCm, patron: modulosQR('INFOLENS:' + ancla.id),
+      ...(Object.hasOwn(CARAS_MAQUINA, ancla.cara) ? { cara: ancla.cara } : {}) },
+    ...subanclas.map((s) => {
+      const id = textoQRSubancla(s.id);
+      return { id, ladoCm: s.ladoCm, patron: modulosQR(id), subancla: {
+        anclaId: ancla.id, nombre: s.nombre, pos: s.pos, cara: s.cara,
+        ...(giroSubanclaValido(s.giroQR) ? { giroQR: s.giroQR } : {}),
+      } };
+    }),
+  ];
 }
 
 /** puntos: [[x,y,z]…] en metros desde el QR (el primero [0,0,0]). */

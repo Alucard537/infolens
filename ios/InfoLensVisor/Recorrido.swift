@@ -29,9 +29,10 @@ private struct DatosRecorrido: Decodable {
 struct ColocacionSubancla: Decodable {
     let cara: SubanclaAR.Cara
     let ladoCm: Double
+    var giroQR: Double? = nil
 
     func seVe(desde camara: SIMD3<Float>, punto: SIMD3<Float>, respectoA principal: SubanclaAR.Cara? = nil) -> Bool {
-        simd_dot(camara - punto, cara.normal(respectoA: principal)) > 0.04
+        simd_dot(camara - punto, cara.normal(respectoA: principal, giroQR: giroQR)) > 0.04
     }
 }
 
@@ -73,7 +74,8 @@ struct SubanclaAR: Decodable {
             }
         }
 
-        func normal(respectoA principal: Cara?) -> SIMD3<Float> {
+        func normal(respectoA principal: Cara?, giroQR: Double? = nil) -> SIMD3<Float> {
+            if let giroQR { return [Float(sin(giroQR)), 0, Float(cos(giroQR))] }
             // Las caras se nombran mirando la máquina desde el frontal. Las medidas de la
             // guía ya están en los ejes del QR principal: solo hay que cambiar de base la normal.
             let exterior = (principal ?? .frontal).normal
@@ -81,9 +83,9 @@ struct SubanclaAR: Decodable {
             return [simd_dot(normal, derecha), normal.y, simd_dot(normal, exterior)]
         }
 
-        func ejesMarca(respectoA principal: Cara?) -> simd_float3x3 {
+        func ejesMarca(respectoA principal: Cara?, giroQR: Double? = nil) -> simd_float3x3 {
             // Ejes de la marca en el recorrido: derecha, normal exterior, abajo.
-            let exterior = normal(respectoA: principal)
+            let exterior = normal(respectoA: principal, giroQR: giroQR)
             let abajo = SIMD3<Float>(0, -1, 0)
             return simd_float3x3(columns: (simd_cross(exterior, abajo), exterior, abajo))
         }
@@ -93,18 +95,43 @@ struct SubanclaAR: Decodable {
     let nombre: String
     let pos: [Float]
     let cara: Cara
+    var giroQR: Double? = nil
 
     var valida: Bool {
         !anclaId.isEmpty && anclaId.count <= 120 && !nombre.isEmpty && nombre.count <= 80 &&
-            pos.count == 3 && pos.allSatisfy { $0.isFinite && abs($0) < 1000 } && pos.contains { $0 != 0 }
+            pos.count == 3 && pos.allSatisfy { $0.isFinite && abs($0) < 1000 } && pos.contains { $0 != 0 } &&
+            (giroQR.map { $0.isFinite && abs($0) <= .pi } ?? true)
     }
 
     /// Lleva los ejes del QR de ARKit (derecha, normal, abajo) a los ejes de la guía.
     func poseRecorrido(desde poseQR: PoseQR, respectoA principal: Cara? = nil) -> PoseQR {
+        let centro = SIMD4<Float>(pos[0], pos[1], pos[2], 1)
+        if let giroQR, let marcoQR = poseQR.marcoInicialRecorrido {
+            let giro = simd_quatf(angle: Float(giroQR), axis: SIMD3<Float>(0, 1, 0))
+            var desdeMarca = simd_float4x4(giro)
+            desdeMarca.columns.3 = centro
+            return PoseQR(marcoQR * simd_inverse(desdeMarca))
+        }
         let ejes = cara.ejesMarca(respectoA: principal).columns
         let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0),
-            SIMD4<Float>(ejes.2, 0), SIMD4<Float>(pos[0], pos[1], pos[2], 1)))
+            SIMD4<Float>(ejes.2, 0), centro))
         return PoseQR(poseQR.matriz * simd_inverse(desdeMarca))
+    }
+}
+
+struct MedicionSubancla: Encodable {
+    let pos: [Float]
+    let giroQR: Double
+
+    init?(principal: simd_float4x4, subancla: PoseQR) {
+        guard let marca = subancla.marcoInicialRecorrido else { return nil }
+        let relativa = simd_inverse(principal) * marca
+        let punto = relativa.columns.3
+        pos = [punto.x, punto.y, punto.z]
+        guard pos.allSatisfy({ $0.isFinite && abs($0) < 1000 }), pos.contains(where: { $0 != 0 }) else { return nil }
+        let normal = relativa.columns.2
+        giroQR = atan2(Double(normal.x), Double(normal.z))
+        guard giroQR.isFinite else { return nil }
     }
 }
 
@@ -149,7 +176,8 @@ struct Recorrido {
         let pts = r.p.compactMap(punto)
         guard ancla.valida, pts.count == r.p.count else { return nil }
         if let colocacion = r.colocacion {
-            guard pts.count == 2, pts[0] == .zero, pts[1] != .zero, (2...16).contains(colocacion.ladoCm) else { return nil }
+            guard pts.count == 2, pts[0] == .zero, pts[1] != .zero, (2...16).contains(colocacion.ladoCm),
+                  colocacion.giroQR.map({ $0.isFinite && abs($0) <= .pi }) ?? true else { return nil }
         }
         return Recorrido(
             puntos: pts,

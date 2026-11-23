@@ -41,6 +41,23 @@ struct PruebaCaraPrincipal {
         let ruta = Recorrido.desdeDatos(datos)
         precondition(ruta?.ancla.cara == .izquierda && ruta?.colocacion?.cara == .frontal)
         precondition(SubanclaAR.Cara.derecha.normal(respectoA: referencias[1].cara) == [1, 0, 0])
+
+        let rumbo: Float = -1.26
+        let centro: SIMD3<Float> = [1.45, -0.3, -1.9]
+        let exterior: SIMD3<Float> = [sin(rumbo), 0, cos(rumbo)]
+        let imagen = simd_float4x4(columns: (SIMD4<Float>(simd_cross(exterior, abajo), 0),
+            SIMD4<Float>(exterior, 0), SIMD4<Float>(abajo, 0), SIMD4<Float>(centro, 1)))
+        guard let medicion = MedicionSubancla(principal: marcoPrincipal, subancla: PoseQR(marcoPrincipal * imagen)) else {
+            preconditionFailure("No se pudo medir la cara real de la subancla")
+        }
+        precondition(abs(medicion.giroQR - Double(rumbo)) < 0.001)
+        precondition(medicion.pos.enumerated().allSatisfy { abs($0.element - centro[$0.offset]) < 0.001 })
+        let calibrada = SubanclaAR(anclaId: "PRINCIPAL", nombre: "TRASERA", pos: medicion.pos, cara: .frontal,
+                                  giroQR: medicion.giroQR)
+        var otraSesion = simd_float4x4(simd_quatf(angle: -.pi / 6, axis: SIMD3<Float>(0, 1, 0)))
+        otraSesion.columns.3 = [-4, -0.2, 5, 1]
+        let recuperada = calibrada.poseRecorrido(desde: PoseQR(otraSesion * imagen), respectoA: .izquierda)
+        precondition(recuperada.cercana(a: PoseQR(otraSesion), metros: 0.001, grados: 0.5))
         print("Cara del principal y recuperación de las subanclas verificadas")
     }
 }

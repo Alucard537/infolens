@@ -1,7 +1,7 @@
 import { leerAjustes } from '../ajustes.js';
 import { deG, describir, deSimple, puntosDeTramos, simplesDeTramos } from '../coordenadas.js';
 import { borrarSubancla, guardarSubancla, listarSubanclasReutilizables, obtenerAncla } from '../maquinas.js';
-import { CARAS_MAQUINA, subanclasDe, textoQRSubancla } from '../subanclas.js';
+import { CARAS_MAQUINA, giroSubanclaValido, subanclasDe, textoQRSubancla } from '../subanclas.js';
 import { guardarOCompartir } from '../ui/descargar.js';
 import { pintarListaTramos } from '../ui/tramos.js';
 
@@ -18,7 +18,7 @@ function posicionPorTramos(lista) {
   return puntosDeTramos(medidas).at(-1);
 }
 
-export function montarSubanclas(cont, ancla, { colocar, mostrarCara = true } = {}) {
+export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = true } = {}) {
   cont.innerHTML = `
     ${mostrarCara ? '<p class="nota cara-principal"></p>' : ''}
     <p class="nota">Mide desde el centro del QR principal hasta el centro de la nueva marca. Pégala en una cara vertical y plana, con «ARRIBA» hacia el techo.</p>
@@ -55,21 +55,26 @@ export function montarSubanclas(cont, ancla, { colocar, mostrarCara = true } = {
       li.innerHTML = `<span class="fila-textos"><strong class="fila-nombre"></strong><span class="fila-ref"></span></span>
         <span class="acciones-fila">
           ${colocar ? '<button class="boton-mini" type="button" data-s="colocar">Marcar punto con la cámara</button>' : ''}
+          ${calibrar ? '<button class="boton-mini" type="button" data-s="calibrar">Calibrar con la cámara</button>' : ''}
           <button class="boton-mini" data-s="qr">🖨️ QR</button>
           <button class="boton-mini" data-s="editar">Editar</button>
           <button class="boton-mini" data-s="borrar">Quitar</button>
         </span>`;
       li.querySelector('.fila-nombre').textContent = s.nombre;
-      li.querySelector('.fila-ref').textContent = `${CARAS_MAQUINA[s.cara]} · ${describir(deG(s.pos))} · QR de ${s.ladoCm} cm`;
+      li.querySelector('.fila-ref').textContent = `${CARAS_MAQUINA[s.cara]} · ${describir(deG(s.pos))} · QR de ${s.ladoCm} cm${giroSubanclaValido(s.giroQR) ? ' · Calibrada con cámara' : ''}`;
       li.querySelector('[data-s="editar"]').onclick = () => { reutilizacion.hidden = true; editar(s); };
-      const botonColocar = li.querySelector('[data-s="colocar"]');
-      if (botonColocar) botonColocar.onclick = async () => {
-        botonColocar.disabled = true;
-        avisar('');
-        try { await colocar(s.id, botonColocar); }
-        catch (e) { avisar(e.message); }
-        finally { botonColocar.disabled = false; }
-      };
+      for (const [accion, ejecutar] of [['colocar', colocar], ['calibrar', calibrar]]) {
+        const boton = li.querySelector(`[data-s="${accion}"]`);
+        if (!boton) continue;
+        boton.onclick = async () => {
+          boton.disabled = true;
+          avisar('');
+          try {
+            if (await ejecutar(s.id, boton)) { formulario.hidden = true; await pintar(); }
+          } catch (e) { avisar(e.message); }
+          finally { boton.disabled = false; }
+        };
+      }
       li.querySelector('[data-s="qr"]').onclick = async () => {
         try {
           const { generarPdfQR } = await import('../qr-pdf.js');
