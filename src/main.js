@@ -15,7 +15,7 @@ import { pantallaHuella } from './pantallas/huella.js';
 import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 import { esAdmin } from './permisos.js';
 import { pantallaAdmin } from './pantallas/admin.js';
-import { hayQuickLook, crearEnlaceAR } from './ar/boton-ar.js';
+import { botonVisor, tieneVisorNativo } from './ar/visor-nativo.js';
 import { maquinaActiva, maquinaActivaId, establecerMaquinaActiva, migrarDatosAntiguos, elementosDeMaquina } from './maquinas.js';
 import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina, pantallaAnclas } from './pantallas/maquinas.js';
 import { pantallaLocalizacion } from './pantallas/localizacion.js';
@@ -92,19 +92,8 @@ async function pantallaInicio() {
   }));
   if (maquina) elementosDeMaquina(maquina.id).then((l) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${l.length})`; });
   else contarElementos().then(() => {});
-  // Prueba del AR de Apple con LiDAR (modelo de ejemplo): sirve para saber si funciona en este iPhone
   const prueba = app.querySelector('.prueba-ar');
-  if (hayQuickLook()) {
-    prueba.appendChild(crearEnlaceAR({ url: import.meta.env.BASE_URL + 'ejemplo/prueba-ar.usdz', texto: '🧪 Probar AR con LiDAR (ejemplo)' }).enlace);
-    prueba.appendChild(pruebaFlechas());
-  } else {
-    const p = document.createElement('p');
-    p.className = 'nota';
-    p.textContent = /iPhone|iPad/.test(navigator.userAgent) && (navigator.standalone || matchMedia('(display-mode: standalone)').matches)
-      ? '🧊 El AR con LiDAR no está disponible desde la app instalada: ábrela en Safari para usarlo.'
-      : '🧊 El AR con LiDAR solo está disponible en iPhone o iPad.';
-    prueba.appendChild(p);
-  }
+  if (tieneVisorNativo()) prueba.appendChild(pruebaFlechas());
   const diag = document.createElement('button');
   diag.className = 'boton secundario';
   diag.textContent = '🔬 Diagnóstico del AR con LiDAR';
@@ -113,24 +102,22 @@ async function pantallaInicio() {
   cargarEscaner(); // ir cargando el escáner en segundo plano
 }
 
-// PRUEBA: dos objetos (rojo = salida, azul = llegada) unidos por flechas, en el AR de Apple con LiDAR.
-// 1) Archivo fijo (130 adelante + 150 derecha), igual que el ejemplo que funciona.
-// 2) El mismo, generado en el móvil con las medidas que se escriban.
 function pruebaFlechas() {
   const div = document.createElement('div');
   div.className = 'bloque-lidar-guia';
   div.innerHTML = `
-    <p class="nota lidar-recomendado">🧪 Prueba: dos objetos unidos por flechas</p>
-    <p class="nota">🟥 Rojo = salida (ponlo donde está el QR del ancla). 🟦 Azul = llegada. En el AR de Apple
-      se mueven JUNTOS: coloca el rojo en la salida y gira con dos dedos hasta que las flechas apunten hacia ADELANTE.</p>
+    <p class="nota lidar-recomendado">🧪 Prueba del recorrido con QR</p>
+    <a class="boton secundario enlace-boton" href="${import.meta.env.BASE_URL}ejemplo/qr-prueba.html" target="_blank" rel="noopener">Ver e imprimir el QR de prueba</a>
+    <p class="nota">Apunta al QR TEST-1 de 10 cm. Gira el papel 90° mientras lo enfocas para comprobar que las flechas giran con él.</p>
     <div class="fijo"></div>
     <div class="titulo-archivo">Con tus medidas (cm)</div>
     <div class="tramos-prueba"></div>
-    <div class="botones-archivo"><button class="boton secundario" data-p="generar">⚙️ Generar con estas medidas</button></div>
+    <div class="botones-archivo"><button class="boton secundario" data-p="generar">Preparar con estas medidas</button></div>
     <div class="generado"></div>`;
-  div.querySelector('.fijo').appendChild(crearEnlaceAR({
-    url: import.meta.env.BASE_URL + 'ejemplo/prueba-flechas.usdz', texto: '🧪 Fijo: 130 adelante → 150 derecha',
-  }).enlace);
+  const prueba = { anclaId: 'TEST-1', ladoCm: 10, info: { nombre: 'Destino de prueba' } };
+  div.querySelector('.fijo').appendChild(botonVisor({
+    ...prueba, puntos: [[0, 0, 0], [0, 0, -1.3], [1.5, 0, -1.3]],
+  }, '📱 Recorrido de prueba en el visor nativo'));
   const filas = document.createElement('ol');
   div.querySelector('.tramos-prueba').appendChild(filas);
   const lista = [{ dir: 'adelante', cm: '130' }, { dir: 'derecha', cm: '150' }];
@@ -144,20 +131,14 @@ function pruebaFlechas() {
   div.querySelector('[data-p="generar"]').addEventListener('click', async () => {
     salida.innerHTML = '<p class="nota">⏳ Generando…</p>';
     try {
-      const [{ usdzPruebaFlechas }, { direccionWeb }, { deSimple }] = await Promise.all([
-        import('./ar/prueba-flechas.js'), import('./ar/quicklook.js'), import('./coordenadas.js'),
-      ]);
+      const { deSimple, puntosDeTramos } = await import('./coordenadas.js');
       const tramos = lista.filter((t) => String(t.cm ?? '').trim() !== '').map(deSimple);
       if (!tramos.length) throw new Error('Escribe al menos un tramo.');
       if (tramos.some((t) => Object.values(t).some((v) => !Number.isFinite(v)))) throw new Error('Algún valor no es un número.');
-      const bytes = await usdzPruebaFlechas(tramos);
-      const url = await direccionWeb('prueba-flechas', new Blob([bytes], { type: 'model/vnd.usdz+zip' }));
       salida.innerHTML = '';
-      salida.appendChild(crearEnlaceAR({ url, texto: '🧪 Abrir mis medidas en AR con LiDAR' }).enlace);
-      const n = document.createElement('p');
-      n.className = 'nota';
-      n.textContent = '✅ Listo. Toca el botón verde.';
-      salida.appendChild(n);
+      salida.appendChild(botonVisor({
+        ...prueba, puntos: [[0, 0, 0], ...puntosDeTramos(tramos)],
+      }, '📱 Abrir mis medidas en el visor nativo'));
     } catch (e) {
       salida.innerHTML = '';
       const p = document.createElement('p');

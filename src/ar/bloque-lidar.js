@@ -17,7 +17,7 @@ export function bloquePasoLidar({ puntos, info, anclaId, ladoCm, vista }) {
     <label class="lidar-vista">Qué mostrar
       <select><option value="flechas">Ancla y flechas</option><option value="linea">Ancla y línea</option></select></label>
     <div class="lidar-nativo"></div>
-    <p class="nota">Apunta al QR del ancla hasta que se fije el recorrido. Las flechas siguen la orientación del QR.</p>`;
+    <p class="nota">Apunta al QR del ancla. El recorrido seguirá su posición y su orientación.</p>`;
   const selector = div.querySelector('select');
   selector.value = (vista ?? leerAjustes().lidarVista) === 'linea' ? 'linea' : 'flechas';
   const datosVisor = () => ({ puntos, info, anclaId, ladoCm, vista: selector.value });

@@ -1,9 +1,4 @@
-// DIAGNÓSTICO del AR con LiDAR: el MISMO recorrido (rojo → 130 adelante → 150 derecha → azul) abierto de
-// 4 formas distintas, para saber cuál funciona en el iPhone y por qué falla la guía.
-//  A) archivo del servidor (como la prueba que funciona)
-//  B) el mismo archivo del servidor, copiado al almacén de la app (como la guía)
-//  C) generado en el móvil y guardado en el almacén de la app (como la guía)
-//  D) generado en el móvil, como archivo temporal (blob)
+// Prueba del QR en el visor nativo y diagnóstico de carga de modelos con Quick Look.
 import { crearEnlaceAR, hayQuickLook } from '../ar/boton-ar.js';
 
 export function pantallaDiagnosticoAR(app, { volver }) {
@@ -15,10 +10,13 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     <div class="pagina">
       <button class="volver">‹ Inicio</button>
       <h1>🔬 Diagnóstico del AR con LiDAR</h1>
-      <p class="nota">Prueba los 4 botones, uno a uno. Todos abren lo mismo (rojo → 130 adelante → 150 derecha → azul).
-        Apunta qué letras se abren con la cámara y el AR, y cuáles no hacen nada o salen sin cámara.</p>
       <div class="tarjeta-info diag-info"></div>
-      <div class="diag"></div>
+      <div class="diag-nativo"></div>
+      <details>
+        <summary>Pruebas técnicas de Quick Look</summary>
+        <p class="nota">Las pruebas A–D comparan distintas formas de abrir un modelo de ejemplo con el visor de Apple.</p>
+        <div class="diag"></div>
+      </details>
     </div>`;
   app.querySelector('.volver').addEventListener('click', volver);
   app.querySelector('.diag-info').innerHTML = `
@@ -40,9 +38,9 @@ export function pantallaDiagnosticoAR(app, { volver }) {
       error(e) { d.querySelector('.estado').textContent = '❌ ' + (e && e.message ? e.message : e); },
     };
   };
-  const A = fila('A', 'Archivo del servidor (como la prueba que funciona)');
-  const B = fila('B', 'El mismo archivo, guardado en el almacén de la app (como la guía)');
-  const C = fila('C', 'Generado en el móvil y guardado en el almacén de la app (como la guía)');
+  const A = fila('A', 'Archivo del servidor');
+  const B = fila('B', 'Archivo del servidor copiado al almacén de la app');
+  const C = fila('C', 'Generado en el móvil y guardado en el almacén de la app');
   const D = fila('D', 'Generado en el móvil, archivo temporal');
   const urlFija = new URL(base + 'ejemplo/prueba-flechas.usdz', location.href).href;
   A.listo(urlFija, 'Del servidor.');
@@ -127,30 +125,35 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     inAncho.addEventListener('change', preparar);
     preparar();
   })();
-  // G / H / I: anclaje al QR declarado en la RAÍZ del archivo (como el ejemplo de Apple), con el QR impreso normal
   const raiz = document.createElement('div');
   raiz.className = 'bloque-lidar-guia';
   raiz.innerHTML = `
-    <p class="nota lidar-recomendado">G / H / I) Engancharse al QR impreso (nueva forma)</p>
+    <h2>Prueba de anclaje al QR</h2>
     <label>QR del ancla <select data-r="ancla"></select></label>
     <label>📏 Lo que mide la zona negra del QR impreso (cm) <input inputmode="decimal" data-r="lado"></label>
-    <p class="nota">Pon el QR del ancla en la mesa. En el bueno, el ⚓ NO sale hasta que la cámara ve el QR, y si mueves o
-      giras el papel, el ⚓ y las flechas se mueven y giran con él.</p>
+    <a class="boton secundario enlace-boton" href="${base}ejemplo/qr-prueba.html" target="_blank" rel="noopener">Ver e imprimir el QR TEST-1</a>
+    <p class="nota">Enfoca el QR hasta que aparezca el recorrido. Gira el papel 90° y comprueba que las flechas giran con él.</p>
     <div class="nativo"></div>
-    <p class="nota">📱 El visor nativo es la app de iPhone «InfoLens Visor» (se instala aparte con Sideloadly).</p>
+    <p class="nota">Esta prueba se abre en la app InfoLens Visor del iPhone.</p>`;
+  app.querySelector('.diag-nativo').appendChild(raiz);
+  const variantesRaiz = document.createElement('div');
+  variantesRaiz.className = 'bloque-lidar-guia';
+  variantesRaiz.innerHTML = `
+    <p class="nota lidar-recomendado">G / H / I) Variantes de archivos USDZ para el QR seleccionado</p>
     <div class="g"></div><p class="nota g-estado"></p>
     <div class="h"></div><p class="nota h-estado"></p>
     <div class="i"></div><p class="nota i-estado"></p>`;
-  cont.appendChild(raiz);
+  cont.appendChild(variantesRaiz);
   (async () => {
     const [{ mapaAnclas, maquinaActivaId }, { leerAjustes }] = await Promise.all([import('../maquinas.js'), import('../ajustes.js')]);
     const maq = maquinaActivaId();
     const anclas = [...(await mapaAnclas()).values()].filter((a) => !maq || a.maquinaId === maq);
-    if (!anclas.length) anclas.push({ id: 'PRUEBA', nombre: 'Prueba' });
+    if (!activo) return;
+    if (!anclas.some((a) => a.id === 'TEST-1')) anclas.push({ id: 'TEST-1', nombre: 'QR de prueba' });
     const sel = raiz.querySelector('[data-r="ancla"]');
     for (const a of anclas) { const o = document.createElement('option'); o.value = a.id; o.textContent = `${a.nombre} (${a.id})`; sel.appendChild(o); }
     const inLado = raiz.querySelector('[data-r="lado"]');
-    inLado.value = String(leerAjustes().qrCm || 10).replace('.', ',');
+    const ladoConfigurado = leerAjustes().qrCm || 10;
     const preparar = async () => {
       const lado = parseFloat(String(inLado.value).replace(',', '.')) || 10;
       const { botonVisor } = await import('../ar/visor-nativo.js');
@@ -167,7 +170,7 @@ export function pantallaDiagnosticoAR(app, { volver }) {
         ['i', 'I', 'marcador de colores (si lo imprimiste) · cm', { unidad: 'cm', marcador: true }],
       ];
       for (const [clase, letra, texto, op] of variantes) {
-        const caja = raiz.querySelector('.' + clase), est = raiz.querySelector(`.${clase}-estado`);
+        const caja = variantesRaiz.querySelector('.' + clase), est = variantesRaiz.querySelector(`.${clase}-estado`);
         caja.innerHTML = ''; est.textContent = '⏳ Preparando…';
         try {
           const textoQR = 'INFOLENS:' + sel.value;
@@ -181,9 +184,14 @@ export function pantallaDiagnosticoAR(app, { volver }) {
         } catch (e) { est.textContent = '❌ ' + (e && e.message ? e.message : e); }
       }
     };
-    sel.addEventListener('change', preparar);
+    const cambiarAncla = () => {
+      inLado.value = String(sel.value === 'TEST-1' ? 10 : ladoConfigurado).replace('.', ',');
+      preparar();
+    };
+    sel.addEventListener('change', cambiarAncla);
     inLado.addEventListener('change', preparar);
-    preparar();
+    sel.value = 'TEST-1';
+    cambiarAncla();
   })();
   return () => { activo = false; };
 }
