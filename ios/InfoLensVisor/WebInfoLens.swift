@@ -67,7 +67,9 @@ final class AplicacionInfoLens: ObservableObject {
         guard id == sesion else { return }
         switch accion {
         case "recorrido":
-            if let recorrido = leerRecorrido(mensaje["recorrido"]) { controlador?.cambiarRecorrido(recorrido) }
+            if let recorrido = leerRecorrido(mensaje["recorrido"]) {
+                controlador?.cambiarRecorrido(recorrido, destinoId: mensaje["destinoId"] as? Int)
+            }
         case "ocultar": controlador?.cambiarRecorrido(nil)
         case "vista": controlador?.soloLinea = mensaje["vista"] as? String == "linea"
         case "buscar": controlador?.buscarQR()
