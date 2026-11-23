@@ -18,9 +18,9 @@ function posicionPorTramos(lista) {
   return puntosDeTramos(medidas).at(-1);
 }
 
-export function montarSubanclas(cont, ancla, { colocar } = {}) {
+export function montarSubanclas(cont, ancla, { colocar, mostrarCara = true } = {}) {
   cont.innerHTML = `
-    <p class="nota cara-principal"></p>
+    ${mostrarCara ? '<p class="nota cara-principal"></p>' : ''}
     <p class="nota">Mide desde el centro del QR principal hasta el centro de la nueva marca. Pégala en una cara vertical y plana, con «ARRIBA» hacia el techo.</p>
     <div class="botones-archivo">
       <button class="boton-mini" type="button" data-s="nueva">Crear QR nuevo</button>
@@ -42,9 +42,11 @@ export function montarSubanclas(cont, ancla, { colocar } = {}) {
     const actual = await obtenerAncla(ancla.id);
     lista.replaceChildren();
     if (!actual || actual.maquinaId !== ancla.maquinaId) { avisar('El ancla ya no está disponible.'); return; }
-    caraPrincipal.textContent = Object.hasOwn(CARAS_MAQUINA, actual.cara)
-      ? `QR principal en ${CARAS_MAQUINA[actual.cara].toLowerCase()}.`
-      : 'Indica la cara del QR principal al editar el ancla. Por defecto se toma como frontal.';
+    if (caraPrincipal) {
+      caraPrincipal.textContent = Object.hasOwn(CARAS_MAQUINA, actual.cara)
+        ? `QR principal en ${CARAS_MAQUINA[actual.cara].toLowerCase()}.`
+        : 'Indica la cara del QR principal al editar el ancla. Por defecto se toma como frontal.';
+    }
     const subanclas = subanclasDe(actual);
     if (!subanclas.length) lista.innerHTML = '<li class="nota">Esta ancla todavía no tiene subanclas.</li>';
     for (const s of subanclas) {

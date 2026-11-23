@@ -133,10 +133,14 @@ export async function siguienteIdAncla(maquinaId) {
   return base + n;
 }
 
+function validarCaraAncla(cara) {
+  if (cara && !Object.hasOwn(CARAS_MAQUINA, cara)) throw new Error('Elige una cara válida para el QR principal.');
+}
+
 export async function guardarAncla(datos, esNueva) {
   const id = normalizarId(datos.id);
   if (!id) throw new Error('Escribe el identificador del ancla (es lo que lleva su QR).');
-  if (datos.cara && !Object.hasOwn(CARAS_MAQUINA, datos.cara)) throw new Error('Elige una cara válida para el QR principal.');
+  validarCaraAncla(datos.cara);
   if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('El ancla tiene que pertenecer a una máquina que exista.');
   return db.transaction('rw', db.anclas, db.elementos, async () => {
     const anterior = await db.anclas.get(id);
@@ -157,6 +161,15 @@ export async function guardarAncla(datos, esNueva) {
     };
     await db.anclas.put(a);
     return a;
+  });
+}
+
+export async function guardarCaraAncla(id, maquinaId, cara) {
+  validarCaraAncla(cara);
+  return db.transaction('rw', db.anclas, async () => {
+    const ancla = await obtenerAncla(id);
+    if (!ancla || ancla.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
+    await db.anclas.update(id, { cara: cara || null, modificado: Date.now() });
   });
 }
 
