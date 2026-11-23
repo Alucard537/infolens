@@ -26,19 +26,26 @@ try {
   const imagen = document.createElement('canvas');
   imagen.width = imagen.height = 520;
   const ctx = imagen.getContext('2d');
-  const cuadro = (fondo) => {
+  const cuadro = (fondo, luz = 1, escala = 1) => {
     ctx.fillStyle = fondo;
     ctx.fillRect(0, 0, 520, 520);
-    ctx.drawImage(dibujo, 110, 149, 300, 225);
+    ctx.save();
+    ctx.translate(260, 260);
+    ctx.scale(escala, escala);
+    ctx.filter = `brightness(${luz})`;
+    ctx.drawImage(dibujo, -150, -112.5, 300, 225);
+    ctx.restore();
   };
   cuadro('#29291e');
-  const registro = capturarImagen(embedder, segmentador, imagen, 520, 520);
+  const registro = capturarImagen(embedder, segmentador, imagen, 520, 520, true);
   assert(registro.v?.length > 0 && registro.v.every(Number.isFinite), 'La muestra no produjo huella: ' + registro.motivo);
   const guardada = anadirAHuella(null, 'TEST', [{v:registro.v, mini:await registro.mini}], 'fotos', RECORTE_OBJETO);
-  cuadro('#4f6673');
+  cuadro('#4f6673', 0.78, 0.87);
   const consulta = huellaDe(embedder, imagen, 520, 520, {segmentador, conRecuadro:true});
   const candidatos = comparar(consulta, [guardada]);
   assert(coincidenciaClara(candidatos) === 'TEST', 'No reconoció la pieza con el fondo cambiado: ' + JSON.stringify(candidatos));
+  const indistinguible = {...guardada, elementoId:'SEGUNDO'};
+  assert(coincidenciaClara(comparar(consulta, [guardada, indistinguible])) === null, 'Confirmó una pieza ambigua');
   terminar({ok:true, dimensiones:registro.v.length, parecido:candidatos[0].parecido, reintento:true});
 } catch (error) {
   terminar({ok:false, error:error?.stack || String(error), causa:error?.cause?.message || ''});

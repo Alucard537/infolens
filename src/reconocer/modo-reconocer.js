@@ -5,14 +5,14 @@
 //    un candidato), se "bloquea": deja de buscar y avisa al escáner para que ancle su modelo 3D.
 import { listarHuellas, mapaElementos, obtenerArchivo } from '../db.js';
 import { cargarReconocedor, huellaDe, ajustarGuia } from './huella.js';
-import { comparar, coincidenciaClara, tieneRecorteObjeto } from './vectores.js';
+import { comparar, coincidenciaClara, tieneRecorteObjeto, tieneRecuadro } from './vectores.js';
 import { cargarSegmentador } from './recorte-objeto.js';
 import { bloqueLidar } from '../ar/quicklook.js';
 import { maquinaActivaId } from '../maquinas.js';
 
 const CADA_MS = 500;
 const MINIMO = 0.45;      // por debajo: "no reconozco nada"
-const SEGUIDAS = 3;       // deben ser fotogramas distintos y consecutivos
+const SEGUIDAS = 3;       // el mismo candidato debe aparecer en tres fotogramas distintos
 const PESO_NUEVO = 0.5;   // suavizado: cuánto cuenta cada comparación nueva (menos = más estable)
 
 export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActivo, alBloquear, alDesbloquear, alFijar }) {
@@ -25,6 +25,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
   const fotos = new Map();     // elementoId -> blob: URL de la miniatura
   let ultimaLista = '';
   let racha = { id: null, n: 0 };
+  let perdidas = 0;
   let tiempoVideo = -1, ultimaMuestra = 0;
   let bloqueado = null;        // id del elemento reconocido
   let estadoFijar = () => {};  // para que el escáner avise si se ha fijado arrastrando
@@ -52,7 +53,7 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       }
       const modelo = await cargarReconocedor();
       if (!vigente()) return;
-      const conRecuadro = candidatas.some((h) => !tieneRecorteObjeto(h));
+      const conRecuadro = candidatas.some(tieneRecuadro);
       const segmentador = candidatas.some(tieneRecorteObjeto) ? await cargarSegmentador() : null;
       if (!vigente()) return;
       huellas = candidatas;
@@ -143,27 +144,38 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     alBloquear && alBloquear(id);
   }
 
+  function borrarCoincidencias() {
+    racha = { id: null, n: 0 };
+    perdidas = 0;
+    suavizado.clear();
+  }
+
   function desbloquear() {
     bloqueado = null;
-    racha = { id: null, n: 0 };
-    suavizado.clear();
+    borrarCoincidencias();
     tiempoVideo = -1;
     alDesbloquear && alDesbloquear();
     if (encendido) { guia.hidden = false; mensaje('Mete el elemento en el recuadro…'); paso(); }
   }
 
-  function pintar(lista) {
+  function pintar(lista, aviso) {
     const visibles = lista.filter((x) => x.parecido >= MINIMO).slice(0, 3);
     // Porcentajes redondeados de 5 en 5: así no cambian a cada momento
-    const clave = [racha.n, ...visibles.map((r) => r.elementoId + ':' + Math.round(r.parecido * 20) * 5)].join('|');
+    const clave = [racha.n, aviso, ...visibles.map((r) => r.elementoId + ':' + Math.round(r.parecido * 20) * 5)].join('|');
     if (clave === ultimaLista) return;
-    if (!visibles.length) { mensaje('No reconozco ningún elemento. Acércate y mételo en el recuadro.'); ultimaLista = clave; return; }
+    if (!visibles.length) { mensaje(aviso || 'Sin coincidencias claras. Prueba otro ángulo de la pieza.'); ultimaLista = clave; return; }
     ultimaLista = clave;
     const frag = document.createDocumentFragment();
     const t = document.createElement('div');
     t.className = 'rec-titulo';
-    t.textContent = racha.n > 0 ? `Comprobando… (${racha.n}/${SEGUIDAS})` : 'Parecido visual · toca la pieza si la identificas';
+    t.textContent = racha.n > 0 ? `Comprobando… (${racha.n}/${SEGUIDAS})` : 'Posibles coincidencias · toca la pieza si la identificas';
     frag.appendChild(t);
+    if (aviso) {
+      const nota = document.createElement('p');
+      nota.className = 'nota';
+      nota.textContent = aviso;
+      frag.appendChild(nota);
+    }
     visibles.forEach((r, i) => {
       const el = elementos.get(r.elementoId);
       const b = tarjeta(el, Math.round(r.parecido * 20) * 5, i === 0 && racha.n > 0);
@@ -176,23 +188,21 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
 
   function paso() {
     if (!encendido || bloqueado || !estaActivo()) return;
+    const ahora = performance.now();
     ajustarGuia(guia, video);
     if (video.readyState >= 2 && video.videoWidth && video.currentTime !== tiempoVideo) {
       try {
         tiempoVideo = video.currentTime;
-        const ahora = performance.now();
+        if (ahora - ultimaMuestra > CADA_MS * 4) borrarCoincidencias();
         const muestra = huellaDe(embedder, video, video.videoWidth, video.videoHeight, opcionesRecorte);
-        const { motivo } = muestra;
-        if (motivo || ahora - ultimaMuestra > CADA_MS * 3) {
-          racha = { id: null, n: 0 };
-          suavizado.clear();
-        }
-        ultimaMuestra = ahora;
-        if (motivo) {
-          mensaje(motivo + '. Centra la pieza y mantén el móvil quieto un momento.');
+        const { motivo, objeto, recuadro } = muestra;
+        if (!objeto && !recuadro) {
+          if (++perdidas > 1) borrarCoincidencias();
+          pintar([], motivo ? `${motivo}.` : 'No se ve la pieza con claridad.');
         } else {
           const res = comparar(muestra, huellas);
           const candidato = coincidenciaClara(res);
+          if (motivo && !objeto) suavizado.clear();
           for (const r of res) {
             const prev = suavizado.get(r.elementoId);
             r.parecido = prev === undefined ? r.parecido : prev * (1 - PESO_NUEVO) + r.parecido * PESO_NUEVO;
@@ -200,16 +210,23 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
           }
           res.sort((a, b) => b.parecido - a.parecido);
           const positivo = candidato && coincidenciaClara(res) === candidato;
-          racha = positivo ? { id: candidato, n: racha.id === candidato ? racha.n + 1 : 1 } : { id: null, n: 0 };
+          if (positivo) {
+            perdidas = 0;
+            racha = { id: candidato, n: racha.id === candidato ? racha.n + 1 : 1 };
+          } else if (!motivo || ++perdidas > 1) {
+            racha = { id: null, n: 0 };
+          }
           if (racha.n >= SEGUIDAS) { bloquear(racha.id); return; }
-          pintar(res);
+          pintar(res, motivo ? `${motivo}.` : '');
         }
       } catch (e) {
-        racha = { id: null, n: 0 };
+        borrarCoincidencias();
+        mensaje('No se pudo analizar esta imagen. Mantén la pieza en el recuadro.');
         console.warn('Reconocimiento:', e);
       }
+      ultimaMuestra = performance.now();
     }
-    temporizador = setTimeout(paso, CADA_MS);
+    temporizador = setTimeout(paso, Math.max(65, CADA_MS - (performance.now() - ahora)));
   }
 
   return {
@@ -221,9 +238,8 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
       clearTimeout(temporizador);
       const turno = ++turnoPreparacion;
       if (bloqueado) { bloqueado = null; alDesbloquear && alDesbloquear(); }
-      racha = { id: null, n: 0 };
+      borrarCoincidencias();
       if (encendido) {
-        suavizado.clear();
         tiempoVideo = -1;
         ajustarGuia(guia, video);
         preparar(turno);

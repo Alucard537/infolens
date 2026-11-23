@@ -1,7 +1,7 @@
 // Pantalla "Huella para reconocer sin QR".
 // - Cada grabación (cámara, vídeos o fotos) se AÑADE a la huella del elemento.
 // - "Ver y borrar imágenes" muestra todas las imágenes, agrupadas por grabación, para quitar las malas.
-import { obtenerElemento, modificarHuella, obtenerHuella } from '../db.js';
+import { obtenerArchivo, obtenerElemento, modificarHuella, obtenerHuella } from '../db.js';
 import {
   cargarReconocedor, capturarImagen, fotogramasDeVideo, ajustarGuia,
 } from '../reconocer/huella.js';
@@ -14,7 +14,20 @@ import { cargarSegmentador } from '../reconocer/recorte-objeto.js';
 const SEGUNDOS = 15;
 const INTERVALO_MS = 400;   // una imagen cada 0,4 s -> unas 37 imágenes por grabación
 const DE_VIDEO = 36;        // imágenes que se sacan de cada vídeo
-const ORIGEN = { 'cámara': '📷 Cámara', 'vídeo': '🎞️ Vídeo', fotos: '🖼️ Fotos', anterior: '📦 Anterior' };
+const ORIGEN = { 'cámara': '📷 Cámara', 'vídeo': '🎞️ Vídeo', fotos: '🖼️ Fotos', ficha: 'Foto de ficha', anterior: '📦 Anterior' };
+
+async function capturarFoto(archivo, capturar, vigente) {
+  const url = URL.createObjectURL(archivo);
+  const foto = new Image();
+  try {
+    foto.src = url;
+    try { await foto.decode(); } catch { return { motivo: 'No se pudo abrir una foto' }; }
+    if (vigente()) return capturar(foto, foto.naturalWidth, foto.naturalHeight, true);
+    return {};
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export function pantallaHuella(app, id, { volver }) {
   let activo = true;
@@ -23,6 +36,7 @@ export function pantallaHuella(app, id, { volver }) {
   let grabando = false;
   let parar = false;
   let elementoListo = false;
+  let fotoFichaId;
   let huella = null;     // huella guardada (normalizada)
   const cancelar = new AbortController();
   const urlsGaleria = [];
@@ -38,13 +52,14 @@ export function pantallaHuella(app, id, { volver }) {
       <div class="huella-panel">
         <div class="huella-titulo"></div>
         <div class="huella-resumen"></div>
-        <p class="nota huella-ayuda">Pon el punto central sobre la pieza y deja visibles sus bordes. Graba de frente y
-          desde los lados, moviéndote despacio. En fotos y vídeos, coloca la pieza en el centro para recortar el fondo.</p>
+        <p class="nota huella-ayuda">Centra la pieza y deja visibles sus bordes. Para comparar desde varios ángulos,
+          guarda tomas de frente y de lado con distinta luz.</p>
         <div class="barra"><div class="barra-relleno"></div></div>
         <div class="botones-archivo">
           <button class="boton" data-accion="grabar" disabled>⏺ Grabar</button>
           <label class="boton secundario">🎞️ Vídeos o fotos
             <input type="file" accept="video/*,image/*" multiple class="entrada-oculta" data-entrada="medios" disabled></label>
+          <button class="boton secundario" data-accion="foto-ficha" hidden>Usar foto de ficha</button>
         </div>
         <button class="boton secundario" data-accion="galeria" hidden>🖼️ Ver y borrar imágenes</button>
       </div>
@@ -68,6 +83,7 @@ export function pantallaHuella(app, id, { volver }) {
   const btnGrabar = $('[data-accion="grabar"]');
   const btnGal = $('[data-accion="galeria"]');
   const medios = $('[data-entrada="medios"]');
+  const btnFotoFicha = $('[data-accion="foto-ficha"]');
   const guia = $('.guia-recorte');
   const instruccionesIniciales = 'Permite el uso de la cámara o elige «Vídeos o fotos».';
   const controles = () => {
@@ -76,6 +92,7 @@ export function pantallaHuella(app, id, { volver }) {
     medios.disabled = !elementoListo || ocupada;
     medios.parentElement.classList.toggle('desactivado', medios.disabled);
     btnGal.disabled = ocupada;
+    btnFotoFicha.disabled = ocupada;
   };
   const recolocar = () => ajustarGuia(guia, video);
   video.addEventListener('loadedmetadata', recolocar);
@@ -98,6 +115,8 @@ export function pantallaHuella(app, id, { volver }) {
     if (!activo) return;
     if (!elemento) { estado.textContent = 'El elemento ya no existe.'; return; }
     $('.huella-titulo').textContent = `${elemento.nombre} · ${elemento.id}`;
+    fotoFichaId = elemento.imagenId;
+    btnFotoFicha.hidden = !fotoFichaId;
     pintarResumen();
     elementoListo = true;
     controles();
@@ -121,8 +140,9 @@ export function pantallaHuella(app, id, { volver }) {
     const lista = await Promise.all(capturas.filter((c) => c.v).map(async (c) => ({ v: c.v, mini: await c.mini })));
     if (!activo) return;
     totales.descartadas += capturas.length - lista.length;
-    const rechazada = capturas.find((c) => c.motivo);
-    if (rechazada) totales.motivo = rechazada.motivo;
+    for (const { motivo } of capturas) {
+      if (motivo) totales.rechazos.set(motivo, (totales.rechazos.get(motivo) || 0) + 1);
+    }
     if (!lista.length) return;
     let seleccionadas;
     const nueva = await modificarHuella(id, (anterior) => {
@@ -146,20 +166,24 @@ export function pantallaHuella(app, id, { volver }) {
     controles();
     barra.style.width = '0%';
     estado.textContent = 'Preparando el reconocimiento…';
-    const totales = { añadidas: 0, descartadas: 0, repetidas: 0, sinEspacio: 0, motivo: '' };
+    const totales = { añadidas: 0, descartadas: 0, repetidas: 0, sinEspacio: 0, rechazos: new Map() };
     try {
       const embedder = await cargarReconocedor();
       if (!activo) return;
       const segmentador = await cargarSegmentador();
       if (!activo) return;
       if (parar) { estado.textContent = 'Grabación detenida.'; return; }
-      const capturar = (fuente, ancho, alto) => capturarImagen(embedder, segmentador, fuente, ancho, alto);
+      const capturar = (fuente, ancho, alto, fotoCompleta = false) => capturarImagen(embedder, segmentador, fuente, ancho, alto, fotoCompleta);
       await recoger(capturar, totales);
       if (!activo) return;
-      const { añadidas, descartadas, repetidas, sinEspacio, motivo } = totales;
+      const { añadidas, descartadas, repetidas, sinEspacio, rechazos } = totales;
       const partes = [añadidas === 1 ? 'Guardada 1 imagen.' : añadidas ? `Guardadas ${añadidas} imágenes.` : 'Sin imágenes nuevas.'];
       if (repetidas) partes.push(`${repetidas} ${repetidas === 1 ? 'repetida' : 'repetidas'}. Cambia de ángulo o distancia.`);
-      if (descartadas) partes.push(`${descartadas} descartadas por calidad. ${motivo}.`);
+      if (descartadas) {
+        const motivo = [...rechazos].sort((a, b) => b[1] - a[1])[0]?.[0];
+        partes.push(`${descartadas} ${descartadas === 1 ? 'descartada' : 'descartadas'}.`);
+        if (motivo) partes.push(`${motivo}.`);
+      }
       if (sinEspacio) partes.push(`Límite de ${MAX_IMAGENES} imágenes. Borra alguna en la galería para añadir otras.`);
       estado.textContent = partes.join(' ');
     } catch (e) {
@@ -176,11 +200,13 @@ export function pantallaHuella(app, id, { volver }) {
     entrenar(true, async (capturar, totales) => {
       const capturas = [];
       const inicio = performance.now();
+      let tiempoVideo = -1;
+      let motivo = 'Espera a que se vea la cámara';
       while (activo && !parar && performance.now() - inicio < SEGUNDOS * 1000) {
         const frac = (performance.now() - inicio) / (SEGUNDOS * 1000);
         barra.style.width = Math.min(100, frac * 100) + '%';
-        let motivo = 'Espera a que se vea la cámara';
-        if (video.readyState >= 2 && video.videoWidth) {
+        if (video.readyState >= 2 && video.videoWidth && video.currentTime !== tiempoVideo) {
+          tiempoVideo = video.currentTime;
           const c = capturar(video, video.videoWidth, video.videoHeight);
           capturas.push(c);
           motivo = c.motivo;
@@ -217,18 +243,22 @@ export function pantallaHuella(app, id, { volver }) {
         const capturas = [];
         for (let i = 0; i < fotos.length; i++) {
           if (!activo) return;
-          const bmp = await createImageBitmap(fotos[i]);
-          try {
-            if (!activo) return;
-            capturas.push(capturar(bmp, bmp.width, bmp.height));
-          } finally {
-            bmp.close();
-          }
+          capturas.push(await capturarFoto(fotos[i], capturar, () => activo));
           estado.textContent = `Leyendo fotos… ${i + 1} de ${fotos.length}`;
           barra.style.width = ((i + 1) / fotos.length) * 100 + '%';
         }
         await usarCapturas(capturas, 'fotos', totales);
       }
+    });
+  });
+
+  btnFotoFicha.addEventListener('click', () => {
+    entrenar(false, async (capturar, totales) => {
+      const archivo = await obtenerArchivo(fotoFichaId);
+      if (!activo) return;
+      if (!archivo) throw new Error('La foto de ficha no está disponible.');
+      const captura = await capturarFoto(archivo.blob, capturar, () => activo);
+      await usarCapturas([captura], 'ficha', totales);
     });
   });
 

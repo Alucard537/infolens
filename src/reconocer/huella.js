@@ -31,6 +31,9 @@ export function cargarReconocedor() {
 const lienzo = document.createElement('canvas');
 lienzo.width = lienzo.height = 256;
 const ctx = lienzo.getContext('2d');
+const neutra = document.createElement('canvas');
+neutra.width = neutra.height = lienzo.width;
+const ctxNeutra = neutra.getContext('2d');
 const LADO_MINI = 96;
 const muestra = document.createElement('canvas');
 muestra.width = muestra.height = LADO_MINI;
@@ -38,7 +41,14 @@ const ctxMuestra = muestra.getContext('2d', { willReadFrequently: true });
 const grises = new Float32Array(LADO_MINI * LADO_MINI);
 export const PROPORCION_RECORTE = 0.7; // el recuadro ocupa el 70 % del lado corto
 
-export function recortarCentro(fuente, ancho, alto) {
+export function recortarCentro(fuente, ancho, alto, fotoCompleta = false) {
+  if (fotoCompleta) {
+    const escala = 248 / Math.max(ancho, alto);
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.drawImage(fuente, (256 - ancho * escala) / 2, (256 - alto * escala) / 2, ancho * escala, alto * escala);
+    return lienzo;
+  }
   const lado = Math.min(ancho, alto) * PROPORCION_RECORTE;
   ctx.clearRect(0, 0, 256, 256);
   ctx.drawImage(fuente, (ancho - lado) / 2, (alto - lado) / 2, lado, lado, 0, 0, 256, 256);
@@ -58,46 +68,57 @@ export function ajustarGuia(guia, video) {
   guia.hidden = false;
 }
 
-function calidadDelRecorte(recorte) {
+function calidadDelRecorte(recorte, aislada = false) {
   ctxMuestra.clearRect(0, 0, LADO_MINI, LADO_MINI);
   ctxMuestra.drawImage(recorte, 0, 0, LADO_MINI, LADO_MINI);
   const { data } = ctxMuestra.getImageData(0, 0, LADO_MINI, LADO_MINI);
-  let oscura = 0, clara = 0;
+  let oscura = 0, clara = 0, visibles = 0;
   for (let i = 0; i < grises.length; i++) {
     const j = i * 4;
     const luz = 0.2126 * data[j] + 0.7152 * data[j + 1] + 0.0722 * data[j + 2];
     grises[i] = luz;
+    if (aislada && data[j + 3] < 224) continue;
+    visibles++;
     if (luz < 20) oscura++;
     if (luz > 247) clara++;
   }
-  if (oscura / grises.length > 0.9) return 'Falta luz';
-  if (clara / grises.length > 0.94) return 'Hay demasiado reflejo o luz';
-  let detalle = 0;
+  if (oscura > 0.90 * visibles) return 'Falta luz sobre la pieza';
+  if (clara > 0.94 * visibles) return 'Hay demasiado reflejo o luz sobre la pieza';
+  let detalle = 0, puntos = 0;
   for (let y = 1; y < LADO_MINI - 1; y++) {
     for (let x = 1; x < LADO_MINI - 1; x++) {
       const i = y * LADO_MINI + x;
-      const cambio = 4 * grises[i] - grises[i - 1] - grises[i + 1] - grises[i - LADO_MINI] - grises[i + LADO_MINI];
+      const a = i - 1, b = i + 1, c = i - LADO_MINI, d = i + LADO_MINI;
+      if (aislada && Math.min(data[i * 4 + 3], data[a * 4 + 3], data[b * 4 + 3], data[c * 4 + 3], data[d * 4 + 3]) < 224) continue;
+      const cambio = 4 * grises[i] - grises[a] - grises[b] - grises[c] - grises[d];
       detalle += cambio * cambio;
+      puntos++;
     }
   }
-  return detalle / ((LADO_MINI - 2) ** 2) < 16 ? 'Imagen borrosa o con poco detalle' : '';
+  return !puntos || detalle / puntos < (aislada ? 6 : 16) ? 'La pieza se ve borrosa o con poco detalle' : '';
 }
 
 /** Evalúa el mismo encuadre para entrenar y para reconocer. */
-export function huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro }) {
-  const recorte = recortarCentro(fuente, ancho, alto);
-  const motivo = calidadDelRecorte(recorte);
-  if (motivo) return { motivo };
-  const imagen = segmentador ? recortarObjeto(segmentador, recorte) : null;
-  if (segmentador && !imagen) return { motivo: 'Pon el punto central sobre la pieza y deja visibles sus bordes' };
+export function huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro, fotoCompleta = false }) {
+  const recorte = recortarCentro(fuente, ancho, alto, fotoCompleta);
   const vector = (lienzo) => Float32Array.from(embedder.embed(lienzo).embeddings[0].floatEmbedding);
-  return { imagen, objeto: imagen ? vector(imagen) : null, recuadro: conRecuadro ? vector(recorte) : null };
+  const aislada = segmentador ? recortarObjeto(segmentador, recorte) : null;
+  const falloObjeto = aislada?.imagen ? calidadDelRecorte(aislada.imagen, true) : aislada?.motivo;
+  const falloRecuadro = conRecuadro ? calidadDelRecorte(recorte) : null;
+  const recuadro = conRecuadro && !falloRecuadro ? vector(recorte) : null;
+  if (aislada?.imagen && !falloObjeto) {
+    ctxNeutra.fillStyle = '#808080';
+    ctxNeutra.fillRect(0, 0, neutra.width, neutra.height);
+    ctxNeutra.drawImage(aislada.imagen, 0, 0);
+    return { imagen: neutra, objeto: vector(neutra), recuadro };
+  }
+  return { objeto: null, recuadro, motivo: falloObjeto || falloRecuadro || '' };
 }
 
 /** Añade una miniatura del encuadre aceptado para revisarlo en la galería. */
-export function capturarImagen(embedder, segmentador, fuente, ancho, alto) {
-  const { objeto: v, imagen, motivo } = huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro: false });
-  if (motivo) return { motivo };
+export function capturarImagen(embedder, segmentador, fuente, ancho, alto, fotoCompleta = false) {
+  const { objeto: v, imagen, motivo } = huellaDe(embedder, fuente, ancho, alto, { segmentador, conRecuadro: false, fotoCompleta });
+  if (!v) return { motivo };
   ctxMuestra.drawImage(imagen, 0, 0, LADO_MINI, LADO_MINI);
   const mini = new Promise((ok) => muestra.toBlob(ok, 'image/jpeg', 0.6))
     .then(async (b) => b ? new Uint8Array(await b.arrayBuffer()) : new Uint8Array(0));
