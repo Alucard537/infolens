@@ -8,8 +8,13 @@ mkdirSync(destino, { recursive: true });
 cpSync(new URL('standard_fonts/', origen), new URL('standard_fonts/', destino), { recursive: true });
 cpSync(new URL('cmaps/', origen), new URL('cmaps/', destino), { recursive: true });
 
-// MediaPipe (reconocimiento sin QR): solo la versión con SIMD (iPhone con iOS 16.4 o más y PC actuales)
+// MediaPipe elige la variante según las capacidades del navegador.
 const mpOrigen = new URL('../node_modules/@mediapipe/tasks-vision/wasm/', import.meta.url);
 const mpDestino = new URL('../public/mediapipe/', import.meta.url);
 mkdirSync(mpDestino, { recursive: true });
-for (const f of ['vision_wasm_internal.js', 'vision_wasm_internal.wasm']) cpSync(new URL(f, mpOrigen), new URL(f, mpDestino));
+for (const variante of ['vision_wasm_internal', 'vision_wasm_nosimd_internal']) {
+  for (const ext of ['js', 'wasm']) {
+    const archivo = `${variante}.${ext}`;
+    cpSync(new URL(archivo, mpOrigen), new URL(archivo, mpDestino));
+  }
+}

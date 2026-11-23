@@ -93,10 +93,21 @@ final class ServidorWeb {
                            datos: Data = Data(), cabeceras: Bool = false) {
         let respuesta = "HTTP/1.1 \(estado)\r\nContent-Type: \(tipo)\r\nContent-Length: \(datos.count)\r\n" +
             "Connection: close\r\nCache-Control: no-cache\r\nX-Content-Type-Options: nosniff\r\n\r\n"
-        conexion.send(content: Data(respuesta.utf8), completion: .contentProcessed { error in
-            guard error == nil, !cabeceras, !datos.isEmpty else { conexion.cancel(); return }
-            conexion.send(content: datos, completion: .contentProcessed { _ in conexion.cancel() })
-        })
+        let enviarCuerpo = !cabeceras && !datos.isEmpty
+        let terminar: NWConnection.SendCompletion = .contentProcessed { error in
+            guard error == nil else { conexion.cancel(); return }
+            // Espera a que el cliente cierre tras leer la respuesta y su FIN.
+            conexion.receive(minimumIncompleteLength: 1, maximumLength: 1) { _, _, _, _ in conexion.cancel() }
+        }
+        conexion.batch {
+            conexion.send(content: Data(respuesta.utf8), contentContext: .finalMessage, isComplete: !enviarCuerpo,
+                          completion: enviarCuerpo ? .contentProcessed { error in
+                              if error != nil { conexion.cancel() }
+                          } : terminar)
+            if enviarCuerpo {
+                conexion.send(content: datos, contentContext: .finalMessage, isComplete: true, completion: terminar)
+            }
+        }
     }
 
     private static let tipos = [

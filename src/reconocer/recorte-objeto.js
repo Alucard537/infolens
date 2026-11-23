@@ -1,22 +1,20 @@
 // Magic Touch localiza la pieza que está sobre el punto central del recuadro.
 import { InteractiveSegmenterLegacy } from '@mediapipe/tasks-vision';
+import { crearTareaVision, modeloVision } from './motor-vision.js';
 
-const base = import.meta.env.BASE_URL;
-export const archivosVision = {
-  wasmLoaderPath: base + 'mediapipe/vision_wasm_internal.js',
-  wasmBinaryPath: base + 'mediapipe/vision_wasm_internal.wasm',
-};
 let promesa;
 
 export function cargarSegmentador() {
   if (!promesa) {
     // Modelo oficial de MediaPipe, Magic Touch float32 v1.
     // https://storage.googleapis.com/mediapipe-models/interactive_segmenter/magic_touch/float32/1/magic_touch.tflite
-    promesa = InteractiveSegmenterLegacy.createFromOptions(archivosVision, {
-      baseOptions: { modelAssetPath: base + 'modelos/magic_touch.tflite', delegate: 'CPU' },
-      outputConfidenceMasks: false,
-      outputCategoryMask: true,
-    });
+    promesa = crearTareaVision('el recorte de la pieza', (archivos) =>
+      InteractiveSegmenterLegacy.createFromOptions(archivos, {
+        baseOptions: { modelAssetPath: modeloVision('magic_touch'), delegate: 'CPU' },
+        canvas: document.createElement('canvas'),
+        outputConfidenceMasks: false,
+        outputCategoryMask: true,
+      }));
     promesa.catch(() => { promesa = null; });
   }
   return promesa;

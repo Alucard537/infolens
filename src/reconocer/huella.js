@@ -3,29 +3,26 @@
 // sitio dan listas parecidas. Para reconocer, se compara lo que ve la cámara con las huellas guardadas.
 import { ImageEmbedder } from '@mediapipe/tasks-vision';
 
+import { tieneARKitIntegrado, tieneVisorNativo } from '../ar/visor-nativo.js';
 import { MODELO } from './vectores.js';
-import { archivosVision, recortarObjeto } from './recorte-objeto.js';
+import { crearTareaVision, modeloVision } from './motor-vision.js';
+import { recortarObjeto } from './recorte-objeto.js';
 
-const base = import.meta.env.BASE_URL;
 let promesa = null;
 
-/** Carga el modelo (la primera vez se descarga, unos 18 MB; después funciona sin internet). */
+/** Carga MobileNet desde los recursos de InfoLens. */
 export function cargarReconocedor() {
   if (!promesa) {
-    promesa = (async () => {
-      const opciones = (delegate) => ({
-        baseOptions: { modelAssetPath: base + 'modelos/' + MODELO + '.tflite', delegate },
+    const crear = (delegate) => crearTareaVision('el reconocimiento', (archivos) =>
+      ImageEmbedder.createFromOptions(archivos, {
+        baseOptions: { modelAssetPath: modeloVision(MODELO), delegate },
+        canvas: document.createElement('canvas'),
         runningMode: 'IMAGE',
         l2Normalize: true,
         quantize: false,
-      });
-      try {
-        return await ImageEmbedder.createFromOptions(archivosVision, opciones('GPU'));
-      } catch {
-        return ImageEmbedder.createFromOptions(archivosVision, opciones('CPU'));
-      }
-    })();
-    promesa.catch(() => { promesa = null; }); // si falla (p. ej. sin internet la 1ª vez), se reintenta
+      }));
+    promesa = tieneARKitIntegrado() || tieneVisorNativo() ? crear('CPU') : crear('GPU').catch(() => crear('CPU'));
+    promesa.catch(() => { promesa = null; });
   }
   return promesa;
 }
