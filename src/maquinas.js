@@ -4,6 +4,7 @@
 // CONSULTAR (no solo en pantalla).
 import { db, normalizarId, borrarArchivos } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
+import { calibracionSubanclaValida, subanclasDe } from './subanclas.js';
 
 export const ID_GENERAL = 'GENERAL';
 
@@ -160,6 +161,35 @@ export async function guardarAncla(datos, esNueva) {
 /** Guarda cómo está colocado físicamente el QR del ancla (su "arriba" respecto al QR). */
 export async function guardarGravedadAncla(id, gravedad) {
   await db.anclas.update(id, { gravedad: gravedad.map((n) => Math.round(n * 1000) / 1000), modificado: Date.now() });
+}
+
+export async function guardarSubancla(anclaId, maquinaId, datos) {
+  const { id, pos, cara, ladoCm } = datos;
+  const nombre = String(datos.nombre || '').trim();
+  if (!nombre || nombre.length > 80) throw new Error('Escribe un nombre de hasta 80 caracteres.');
+  if (!calibracionSubanclaValida(datos)) throw new Error('Revisa las coordenadas, la cara y el tamaño del QR. El centro debe estar en un punto distinto al QR principal.');
+  return db.transaction('rw', db.anclas, async () => {
+    const ancla = await obtenerAncla(anclaId);
+    if (ancla?.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
+    const subanclas = subanclasDe(ancla);
+    const indice = id ? subanclas.findIndex((s) => s.id === id) : -1;
+    if (id && indice < 0) throw new Error('La subancla ya no existe.');
+    if (!id && subanclas.length >= 99) throw new Error('Esta ancla ya tiene el máximo de subanclas.');
+    const subancla = { id: id || 'S-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12), nombre, pos, cara, ladoCm };
+    if (indice < 0) subanclas.push(subancla);
+    else subanclas[indice] = subancla;
+    await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
+    return subancla;
+  });
+}
+
+export async function borrarSubancla(anclaId, maquinaId, id) {
+  return db.transaction('rw', db.anclas, async () => {
+    const ancla = await obtenerAncla(anclaId);
+    if (ancla?.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
+    const subanclas = subanclasDe(ancla).filter((s) => s.id !== id);
+    await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
+  });
 }
 
 export async function dependenciasAncla(id) {

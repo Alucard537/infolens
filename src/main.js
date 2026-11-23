@@ -15,7 +15,7 @@ import { pantallaHuella } from './pantallas/huella.js';
 import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 import { esAdmin } from './permisos.js';
 import { pantallaAdmin } from './pantallas/admin.js';
-import { botonVisor, tieneVisorNativo, tieneARKitIntegrado } from './ar/visor-nativo.js';
+import { tieneARKitIntegrado } from './ar/visor-nativo.js';
 import { maquinaActiva, maquinaActivaId, establecerMaquinaActiva, migrarDatosAntiguos, elementosDeMaquina } from './maquinas.js';
 import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina, pantallaAnclas } from './pantallas/maquinas.js';
 import { pantallaLocalizacion } from './pantallas/localizacion.js';
@@ -89,7 +89,7 @@ async function pantallaInicio() {
       <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>` : `
       <button class="boton secundario" data-ir="#/copia">📥 Recibir actualización</button>`}
       <button class="boton secundario" data-ir="#/admin">${admin ? '🚪 Salir del modo administrador' : '🔒 Entrar como administrador'}</button>
-      <div class="prueba-ar"></div>
+      <button class="boton secundario" data-ir="#/diagnostico-ar">🔬 Diagnóstico del AR con LiDAR</button>
       <p class="nota">Versión ${__VERSION__}</p>
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
@@ -99,62 +99,7 @@ async function pantallaInicio() {
   }));
   if (maquina) elementosDeMaquina(maquina.id).then((l) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${l.length})`; });
   else contarElementos().then(() => {});
-  const prueba = app.querySelector('.prueba-ar');
-  if (tieneVisorNativo()) prueba.appendChild(pruebaFlechas());
-  const diag = document.createElement('button');
-  diag.className = 'boton secundario';
-  diag.textContent = '🔬 Diagnóstico del AR con LiDAR';
-  diag.addEventListener('click', () => ir('#/diagnostico-ar'));
-  prueba.appendChild(diag);
   cargarEscaner(); // ir cargando el escáner en segundo plano
-}
-
-function pruebaFlechas() {
-  const div = document.createElement('div');
-  div.className = 'bloque-lidar-guia';
-  div.innerHTML = `
-    <p class="nota lidar-recomendado">🧪 Prueba del recorrido con QR</p>
-    <a class="boton secundario enlace-boton" href="${import.meta.env.BASE_URL}ejemplo/qr-prueba.html" target="_blank" rel="noopener">Ver e imprimir el QR de prueba</a>
-    <p class="nota">Apunta al QR TEST-1 de 10 cm. Gira el papel 90° mientras lo enfocas para comprobar que las flechas giran con él.</p>
-    <div class="fijo"></div>
-    <div class="titulo-archivo">Con tus medidas (cm)</div>
-    <div class="tramos-prueba"></div>
-    <div class="botones-archivo"><button class="boton secundario" data-p="generar">Preparar con estas medidas</button></div>
-    <div class="generado"></div>`;
-  const prueba = { anclaId: 'TEST-1', ladoCm: 10, info: { nombre: 'Destino de prueba' } };
-  div.querySelector('.fijo').appendChild(botonVisor({
-    ...prueba, puntos: [[0, 0, 0], [0, 0, -1.3], [1.5, 0, -1.3]],
-  }, tieneARKitIntegrado() ? 'Iniciar prueba con QR' : '📱 Recorrido de prueba en el visor nativo'));
-  const filas = document.createElement('ol');
-  div.querySelector('.tramos-prueba').appendChild(filas);
-  const lista = [{ dir: 'adelante', cm: '130' }, { dir: 'derecha', cm: '150' }];
-  const pintar = () => import('./ui/tramos.js').then(({ pintarListaTramos }) => pintarListaTramos(filas, lista));
-  pintar();
-  const mas = document.createElement('button');
-  mas.className = 'boton-mini'; mas.textContent = '➕ Añadir tramo';
-  mas.addEventListener('click', () => { lista.push({ dir: 'adelante', cm: '' }); pintar(); });
-  div.querySelector('.tramos-prueba').appendChild(mas);
-  const salida = div.querySelector('.generado');
-  div.querySelector('[data-p="generar"]').addEventListener('click', async () => {
-    salida.innerHTML = '<p class="nota">⏳ Generando…</p>';
-    try {
-      const { deSimple, puntosDeTramos } = await import('./coordenadas.js');
-      const tramos = lista.filter((t) => String(t.cm ?? '').trim() !== '').map(deSimple);
-      if (!tramos.length) throw new Error('Escribe al menos un tramo.');
-      if (tramos.some((t) => Object.values(t).some((v) => !Number.isFinite(v)))) throw new Error('Algún valor no es un número.');
-      salida.innerHTML = '';
-      salida.appendChild(botonVisor({
-        ...prueba, puntos: [[0, 0, 0], ...puntosDeTramos(tramos)],
-      }, '📱 Abrir mis medidas en el visor nativo'));
-    } catch (e) {
-      salida.innerHTML = '';
-      const p = document.createElement('p');
-      p.className = 'error-form';
-      p.textContent = '❌ ' + e.message;
-      salida.appendChild(p);
-    }
-  });
-  return div;
 }
 
 async function mostrar() {

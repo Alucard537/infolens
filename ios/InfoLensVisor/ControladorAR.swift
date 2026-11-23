@@ -44,6 +44,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var origen: AnchorEntity?
     private var contenido: Entity?
     private var anclaje = AnclajeQR()
+    private var anclajeSubancla = AnclajeQR()
+    private var usaSubancla = false
+    private var buscarTramoCercano = false
     private var poseParaProgreso: PoseQR?
     private var progreso = ProgresoRuta()
     private var ultimoAviso: TimeInterval = 0
@@ -86,6 +89,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         recorrido = nuevo
         self.destinoId = destinoId
         progreso = ProgresoRuta()
+        buscarTramoCercano = usaSubancla
         ultimoTramo = nil
         tramoActual = nil
         rumboGrados = nil
@@ -113,6 +117,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         marcaQR?.removeFromParent()
         marcaQR = nil
         anclaje = AnclajeQR()
+        anclajeSubancla = AnclajeQR()
+        usaSubancla = false
+        buscarTramoCercano = false
         poseParaProgreso = nil
         progreso = ProgresoRuta()
         ultimoAviso = 0
@@ -126,7 +133,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             mostrarEstado("❌ Este iPhone no admite el seguimiento del entorno.")
             return
         }
-        let referencias = Set(anclas.values.filter { anclaBuscada == nil || $0.id == anclaBuscada }
+        let activas = anclas.values.filter { anclaBuscada == nil || $0.principalId == anclaBuscada }
+        let referencias = Set(activas
             .compactMap { ImagenQR.referencia(para: $0) })
         guard !referencias.isEmpty else {
             mostrarEstado("❌ No se pudo preparar el QR del ancla.")
@@ -137,7 +145,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         config.planeDetection = [.horizontal, .vertical]
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) { config.sceneReconstruction = .mesh }
         config.detectionImages = referencias
-        config.maximumNumberOfTrackedImages = 1
+        config.maximumNumberOfTrackedImages = activas.contains { $0.subancla != nil } ? 2 : 1
         config.automaticImageScaleEstimationEnabled = true
         let id = sesionId
         if referencias.count == 1, let referencia = referencias.first {
@@ -166,9 +174,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         pideQR = true
-        anclaje.dejarDeVerQR()
+        dejarDeVerReferencias()
         pausarGuia()
-        mostrarEstado("🔍 Vuelve a enfocar el QR del ancla.")
+        mostrarEstado(buscarMensaje)
     }
 
     func detener() {
@@ -181,7 +189,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         guard enMarcha, !interrumpida else { return }
         defer { emitirEstado() }
         guard case .normal = frame.camera.trackingState else {
-            anclaje.dejarDeVerQR()
+            dejarDeVerReferencias()
             pausarGuia()
             let mensaje: String
             switch frame.camera.trackingState {
@@ -193,32 +201,60 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             mostrarEstado(mensaje)
             return
         }
-        let qr = frame.anchors.lazy.compactMap { $0 as? ARImageAnchor }
-            .first { imagen in
-                imagen.isTracked && (anclaFijada == nil || imagen.referenceImage.name == anclaFijada)
-            }
-        let poseActual = qr.flatMap { anclaje.observar(PoseQR($0.transform), id: $0.identifier, en: frame.timestamp) }
-        if let qr, let poseActual, let id = qr.referenceImage.name {
-            aplicarPoseQR(poseActual, id: id)
-            let escala = Float(qr.estimatedScaleFactor)
-            if escala.isFinite, escala > 0 { marcaQR?.scale = SIMD3<Float>(repeating: escala) }
+        let principal = anclaFijada ?? anclaBuscada
+        let visibles: [(ARImageAnchor, AnclaAR)] = frame.anchors.compactMap { anchor in
+            guard let imagen = anchor as? ARImageAnchor, imagen.isTracked,
+                  let nombre = imagen.referenceImage.name, let referencia = anclas[nombre],
+                  principal == nil || principal == referencia.principalId else { return nil }
+            return (imagen, referencia)
         }
-        guard origen != nil, !pideQR, qr == nil || poseActual != nil else {
+        var principalVisible = false
+        var mensaje = usaSubancla ? "📍 Última posición confirmada por una subancla" : "📍 Última posición del QR en el entorno"
+        if let (imagen, referencia) = visibles.first(where: { $0.1.subancla == nil }) {
+            anclajeSubancla.dejarDeVerQR()
+            if let pose = anclaje.observar(PoseQR(imagen.transform), id: imagen.identifier, en: frame.timestamp) {
+                aplicarPoseQR(pose, id: referencia.id)
+                let escala = Float(imagen.estimatedScaleFactor)
+                if escala.isFinite, escala > 0 { marcaQR?.scale = SIMD3<Float>(repeating: escala) }
+                principalVisible = true
+                mensaje = "✅ Siguiendo el QR del ancla"
+            } else if !usaSubancla || pideQR {
+                pausarGuia()
+                mostrarEstado("Mantén el QR bien encuadrado un momento.")
+                return
+            }
+        } else if let (imagen, referencia) = visibles.first, let subancla = referencia.subancla {
+            anclaje.dejarDeVerQR()
+            let muestra = PoseQR(imagen.transform)
+            if muestra.matriz.columns.2.y > -0.97 {
+                anclajeSubancla.dejarDeVerQR()
+                mensaje = "La subancla debe estar vertical, con ARRIBA hacia el techo."
+            } else if let pose = anclajeSubancla.observar(muestra, id: imagen.identifier, en: frame.timestamp) {
+                guard aplicarSubancla(subancla.poseRecorrido(desde: pose), anclaId: subancla.anclaId) else {
+                    pausarGuia()
+                    mostrarEstado("La subancla no coincide con la calibración. Revisa sus medidas o vuelve a detectar el QR.")
+                    return
+                }
+                mensaje = "✅ Subancla: \(subancla.nombre)"
+            } else {
+                mensaje = "Mantén la subancla bien encuadrada un momento."
+            }
+        }
+        guard origen != nil, !pideQR else {
             pausarGuia()
-            mostrarEstado(qr == nil ? (avisoImagen ?? buscarMensaje)
-                         : "Mantén el QR bien encuadrado un momento.")
+            mostrarEstado(visibles.isEmpty ? (avisoImagen ?? buscarMensaje) : mensaje)
             return
         }
         marcoQR.isEnabled = true
-        marcaQR?.isEnabled = poseActual != nil
-        mostrarEstado(qr == nil ? "📍 Última posición del QR en el entorno" : "✅ Siguiendo el QR del ancla")
+        marcaQR?.isEnabled = principalVisible
+        mostrarEstado(mensaje)
         actualizarVisuales(frame)
         actualizarTramo(frame)
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
         interrumpida = true
-        anclaje.dejarDeVerQR()
+        dejarDeVerReferencias()
         pausarGuia()
         mostrarEstado("Guía en pausa. Esperando a que vuelva la cámara.")
         emitirEstado()
@@ -238,27 +274,58 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func aplicarPoseQR(_ pose: PoseQR, id: String) {
-        if origen == nil {
-            guard let rutaDesdeQR = anclaje.rutaDesdeQR, let ancla = anclas[id] else { return }
-            let fijo = AnchorEntity(world: SIMD3<Float>.zero)
-            fijo.addChild(marcoQR)
-            let marca = Contenido.marcaQR(Float(ancla.ladoCm / 100))
-            marcoQR.addChild(marca)
-            marcaQR = marca
-            marcoRuta.setTransformMatrix(rutaDesdeQR, relativeTo: marcoQR)
-            vista.scene.addAnchor(fijo)
-            origen = fijo
-            anclaFijada = id
-            anclaBuscada = id
-            rehacer()
-        }
-        marcoQR.setTransformMatrix(pose.matriz, relativeTo: origen)
-        if poseParaProgreso?.cercana(a: pose, metros: 0.10, grados: 10) != true {
-            progreso = ProgresoRuta()
-            poseParaProgreso = pose
+        guard let rutaDesdeQR = anclaje.rutaDesdeQR, let origen = prepararOrigen(id) else { return }
+        marcaQR?.setTransformMatrix(pose.matriz, relativeTo: origen)
+        let poseRuta = PoseQR(pose.matriz * rutaDesdeQR)
+        marcoRuta.setTransformMatrix(poseRuta.matriz, relativeTo: origen)
+        if poseParaProgreso?.cercana(a: poseRuta, metros: 0.10, grados: 10) != true {
+            if !usaSubancla { progreso = ProgresoRuta() }
+            poseParaProgreso = poseRuta
             ultimoAviso = 0
         }
+        usaSubancla = false
         pideQR = false
+    }
+
+    private func prepararOrigen(_ id: String) -> AnchorEntity? {
+        if let origen { return origen }
+        guard let ancla = anclas[id], ancla.subancla == nil else { return nil }
+        let fijo = AnchorEntity(world: SIMD3<Float>.zero)
+        fijo.addChild(marcoQR)
+        let marca = Contenido.marcaQR(Float(ancla.ladoCm / 100))
+        marca.isEnabled = false
+        marcoQR.addChild(marca)
+        marcaQR = marca
+        vista.scene.addAnchor(fijo)
+        origen = fijo
+        anclaFijada = id
+        anclaBuscada = id
+        rehacer()
+        return fijo
+    }
+
+    private func aplicarSubancla(_ estimada: PoseQR, anclaId: String) -> Bool {
+        let recolocar = pideQR || origen == nil
+        guard let origen = prepararOrigen(anclaId) else { return false }
+        let pose: PoseQR
+        if recolocar {
+            pose = estimada
+            buscarTramoCercano = true
+        } else {
+            let anterior = PoseQR(marcoRuta.transformMatrix(relativeTo: origen))
+            guard anterior.cercana(a: estimada, metros: 0.50, grados: 15) else { return false }
+            pose = anterior.combinada(con: estimada, peso: 0.20)
+        }
+        marcoRuta.setTransformMatrix(pose.matriz, relativeTo: origen)
+        poseParaProgreso = pose
+        usaSubancla = true
+        pideQR = false
+        return true
+    }
+
+    private func dejarDeVerReferencias() {
+        anclaje.dejarDeVerQR()
+        anclajeSubancla.dejarDeVerQR()
     }
 
     private func actualizarTramo(_ frame: ARFrame) {
@@ -267,6 +334,10 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let ruta = marcoRuta.transformMatrix(relativeTo: nil)
         let camara = frame.camera.transform
         let local = simd_inverse(ruta) * camara.columns.3
+        if buscarTramoCercano {
+            progreso.ubicarTramo(puntos: recorrido.puntos, posicion: [local.x, local.y, local.z])
+            buscarTramoCercano = false
+        }
         let tramo = progreso.actualizar(puntos: recorrido.puntos, posicion: [local.x, local.y, local.z])
         ultimoTramo = .init(indice: progreso.indice, total: recorrido.puntos.count - 1,
                             distancia: Double((tramo.distancia * 10).rounded() / 10), llegada: tramo.llegada)
@@ -347,6 +418,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private var buscarMensaje: String {
+        if anclas.values.contains(where: { $0.subancla != nil && (anclaBuscada == nil || $0.principalId == anclaBuscada) }) {
+            return "🔍 Busca el QR principal o una subancla de la máquina"
+        }
         if let id = anclaFijada ?? (anclas.count == 1 ? anclas.keys.first : nil) {
             return "🔍 Busca el QR del ancla (\(id))"
         }

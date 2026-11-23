@@ -11,6 +11,7 @@ import { listarElementos } from '../db.js';
 import { esAdmin } from '../permisos.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
+import { montarSubanclas } from './subanclas.js';
 
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -239,7 +240,11 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
           <button class="boton-mini" data-a="qr">🖨️ QR</button>
           <button class="boton-mini" data-a="ed">✏️</button>
           <button class="boton-mini" data-a="del">🗑️</button>
-        </span></div>`;
+        </span></div>
+      <details class="bloque-archivo">
+        <summary>Subanclas</summary>
+        <div class="seccion-subanclas"></div>
+      </details>`;
     li.querySelector('.fila-nombre').textContent = `⚓ ${a.nombre}`;
     li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
     li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
@@ -248,9 +253,13 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
       guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
     });
     li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));
+    const subanclas = li.querySelector('details');
+    subanclas.addEventListener('toggle', () => {
+      if (subanclas.open) montarSubanclas(subanclas.querySelector('.seccion-subanclas'), a);
+    });
     li.querySelector('[data-a="del"]').addEventListener('click', async () => {
       const d = await dependenciasAncla(a.id);
-      if (!confirm(`¿Borrar el ancla ${a.id}?\n\nSe borrarán ${d.localizaciones} localizaciones y ${d.guias} guías quedarán sin ancla (en borrador).`)) return;
+      if (!confirm(`¿Borrar el ancla ${a.id}?\n\nSe borrarán sus subanclas y ${d.localizaciones} localizaciones. ${d.guias} guías quedarán sin ancla (en borrador).`)) return;
       await borrarAncla(a.id);
       repintar();
     });

@@ -136,8 +136,36 @@ jobs:
           precondition(GeometriaFlecha.escala(profundidad: 0.08, altoPantalla: 820, anchoPantalla: 390, proyeccionY: 1.6) == 0)
           let escalaVisible = GeometriaFlecha.escala(profundidad: 0.5, altoPantalla: 820, anchoPantalla: 390, proyeccionY: 1.6)
           precondition(escalaVisible < 1 && escalaVisible > 0.2)
+          let carga = Data("""
+          {"id":"INFOLENS-SUB:S-123456789abc","ladoCm":9,"subancla":{"anclaId":"PRINCIPAL","nombre":"Lateral","cara":"derecha","pos":[4,0.8,-2]}}
+          """.utf8)
+          let referencia = try JSONDecoder().decode(AnclaAR.self, from: carga)
+          precondition(referencia.valida && referencia.principalId == "PRINCIPAL" && referencia.textoQR == referencia.id)
+          for (cara, normal, derecha) in [
+              (SubanclaAR.Cara.frontal, SIMD3<Float>(0,0,1), SIMD3<Float>(1,0,0)),
+              (.derecha, SIMD3<Float>(1,0,0), SIMD3<Float>(0,0,-1)),
+              (.trasera, SIMD3<Float>(0,0,-1), SIMD3<Float>(-1,0,0)),
+              (.izquierda, SIMD3<Float>(-1,0,0), SIMD3<Float>(0,0,1))
+          ] {
+              let punto = SIMD3<Float>(4, 0.8, -2)
+              let subancla = SubanclaAR(anclaId: "PRINCIPAL", nombre: "Prueba", pos: [punto.x, punto.y, punto.z], cara: cara)
+              let marcaEnRecorrido = simd_float4x4(columns: (
+                  SIMD4<Float>(derecha, 0), SIMD4<Float>(normal, 0), SIMD4<Float>(0,-1,0,0), SIMD4<Float>(punto, 1)
+              ))
+              for giro in [Float(0), .pi / 2, -.pi / 3] {
+                  var marco = simd_float4x4(simd_quatf(angle: giro, axis: [0, 1, 0]))
+                  marco.columns.3 = [2.7, 1.15, -4, 1]
+                  let recuperado = subancla.poseRecorrido(desde: PoseQR(marco * marcaEnRecorrido))
+                  precondition(recuperado.cercana(a: PoseQR(marco), metros: 0.0001, grados: 0.10))
+              }
+          }
+          var avanceDesdeSubancla = ProgresoRuta()
+          let itinerario: [SIMD3<Float>] = [[0,0,0],[0,0,-2],[4,0,-2],[4,0,-4]]
+          avanceDesdeSubancla.ubicarTramo(puntos: itinerario, posicion: [3,1.7,-2.15])
+          precondition(avanceDesdeSubancla.indice == 2)
+          precondition(!avanceDesdeSubancla.actualizar(puntos: itinerario, posicion: [3,1.7,-2.15]).llegada)
           SWIFT
-          xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/GeometriaFlecha.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
+          xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/GeometriaFlecha.swift ios/InfoLensVisor/ProgresoRuta.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
           "$RUNNER_TEMP/infolens-smoke/revisar"
       - name: Comprobar el servidor de recursos incluido
         run: |
