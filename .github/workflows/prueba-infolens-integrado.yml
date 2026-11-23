@@ -127,8 +127,17 @@ jobs:
           precondition(integrado.anclaId == "ANCLA-REAL-1" && integrado.ladoCm == 8)
           precondition(integrado.soloLinea && !integrado.flechas && integrado.icono)
           precondition(integrado.posIcono == SIMD3<Float>(0.3,0.2,-1))
+          let forma = GeometriaFlecha.verticesYNormales()
+          precondition(forma.vertices.count == 72 && forma.normales.count == 72 && forma.materiales.count == 24)
+          precondition(forma.vertices.map(\.z).min()! == -0.185 && forma.vertices.map(\.z).max()! == 0.135)
+          precondition(forma.vertices.map(\.y).max()! - forma.vertices.map(\.y).min()! > 0.03)
+          precondition(Set(forma.materiales) == Set<UInt32>([0, 1]))
+          precondition(forma.normales.allSatisfy { abs(simd_length($0) - 1) < 0.0001 })
+          precondition(GeometriaFlecha.escala(profundidad: 0.08, altoPantalla: 820, anchoPantalla: 390, proyeccionY: 1.6) == 0)
+          let escalaVisible = GeometriaFlecha.escala(profundidad: 0.5, altoPantalla: 820, anchoPantalla: 390, proyeccionY: 1.6)
+          precondition(escalaVisible < 1 && escalaVisible > 0.2)
           SWIFT
-          xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
+          xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/GeometriaFlecha.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
           "$RUNNER_TEMP/infolens-smoke/revisar"
       - name: Comprobar el servidor de recursos incluido
         run: |

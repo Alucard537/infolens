@@ -8,6 +8,7 @@ enum Contenido {
     static let oro = UIColor(red: 1.0, green: 0.78, blue: 0.24, alpha: 1)
     static let azul = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 1)
     static let menta = UIColor(red: 0.39, green: 0.91, blue: 0.69, alpha: 1)
+    static let lateralFlecha = UIColor(red: 0.06, green: 0.42, blue: 0.32, alpha: 1)
 
     static func material(_ c: UIColor) -> SimpleMaterial { SimpleMaterial(color: c, roughness: 0.4, isMetallic: false) }
 
@@ -45,7 +46,8 @@ enum Contenido {
             } else {
                 let n = min(120, max(1, Int(largo / 0.5)))
                 for i in 0..<n {
-                    let f = flecha()
+                    let escalaBase = min(1, largo / (0.4 * Float(n)))
+                    let f = flecha(escalaBase: escalaBase)
                     f.orientation = q
                     f.position = a + tramo * ((Float(i) + 0.5) / Float(n))
                     raiz.addChild(f)
@@ -61,22 +63,24 @@ enum Contenido {
     }
 
     private static let mallaFlecha: MeshResource = {
-        var forma = MeshDescriptor(name: "Chevrón")
-        let puntos: [SIMD3<Float>] = [
-            [0, 0, -0.070], [0.073, 0, 0.027], [0.045, 0, 0.050],
-            [0, 0, -0.009], [-0.045, 0, 0.050], [-0.073, 0, 0.027],
-        ]
-        forma.positions = MeshBuffers.Positions(puntos + puntos)
-        forma.primitives = .triangles([
-            0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5,
-            6, 8, 7, 6, 9, 8, 6, 10, 9, 6, 11, 10,
-        ])
+        var forma = MeshDescriptor(name: "Flecha 3D")
+        let (vertices, normales, caras) = GeometriaFlecha.verticesYNormales()
+        forma.positions = MeshBuffers.Positions(vertices)
+        forma.normals = MeshBuffers.Normals(normales)
+        forma.primitives = .triangles(vertices.indices.map(UInt32.init))
+        forma.materials = .perFace(caras)
         return (try? MeshResource.generate(from: [forma])) ?? .generateBox(size: 0.02)
     }()
 
-    static func flecha() -> Entity {
-        let e = ModelEntity(mesh: mallaFlecha, materials: [UnlitMaterial(color: menta)])
+    private static func flecha(escalaBase: Float) -> Entity {
+        let materiales: [any Material] = mallaFlecha.expectedMaterialCount == 2
+            ? [UnlitMaterial(color: menta), UnlitMaterial(color: lateralFlecha)]
+            : [UnlitMaterial(color: menta)]
+        let modelo = ModelEntity(mesh: mallaFlecha, materials: materiales)
+        modelo.scale = SIMD3<Float>(repeating: escalaBase)
+        let e = Entity()
         e.name = "flecha"
+        e.addChild(modelo)
         return e
     }
 

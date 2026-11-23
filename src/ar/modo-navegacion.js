@@ -355,7 +355,11 @@ export function crearModoAncla({
     siguienteBoton.disabled = !siguiente;
     siguienteBoton.addEventListener('click', () => { if (siguiente) empezar(siguiente); });
     const ficha = $('.guia-cuerpo');
-    capa.mostrar(l, { alTocar: () => { ficha.open = true; } });
+    capa.mostrar(l, {
+      nombre: c.nombre,
+      fotos: [c.miniaturaId, c.imagenId].filter(Boolean),
+      alTocar: () => { ficha.open = true; },
+    });
   }
 
   // ---------- "Posicionar" (administrador): elemento y ancla a la vista a la vez ----------

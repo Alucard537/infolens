@@ -1,5 +1,5 @@
 import { leerAjustes, guardarAjustes } from '../ajustes.js';
-import { mapaElementos } from '../db.js';
+import { mapaElementos, obtenerArchivo } from '../db.js';
 import { listarAnclas, obtenerGuia } from '../maquinas.js';
 import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
@@ -11,6 +11,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   let activo = true;
   let modulo;
   let sesion;
+  let destinoId = 0;
   let mirada = {};
   const seguidos = new Map();
   const enGuia = !!guiaId;
@@ -26,6 +27,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         ${!enGuia && esAdmin() ? '<button class="esc-btn" data-r="posicionar" aria-label="Medir posición de componentes">📍</button>' : ''}
       </div>
       <span class="rumbo-arkit" aria-hidden="true" hidden>➤</span>
+      <div class="ficha-flotante" aria-hidden="true" hidden><img alt="" hidden><strong></strong></div>
       <div class="nav-panel" hidden></div>
       <div class="pos-panel" hidden></div>
       <label class="vista-arkit">Recorrido
@@ -37,6 +39,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   const estado = $('.esc-estado');
   const rumbo = $('.rumbo-arkit');
   const selector = $('.vista-arkit select');
+  const ficha = crearFichaFlotante($('.recorrido-arkit'), $('.ficha-flotante'), $('.nav-panel'));
   selector.value = ajustes.lidarVista === 'linea' ? 'linea' : 'flechas';
   function enviar(accion, datos = {}) {
     if (sesion) enviarARKit({ accion, sesion, ...datos });
@@ -51,9 +54,13 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   });
 
   const capa = {
-    mostrar(loc, { conFlechas = true, conIcono = true } = {}) {
+    mostrar(loc, { conFlechas = true, conIcono = true, nombre, fotos = [] } = {}) {
       if (!mirada.anclaId) return;
+      const id = ++destinoId;
+      ficha.limpiar();
+      if (conIcono && nombre) ficha.mostrar(id, nombre, fotos);
       enviar('recorrido', {
+        destinoId: id,
         recorrido: datosDelVisor({
           puntos: [[0, 0, 0], ...(loc.ruta || []), loc.pos],
           anclaId: mirada.anclaId, ladoCm, vista: selector.value,
@@ -61,7 +68,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         }),
       });
     },
-    ocultar() { enviar('ocultar'); },
+    ocultar() { ficha.limpiar(); enviar('ocultar'); },
     actualizar() {
       if (!mirada.fiable) return { fiable: false, esperandoAncla: !mirada.anclaId };
       return mirada.tramo ? { ...mirada.tramo, fiable: true } : null;
@@ -75,6 +82,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     if (!activo || id !== sesion || !datos) return;
     mirada = datos;
     estado.textContent = datos.mensaje;
+    ficha.proyectar(datos.destinoId, datos.fiable ? datos.destino : null);
     if (datos.anclaId) seguidos.set(datos.anclaId, { id: datos.anclaId, tipo: 'ancla-activa', visible: datos.fiable });
     rumbo.hidden = !datos.fiable || !Number.isFinite(datos.rumbo);
     if (!rumbo.hidden) rumbo.style.rotate = `${datos.rumbo - 90}deg`;
@@ -130,7 +138,77 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     activo = false;
     window.removeEventListener('infolens:arkit', recibir);
     modulo?.detener();
+    ficha.limpiar();
     enviar('cerrar');
     document.documentElement.classList.remove('modo-arkit');
+  };
+}
+
+function crearFichaFlotante(raiz, tarjeta, controles) {
+  const foto = tarjeta.querySelector('img');
+  const rotulo = tarjeta.querySelector('strong');
+  let idActual = null;
+  let urlFoto = null;
+  let punto = null;
+
+  function limpiar() {
+    idActual = null;
+    punto = null;
+    tarjeta.hidden = true;
+    foto.hidden = true;
+    foto.removeAttribute('src');
+    if (urlFoto) URL.revokeObjectURL(urlFoto);
+    urlFoto = null;
+  }
+
+  function posicionar() {
+    if (!punto) { tarjeta.hidden = true; return; }
+    tarjeta.hidden = false;
+    const W = raiz.clientWidth, H = raiz.clientHeight;
+    const x = punto.x * W, y = punto.y * H;
+    const ancho = tarjeta.offsetWidth, alto = tarjeta.offsetHeight;
+    const limiteArriba = raiz.querySelector('.vista-arkit').offsetTop + 42;
+    const limiteAbajo = (controles.hidden ? H : controles.offsetTop) - alto - 10;
+    if (limiteAbajo < limiteArriba) { tarjeta.hidden = true; return; }
+    const aDerecha = x + 18 + ancho <= W - 10 || (x - 18 - ancho < 10 && x < W / 2);
+    const lateral = aDerecha ? x + 18 : x - 18 - ancho;
+    const tx = Math.max(10, Math.min(W - ancho - 10, lateral));
+    const ty = Math.max(limiteArriba, Math.min(limiteAbajo, y - alto / 2));
+    tarjeta.style.transform = `translate(${Math.round(tx)}px, ${Math.round(ty)}px)`;
+  }
+
+  async function cargarFoto(id, fotos) {
+    for (const fid of new Set(fotos)) {
+      const archivo = await obtenerArchivo(fid);
+      if (id !== idActual) return;
+      if (!archivo) continue;
+      const url = URL.createObjectURL(archivo.blob);
+      try {
+        const miniatura = new Image();
+        miniatura.src = url;
+        await miniatura.decode();
+        if (id !== idActual) { URL.revokeObjectURL(url); return; }
+        urlFoto = url;
+        foto.src = url;
+        foto.hidden = false;
+        posicionar();
+        return;
+      } catch {
+        URL.revokeObjectURL(url);
+      }
+    }
+  }
+
+  return {
+    limpiar,
+    mostrar(id, nombre, fotos) {
+      idActual = id;
+      rotulo.textContent = nombre;
+      cargarFoto(id, fotos).catch(() => {});
+    },
+    proyectar(id, destino) {
+      punto = idActual !== null && id === idActual && Number.isFinite(destino?.x) && Number.isFinite(destino?.y) ? destino : null;
+      posicionar();
+    },
   };
 }

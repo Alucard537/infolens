@@ -187,6 +187,8 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     if (destino && (p.flechas !== false || p.icono !== false)) {
       capa.mostrar(destino, {
         conFlechas: p.flechas !== false, conIcono: p.icono !== false,
+        nombre: elemento?.nombre || titulo,
+        fotos: [elemento?.miniaturaId, elemento?.imagenId, p.imagenes?.[0]].filter(Boolean),
         alTocar: elemento ? () => instrucciones(true) : null,
       });
     } else capa.ocultar();

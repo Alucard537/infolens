@@ -12,18 +12,25 @@ struct EstadoAR: Encodable, Equatable {
         let distancia: Double
         let llegada: Bool
     }
+    struct PuntoPantalla: Encodable, Equatable {
+        let x: Double
+        let y: Double
+    }
 
     let anclaId: String?
     let fiable: Bool
     let mensaje: String
     let tramo: Tramo?
     let rumbo: Double?
+    let destino: PuntoPantalla?
+    let destinoId: Int?
 }
 
 final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var estado = "🔍 Busca el QR del ancla"
     @Published private(set) var tramoActual: String?
     @Published private(set) var rumboGrados: Double?
+    @Published private(set) var destinoEnPantalla: EstadoAR.PuntoPantalla?
     @Published var soloLinea: Bool { didSet { rehacer() } }
     var alCambiarEstado: ((EstadoAR) -> Void)?
 
@@ -40,6 +47,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var poseParaProgreso: PoseQR?
     private var progreso = ProgresoRuta()
     private var ultimoAviso: TimeInterval = 0
+    private var ultimaProyeccion: TimeInterval = 0
     private var sesionId = UUID()
     private var enMarcha = false
     private var interrumpida = false
@@ -49,6 +57,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var anclaBuscada: String?
     private var ultimoTramo: EstadoAR.Tramo?
     private var estadoEnviado: EstadoAR?
+    private var destinoId: Int?
 
     init(recorrido: Recorrido) {
         self.anclas = [recorrido.anclaId: recorrido.ancla]
@@ -72,13 +81,16 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         arrancar()
     }
 
-    func cambiarRecorrido(_ nuevo: Recorrido?) {
+    func cambiarRecorrido(_ nuevo: Recorrido?, destinoId: Int? = nil) {
         if let nuevo, nuevo.anclaId != anclaFijada { return }
         recorrido = nuevo
+        self.destinoId = destinoId
         progreso = ProgresoRuta()
         ultimoTramo = nil
         tramoActual = nil
         rumboGrados = nil
+        destinoEnPantalla = nil
+        ultimaProyeccion = 0
         rehacer()
         emitirEstado()
     }
@@ -86,7 +98,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     func emitirEstado() {
         guard let alCambiarEstado else { return }
         let actual = EstadoAR(anclaId: anclaFijada, fiable: enMarcha && marcoQR.isEnabled, mensaje: estado,
-                             tramo: ultimoTramo, rumbo: rumboGrados)
+                             tramo: ultimoTramo, rumbo: rumboGrados, destino: destinoEnPantalla, destinoId: destinoId)
         guard actual != estadoEnviado else { return }
         estadoEnviado = actual
         alCambiarEstado(actual)
@@ -200,7 +212,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         marcoQR.isEnabled = true
         marcaQR?.isEnabled = poseActual != nil
         mostrarEstado(qr == nil ? "📍 Última posición del QR en el entorno" : "✅ Siguiendo el QR del ancla")
-        ajustarFlechas(frame)
+        actualizarVisuales(frame)
         actualizarTramo(frame)
     }
 
@@ -274,14 +286,39 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
-    private func ajustarFlechas(_ frame: ARFrame) {
-        guard let contenido, !soloLinea else { return }
-        let localACamara = simd_inverse(frame.camera.transform) * marcoRuta.transformMatrix(relativeTo: nil)
-        for flecha in contenido.children where flecha.name == "flecha" {
-            let profundidad = -(localACamara * SIMD4<Float>(flecha.position, 1)).z
-            flecha.isEnabled = profundidad > 0.09
-            flecha.scale = SIMD3<Float>(repeating: min(1, max(0.01, profundidad * 0.55)))
+    private func actualizarVisuales(_ frame: ARFrame) {
+        guard let recorrido, let contenido else { return }
+        let pantalla = vista.bounds.size
+        guard pantalla.width > 1, pantalla.height > 1 else { return }
+        let mundo = marcoRuta.transformMatrix(relativeTo: nil)
+        let inversaCamara = simd_inverse(frame.camera.transform)
+        if recorrido.flechas && !soloLinea {
+            let localACamara = inversaCamara * mundo
+            let proyeccion = frame.camera.projectionMatrix(for: .portrait, viewportSize: pantalla, zNear: 0.05, zFar: 50)
+            for flecha in contenido.children where flecha.name == "flecha" {
+                let profundidad = -(localACamara * SIMD4<Float>(flecha.position, 1)).z
+                let escala = GeometriaFlecha.escala(profundidad: profundidad,
+                    altoPantalla: Float(pantalla.height), anchoPantalla: Float(pantalla.width),
+                    proyeccionY: max(1, abs(proyeccion.columns.1.y)))
+                flecha.isEnabled = escala > 0
+                if escala > 0 { flecha.scale = SIMD3<Float>(repeating: escala) }
+            }
         }
+        guard frame.timestamp - ultimaProyeccion >= 0.04 else { return }
+        ultimaProyeccion = frame.timestamp
+        var destino: EstadoAR.PuntoPantalla?
+        if recorrido.icono, let punto = recorrido.posIcono ?? recorrido.puntos.last {
+            let p = mundo * SIMD4<Float>(punto + [0, 0.025, 0], 1)
+            if (inversaCamara * p).z < -0.05 {
+                let proyectado = frame.camera.projectPoint([p.x, p.y, p.z], orientation: .portrait, viewportSize: pantalla)
+                let x = Double(proyectado.x / pantalla.width)
+                let y = Double(proyectado.y / pantalla.height)
+                if (0.0...1.0).contains(x), (0.0...1.0).contains(y) {
+                    destino = .init(x: (x * 1000).rounded() / 1000, y: (y * 1000).rounded() / 1000)
+                }
+            }
+        }
+        if destino != destinoEnPantalla { destinoEnPantalla = destino }
     }
 
     private func rehacer() {
@@ -300,6 +337,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private func pausarGuia() {
         marcoQR.isEnabled = false
         ultimoTramo = nil
+        if destinoEnPantalla != nil { destinoEnPantalla = nil }
         if tramoActual != nil { tramoActual = nil }
         if rumboGrados != nil { rumboGrados = nil }
     }
