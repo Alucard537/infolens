@@ -34,6 +34,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // La app registra el service worker desde main.js.
+        skipWaiting: true,
+        clientsClaim: true,
         // Guardar TODO en el móvil para que funcione en modo avión
         globPatterns: ['**/*.{js,mjs,css,html,wasm,svg,png,ico,pdf,webmanifest,bcmap,pfb,ttf,usdz}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
