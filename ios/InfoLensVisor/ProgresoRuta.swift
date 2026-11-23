@@ -1,5 +1,24 @@
 import Foundation
 
+enum DireccionDestino: String, Encodable {
+    case izquierda, derecha, arriba, abajo, giro, alejar
+
+    static func enPantalla(x: Double, y: Double) -> DireccionDestino? {
+        guard x.isFinite, y.isFinite else { return nil }
+        let lateral = max(-x, x - 1, 0)
+        let vertical = max(-y, y - 1, 0)
+        if lateral == 0 && vertical == 0 { return nil }
+        if lateral >= vertical { return x < 0 ? .izquierda : .derecha }
+        return y < 0 ? .arriba : .abajo
+    }
+
+    static func fueraDelPlano(lateral: Float, profundidad: Float) -> DireccionDestino {
+        if profundidad > 0 { return .alejar }
+        if abs(lateral) < 0.05 { return .giro }
+        return lateral < 0 ? .izquierda : .derecha
+    }
+}
+
 struct ProgresoRuta {
     private(set) var indice = 1
 

@@ -25,6 +25,7 @@ struct EstadoAR: Encodable, Equatable {
     let destino: PuntoPantalla?
     let destinoId: Int?
     let errorDestino: String?
+    let direccionDestino: DireccionDestino?
 }
 
 final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
@@ -64,6 +65,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var estadoEnviado: EstadoAR?
     private var destinoId: Int?
     private var errorDestino: String?
+    private var direccionDestino: DireccionDestino?
 
     init(recorrido: Recorrido) {
         self.anclas = [recorrido.anclaId: recorrido.ancla]
@@ -105,6 +107,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         tramoActual = nil
         rumboGrados = nil
         destinoEnPantalla = nil
+        direccionDestino = nil
         ultimaProyeccion = 0
         rehacer()
         emitirEstado()
@@ -114,7 +117,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         guard let alCambiarEstado else { return }
         let actual = EstadoAR(anclaId: anclaFijada, fiable: enMarcha && marcoQR.isEnabled, mensaje: estado,
                              tramo: ultimoTramo, rumbo: rumboGrados, destino: destinoEnPantalla, destinoId: destinoId,
-                             errorDestino: errorDestino)
+                             errorDestino: errorDestino, direccionDestino: direccionDestino)
         guard actual != estadoEnviado else { return }
         estadoEnviado = actual
         alCambiarEstado(actual)
@@ -345,8 +348,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         ultimoAviso = frame.timestamp
         let ruta = marcoRuta.transformMatrix(relativeTo: nil)
         let camara = frame.camera.transform
+        let vistaCamara = frame.camera.viewMatrix(for: .portrait)
         if recorrido.colocacion != nil, let punto = recorrido.puntos.last {
-            let vector = simd_inverse(camara) * (ruta * SIMD4<Float>(punto, 1))
+            let vector = vistaCamara * (ruta * SIMD4<Float>(punto, 1))
             let distancia = simd_length(SIMD3<Float>(vector.x, vector.y, vector.z))
             let texto = "Distancia al centro: \(distancia.formatted(.number.precision(.fractionLength(2)))) m"
             if tramoActual != texto { tramoActual = texto }
@@ -369,10 +373,10 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         marcaTramo.position = objetivo + [0, 0.04, 0]
         if tramo.llegada || !recorrido.flechas {
             if recorrido.icono, destinoEnPantalla == nil, let fin = recorrido.posIcono ?? recorrido.puntos.last {
-                actualizarRumbo(simd_inverse(camara) * (ruta * SIMD4<Float>(fin, 1)))
+                actualizarRumbo(vistaCamara * (ruta * SIMD4<Float>(fin, 1)))
             } else if rumboGrados != nil { rumboGrados = nil }
         } else {
-            let direccion = simd_inverse(camara) * (ruta * SIMD4<Float>(objetivo, 1))
+            let direccion = vistaCamara * (ruta * SIMD4<Float>(objetivo, 1))
             actualizarRumbo(direccion)
         }
     }
@@ -388,7 +392,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let pantalla = vista.bounds.size
         guard pantalla.width > 1, pantalla.height > 1 else { return }
         let mundo = marcoRuta.transformMatrix(relativeTo: nil)
-        let inversaCamara = simd_inverse(frame.camera.transform)
+        let inversaCamara = frame.camera.viewMatrix(for: .portrait)
         if let colocacion = recorrido.colocacion, let punto = recorrido.puntos.last {
             let camaraLocal = simd_inverse(mundo) * frame.camera.transform.columns.3
             let visible = colocacion.seVe(desde: [camaraLocal.x, camaraLocal.y, camaraLocal.z], punto: punto)
@@ -397,6 +401,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             if desdeCaraOpuesta != caraOpuesta { desdeCaraOpuesta = caraOpuesta }
             if !visible {
                 if destinoEnPantalla != nil { destinoEnPantalla = nil }
+                direccionDestino = nil
                 return
             }
         }
@@ -415,19 +420,26 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         guard frame.timestamp - ultimaProyeccion >= 0.04 else { return }
         ultimaProyeccion = frame.timestamp
         var destino: EstadoAR.PuntoPantalla?
+        var direccion: DireccionDestino?
         if recorrido.icono, let punto = recorrido.posIcono ?? recorrido.puntos.last {
             let altura: Float = recorrido.colocacion == nil ? 0.025 : 0
             let p = mundo * SIMD4<Float>(punto + [0, altura, 0], 1)
-            if (inversaCamara * p).z < -0.05 {
+            let enCamara = inversaCamara * p
+            if enCamara.z < -0.05 {
                 let proyectado = frame.camera.projectPoint([p.x, p.y, p.z], orientation: .portrait, viewportSize: pantalla)
                 let x = Double(proyectado.x / pantalla.width)
                 let y = Double(proyectado.y / pantalla.height)
                 if (0.0...1.0).contains(x), (0.0...1.0).contains(y) {
                     destino = .init(x: (x * 1000).rounded() / 1000, y: (y * 1000).rounded() / 1000)
+                } else {
+                    direccion = DireccionDestino.enPantalla(x: x, y: y)
                 }
+            } else {
+                direccion = DireccionDestino.fueraDelPlano(lateral: enCamara.x, profundidad: -enCamara.z)
             }
         }
         if destino != destinoEnPantalla { destinoEnPantalla = destino }
+        direccionDestino = direccion
     }
 
     private func rehacer() {
@@ -446,6 +458,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private func pausarGuia() {
         marcoQR.isEnabled = false
         ultimoTramo = nil
+        direccionDestino = nil
         if destinoEnPantalla != nil { destinoEnPantalla = nil }
         if tramoActual != nil { tramoActual = nil }
         if rumboGrados != nil { rumboGrados = nil }

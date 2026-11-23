@@ -179,6 +179,14 @@ jobs:
           precondition(colocacion.colocacion!.seVe(desde: objetivo + [1,0,0], punto: objetivo))
           precondition(!colocacion.colocacion!.seVe(desde: objetivo - [1,0,0], punto: objetivo))
           precondition(!colocacion.colocacion!.seVe(desde: objetivo + [0,0,1], punto: objetivo))
+          precondition(DireccionDestino.enPantalla(x: 0.5, y: 0.5) == nil)
+          precondition(DireccionDestino.enPantalla(x: -0.2, y: 0.4) == .izquierda)
+          precondition(DireccionDestino.enPantalla(x: 1.2, y: 0.4) == .derecha)
+          precondition(DireccionDestino.enPantalla(x: 0.5, y: -0.2) == .arriba)
+          precondition(DireccionDestino.enPantalla(x: 0.5, y: 1.2) == .abajo)
+          precondition(DireccionDestino.fueraDelPlano(lateral: -1, profundidad: -1) == .izquierda)
+          precondition(DireccionDestino.fueraDelPlano(lateral: 0, profundidad: -1) == .giro)
+          precondition(DireccionDestino.fueraDelPlano(lateral: 0, profundidad: 0.01) == .alejar)
           precondition(Recorrido.prueba().colocacion == nil)
           SWIFT
           xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift ios/InfoLensVisor/GeometriaFlecha.swift ios/InfoLensVisor/ProgresoRuta.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
