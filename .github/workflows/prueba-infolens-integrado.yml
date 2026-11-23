@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   ipa:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -189,19 +189,6 @@ jobs:
           done
           cmp "$RUNNER_TEMP/infolens.html" ios/web-integrada/index.html
           test "$(curl -sS --path-as-is -o /dev/null -w '%{http_code}' http://127.0.0.1:41967/%2e%2e/project.yml)" = "400"
-      - name: Comprobar el reconocimiento con WebKit y el servidor de InfoLens
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import { build } from 'vite';
-          await build({ build: {
-            outDir: 'ios/web-reconocimiento-prueba',
-            rollupOptions: { input: 'scripts/prueba-reconocimiento/index.html' },
-          } });
-          NODE
-          cp ios/web-reconocimiento-prueba/scripts/prueba-reconocimiento/index.html ios/web-reconocimiento-prueba/prueba-reconocimiento.html
-          xcrun swiftc ios/InfoLensVisor/ServidorWeb.swift scripts/prueba-reconocimiento/main.swift -o "$RUNNER_TEMP/prueba-reconocimiento"
-          "$RUNNER_TEMP/prueba-reconocimiento" "$PWD/ios/web-reconocimiento-prueba"
       - name: Compilar InfoLens para iPhone
         run: |
           set -euo pipefail
@@ -224,6 +211,19 @@ jobs:
           path: InfoLens-Integrado-Prueba.ipa
           if-no-files-found: error
           retention-days: 7
+      - name: Comprobar el reconocimiento con WebKit y el servidor de InfoLens
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { build } from 'vite';
+          await build({ build: {
+            outDir: 'ios/web-reconocimiento-prueba',
+            rollupOptions: { input: 'scripts/prueba-reconocimiento/index.html' },
+          } });
+          NODE
+          cp ios/web-reconocimiento-prueba/scripts/prueba-reconocimiento/index.html ios/web-reconocimiento-prueba/prueba-reconocimiento.html
+          xcrun swiftc ios/InfoLensVisor/ServidorWeb.swift scripts/prueba-reconocimiento/main.swift -o "$RUNNER_TEMP/prueba-reconocimiento"
+          "$RUNNER_TEMP/prueba-reconocimiento" "$PWD/ios/web-reconocimiento-prueba"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

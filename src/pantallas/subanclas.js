@@ -39,7 +39,7 @@ export function montarSubanclas(cont, ancla) {
           const { generarPdfQR } = await import('../qr-pdf.js');
           const pdf = generarPdfQR([{ id: s.id, nombre: s.nombre, referencia: `${ancla.nombre} · ${CARAS_SUBANCLA[s.cara]}`,
             texto: textoQRSubancla(s.id), subancla: true }], s.ladoCm);
-          guardarOCompartir(pdf, `SUBANCLA-${s.id}.pdf`, 'application/pdf');
+          await guardarOCompartir(pdf, `SUBANCLA-${s.id}.pdf`, 'application/pdf');
         } catch (e) { avisar(e.message); }
       };
       li.querySelector('[data-s="borrar"]').onclick = async () => {
