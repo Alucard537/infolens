@@ -229,7 +229,8 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
 // Modo ANCLA (localizar componentes de la máquina activa)
 // ======================================================================
 export function crearModoAncla({
-  capa, panel, panelPos, seguidos, abrirDetalle, maquinaId, esAdmin, avisar, verLocId = null, gravedadCalibrada = () => null }) {
+  capa, panel, panelPos, seguidos, abrirDetalle, maquinaId, esAdmin, avisar, verLocId = null,
+  gravedadCalibrada = () => null, alCambiarAncla = () => {} }) {
   let anclaId = null;          // ancla activa (QR de la máquina activa)
   let ancla = null;
   let locs = [];               // localizaciones válidas para esa ancla
@@ -281,6 +282,7 @@ export function crearModoAncla({
       capa.ocultar(); avisoRecorrido = null; anclaId = null; ancla = null; locs = [];
       panel.classList.remove('tarjeta-recorrido');
       panel.innerHTML = '<p class="rec-msg">Apunta al QR del ancla que quieras usar.</p>';
+      alCambiarAncla();
     });
     return h;
   }

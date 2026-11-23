@@ -1,11 +1,11 @@
-# Compila el visor nativo de iPhone (ios/) en un Mac de GitHub, SIN firmar.
+# Compila la aplicación InfoLens de iPhone con su web y ARKit, sin firmar.
 # En Windows, instala la IPA en el iPhone con Impactor 2.7.3 y tu cuenta de Apple.
 name: Visor iOS
 
 on:
   push:
     branches: [main]
-    paths: ['ios/**', '.github/workflows/visor-ios.yml']
+    paths: ['ios/**', 'src/**', 'public/**', 'scripts/**', 'index.html', 'vite.config.js', 'package*.json', '.github/workflows/visor-ios.yml']
   workflow_dispatch:
 
 permissions:
@@ -16,6 +16,14 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Preparar las pantallas incluidas en InfoLens
+        run: |
+          npm ci
+          npm run build -- --outDir ios/web-integrada
       - name: Generar el proyecto de Xcode
         run: |
           brew install xcodegen
@@ -49,9 +57,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: visor-ios
-          name: InfoLens Visor (iPhone)
+          name: InfoLens (iPhone)
           body: |
-            Visor AR nativo de InfoLens. En Windows, conecta el iPhone por USB, abre Impactor 2.7.3 e importa InfoLensVisor.ipa con tu cuenta de Apple.
+            InfoLens para iPhone incluye catálogo, guías y seguimiento ARKit. En Windows, abre Impactor 2.7.3 e importa InfoLensVisor.ipa.
             Compilado del commit ${{ github.sha }}.
           files: ios/InfoLensVisor.ipa
           prerelease: true

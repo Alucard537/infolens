@@ -6,14 +6,14 @@ import CoreImage
 import UIKit
 
 enum ImagenQR {
-    static func referencia(para r: Recorrido) -> ARReferenceImage? {
+    static func referencia(para r: AnclaAR) -> ARReferenceImage? {
         guard let imagen = dibujar(r) else { return nil }
         let ref = ARReferenceImage(imagen, orientation: .up, physicalWidth: CGFloat(r.ladoCm / 100))
-        ref.name = r.anclaId
+        ref.name = r.id
         return ref
     }
 
-    private static func dibujar(_ r: Recorrido) -> CGImage? {
+    private static func dibujar(_ r: AnclaAR) -> CGImage? {
         if let m = r.modulos { return desdeModulos(m) }
         // Sin módulos: el QR se genera aquí (puede no ser idéntico al impreso)
         guard let filtro = CIFilter(name: "CIQRCodeGenerator") else { return nil }

@@ -1,118 +1,73 @@
-// InfoLens Visor: visor AR nativo (ARKit + LiDAR) para los recorridos de las guías de InfoLens.
-// Se abre desde la app web con el botón "📱 Abrir en el visor nativo" (infolens://ruta?d=…).
 import SwiftUI
 
 @main
-struct InfoLensVisorApp: App {
-    @State private var controlador: ControladorAR?
-    @State private var enlaceInvalido = false
+struct InfoLensApp: App {
+    @StateObject private var aplicacion = AplicacionInfoLens()
 
     var body: some Scene {
         WindowGroup {
             ZStack {
-                if let c = controlador {
-                    PantallaAR(controlador: c) {
-                        c.detener()
-                        controlador = nil
-                    }
-                    .id(c.recorrido.clave)
-                } else {
-                    Bienvenida { abrir(Recorrido.prueba()) }
+                Color.black.ignoresSafeArea()
+                if let controlador = aplicacion.controlador {
+                    VistaAR(controlador: controlador)
+                        .id(ObjectIdentifier(controlador))
+                        .ignoresSafeArea()
+                }
+                WebInfoLens(aplicacion: aplicacion)
+                    .ignoresSafeArea()
+                    .opacity(aplicacion.pruebaAbierta ? 0 : 1)
+                    .allowsHitTesting(!aplicacion.pruebaAbierta)
+                if aplicacion.pruebaAbierta, let controlador = aplicacion.controlador {
+                    PanelPrueba(controlador: controlador, cerrar: aplicacion.cerrar)
                 }
             }
             .onOpenURL { url in
-                guard let recorrido = Recorrido.desdeURL(url) else {
-                    enlaceInvalido = true
-                    return
-                }
-                abrir(recorrido)
+                if let recorrido = Recorrido.desdeURL(url) { aplicacion.abrirPrueba(recorrido) }
+                else { aplicacion.error = "Ese enlace no contiene un recorrido válido." }
             }
-            .alert("No se pudo abrir el recorrido", isPresented: $enlaceInvalido) {
+            .alert("InfoLens", isPresented: Binding(
+                get: { aplicacion.error != nil },
+                set: { if !$0 { aplicacion.error = nil } }
+            )) {
                 Button("Aceptar", role: .cancel) {}
             } message: {
-                Text("Vuelve a Safari, abre el paso de la guía y pulsa «Abrir en el visor nativo».")
+                Text(aplicacion.error ?? "")
             }
         }
     }
-
-    private func abrir(_ recorrido: Recorrido) {
-        controlador?.detener()
-        controlador = ControladorAR(recorrido: recorrido)
-    }
 }
 
-struct Bienvenida: View {
-    let iniciarPrueba: () -> Void
-
-    var body: some View {
-        VStack(spacing: 18) {
-            Text("⚓ InfoLens Visor").font(.largeTitle.bold())
-            Button(action: iniciarPrueba) {
-                Label("Iniciar prueba con QR", systemImage: "qrcode.viewfinder")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            Text("Apunta al QR de prueba TEST-1, impreso con 10 cm de lado, para ver el recorrido.")
-                .multilineTextAlignment(.center)
-            Text("El punto blanco marca el centro del QR. La flecha azul señala ADELANTE.")
-                .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
-            Text("Para seguir una guía, abre su paso en InfoLens y pulsa «Abrir en el visor nativo».")
-                .font(.footnote).foregroundColor(.secondary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: 420)
-        .padding(28)
-    }
-}
-
-struct PantallaAR: View {
+private struct PanelPrueba: View {
     @ObservedObject var controlador: ControladorAR
     let cerrar: () -> Void
 
     var body: some View {
-        ZStack {
-            VistaAR(controlador: controlador).ignoresSafeArea()
-            VStack {
-                VStack(spacing: 8) {
-                    Text(controlador.estado).font(.headline)
-                    if let tramo = controlador.tramoActual {
-                        HStack(spacing: 8) {
-                            if let rumbo = controlador.rumboGrados {
-                                Image(systemName: "location.north.fill")
-                                    .rotationEffect(.degrees(rumbo))
-                                    .foregroundColor(.yellow)
-                                    .accessibilityHidden(true)
-                            }
-                            Text(tramo).font(.headline)
-                        }
-                    }
+        VStack(spacing: 8) {
+            Text(controlador.estado)
+                .font(.subheadline.weight(.semibold))
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                Text(controlador.recorrido?.info.nombre ?? "Prueba del recorrido").font(.headline)
+                if let referencia = controlador.recorrido?.info.referencia {
+                    Text(referencia).font(.subheadline)
                 }
-                .multilineTextAlignment(.center)
-                .padding(12)
-                .frame(maxWidth: .infinity)
-                .background(Color.black.opacity(0.65))
-                .foregroundColor(.white)
-                .cornerRadius(14)
-                .padding(.horizontal, 12)
-                Spacer()
-                VStack(spacing: 10) {
-                    Picker("Mostrar", selection: $controlador.soloLinea) {
-                        Text("Flechas").tag(false)
-                        Text("Línea").tag(true)
-                    }
-                    .pickerStyle(.segmented)
-                    HStack(spacing: 10) {
-                        Button("Volver a detectar QR") { controlador.buscarQR() }
-                            .buttonStyle(.bordered)
-                        Button("✕ Cerrar") { cerrar() }
-                            .buttonStyle(.borderedProminent)
-                    }
+                if let tramo = controlador.tramoActual { Text(tramo).font(.subheadline) }
+                Picker("Mostrar", selection: $controlador.soloLinea) {
+                    Text("Flechas").tag(false)
+                    Text("Línea").tag(true)
                 }
-                .padding(12)
-                .background(.ultraThinMaterial)
-                .cornerRadius(16)
-                .padding(12)
+                .pickerStyle(.segmented)
+                HStack {
+                    Button("Volver a detectar QR") { controlador.buscarQR() }.buttonStyle(.bordered)
+                    Spacer()
+                    Button("Cerrar", action: cerrar).buttonStyle(.borderedProminent)
+                }
             }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
         }
+        .padding(12)
     }
 }
