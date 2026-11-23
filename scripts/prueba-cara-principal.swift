@@ -92,5 +92,50 @@ struct PruebaCaraPrincipal {
         precondition(simd_length(lejana.centro(en: corregida) - observada.posicion) < 0.001)
         precondition(corregida.diferenciaAngular(con: base) < 0.5)
         print("Cara del principal y recuperación de las subanclas verificadas")
+        probarRecorridoNivelado()
+    }
+
+    static func probarRecorridoNivelado() {
+        let pared = simd_float4x4(columns: ([1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]))
+        let origen: SIMD4<Float> = [4, 1.2, -2, 1]
+        let giro = simd_float4x4(simd_quatf(angle: .pi / 2, axis: [0, 1, 0]))
+        let inclinacion = simd_float4x4(simd_quatf(angle: .pi / 15, axis: [1, 0, 0]))
+
+        for papel in [pared, matrix_identity_float4x4] {
+            var anclaje = AnclajeQR()
+            let id = UUID()
+            for muestra in 0..<6 {
+                _ = anclaje.observar(PoseQR(papel), id: id, en: Double(muestra) * 0.06)
+            }
+            var lecturaInclinada = giro * inclinacion * papel
+            lecturaInclinada.columns.3 = origen
+            precondition(anclaje.observar(PoseQR(lecturaInclinada), id: id, en: 0.36) != nil)
+            guard let ruta = anclaje.poseRecorrido else { preconditionFailure("Falta la pose del recorrido") }
+            comprobarTramos(ruta, origen: origen)
+            anclaje.dejarDeVerQR()
+            precondition(anclaje.poseRecorrido?.cercana(a: ruta) == true)
+        }
+
+        let subancla = SubanclaAR(anclaId: "PRINCIPAL", nombre: "Subancla manual", pos: [2, 0, 0], cara: .frontal)
+        var poseInclinada = giro * inclinacion
+        poseInclinada.columns.3 = origen
+        var marcaRelativa = pared
+        marcaRelativa.columns.3 = [2, 0, 0, 1]
+        comprobarTramos(subancla.poseRecorrido(desde: PoseQR(poseInclinada * marcaRelativa)), origen: origen)
+
+        // Si el eje de avance se vuelve vertical, el borde lateral sigue dando un rumbo horizontal.
+        var ejeVertical = giro * simd_float4x4(simd_quatf(angle: .pi / 2, axis: [1, 0, 0]))
+        ejeVertical.columns.3 = origen
+        comprobarTramos(PoseQR(ejeVertical).nivelada, origen: origen)
+        print("Tramos horizontales y verticales verificados tras inclinar, girar y perder de vista el QR")
+    }
+
+    private static func comprobarTramos(_ ruta: PoseQR, origen: SIMD4<Float>) {
+        let inicio = ruta.matriz * SIMD4<Float>(0, 0, 0, 1)
+        let adelante = ruta.matriz * SIMD4<Float>(0, 0, -2.5, 1)
+        let abajo = ruta.matriz * SIMD4<Float>(0, -0.8, -2.5, 1)
+        precondition(simd_distance(inicio, origen) < 0.001)
+        precondition(simd_distance(adelante - inicio, [-2.5, 0, 0, 0]) < 0.001)
+        precondition(simd_distance(abajo - adelante, [0, -0.8, 0, 0]) < 0.001)
     }
 }

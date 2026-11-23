@@ -2,6 +2,7 @@ import Foundation
 import simd
 
 struct PoseQR {
+    private static let arribaMundo = SIMD3<Float>(0, 1, 0)
     let posicion: SIMD3<Float>
     let rotacion: simd_quatf
 
@@ -47,22 +48,42 @@ struct PoseQR {
         // El primer encuadre alinea el recorrido con los ejes que se usaron para medirlo.
         let normal = m.columns.1
         let haciaAtras = abs(normal.y) >= sqrt(Float(0.5)) ? m.columns.2 : normal
-        let horizontal = SIMD3<Float>(haciaAtras.x, 0, haciaAtras.z)
+        let horizontal = Self.enHorizontal(haciaAtras)
         guard simd_length_squared(horizontal) > 0.0001 else { return nil }
+        return Self.marcoNivelado(horizontal: horizontal, centro: m.columns.3)
+    }
+
+    var nivelada: PoseQR {
+        let m = matriz
+        var horizontal = Self.enHorizontal(m.columns.2)
+        if simd_length_squared(horizontal) < 0.0001 {
+            horizontal = simd_cross(Self.enHorizontal(m.columns.0), Self.arribaMundo)
+        }
+        return PoseQR(Self.marcoNivelado(horizontal: horizontal, centro: m.columns.3))
+    }
+
+    private static func enHorizontal(_ eje: SIMD4<Float>) -> SIMD3<Float> {
+        [eje.x, 0, eje.z]
+    }
+
+    private static func marcoNivelado(horizontal: SIMD3<Float>, centro: SIMD4<Float>) -> simd_float4x4 {
         let z = simd_normalize(horizontal)
-        let arriba = SIMD3<Float>(0, 1, 0)
-        let x = simd_cross(arriba, z)
-        return simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(arriba, 0),
-                                      SIMD4<Float>(z, 0), m.columns.3))
+        let x = simd_cross(arribaMundo, z)
+        return simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(arribaMundo, 0), SIMD4<Float>(z, 0), centro))
     }
 }
 
 struct AnclajeQR {
-    private(set) var pose: PoseQR?
-    private(set) var rutaDesdeQR: simd_float4x4?
+    private var pose: PoseQR?
+    private var rutaDesdeQR: simd_float4x4?
     private var idVisible: UUID?
     private var ultimaVista: TimeInterval = 0
     private var candidata: (id: UUID, referencia: PoseQR, media: PoseQR, cantidad: Int, desde: TimeInterval)?
+
+    var poseRecorrido: PoseQR? {
+        guard let pose, let rutaDesdeQR else { return nil }
+        return PoseQR(pose.matriz * rutaDesdeQR).nivelada
+    }
 
     mutating func dejarDeVerQR() {
         idVisible = nil
@@ -90,7 +111,7 @@ struct AnclajeQR {
 
         if rutaDesdeQR == nil {
             guard let ruta = estable.media.marcoInicialRecorrido else { return nil }
-            // A partir de aquí la ruta queda fija en el sistema de coordenadas del papel.
+            // Esta referencia conserva el rumbo del recorrido respecto al QR al volver a verlo.
             rutaDesdeQR = simd_inverse(estable.media.matriz) * ruta
         }
         pose = muestra

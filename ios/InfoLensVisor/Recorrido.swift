@@ -111,7 +111,7 @@ struct SubanclaAR: Decodable {
         let ejes = cara.ejesMarca(respectoA: principal).columns
         let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0),
             SIMD4<Float>(ejes.2, 0), centroLocal))
-        return PoseQR(poseQR.matriz * simd_inverse(desdeMarca))
+        return PoseQR(poseQR.matriz * simd_inverse(desdeMarca)).nivelada
     }
 
     private var centroLocal: SIMD4<Float> { [pos[0], pos[1], pos[2], 1] }

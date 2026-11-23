@@ -314,9 +314,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func aplicarPoseQR(_ pose: PoseQR, id: String) {
-        guard let rutaDesdeQR = anclaje.rutaDesdeQR, let origen = prepararOrigen(id) else { return }
+        guard let poseRuta = anclaje.poseRecorrido, let origen = prepararOrigen(id) else { return }
         marcaQR?.setTransformMatrix(pose.matriz, relativeTo: origen)
-        let poseRuta = PoseQR(pose.matriz * rutaDesdeQR)
         marcoRuta.setTransformMatrix(poseRuta.matriz, relativeTo: origen)
         if poseParaProgreso?.cercana(a: poseRuta, metros: 0.10, grados: 10) != true {
             if !usaSubancla { progreso = ProgresoRuta() }
@@ -352,9 +351,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let nominal = subancla.poseRecorrido(desde: observada, respectoA: caraPrincipal)
         var estimada = subancla.poseConRumboFijado(observada: observada, nominal: nominal, base: base) ?? nominal
         if !base.cercana(a: estimada, metros: 0.50, grados: 15),
-           let posePrincipal = anclaje.pose, let rutaDesdeQR = anclaje.rutaDesdeQR,
+           let posePrincipal = anclaje.poseRecorrido,
            let verificada = subancla.poseConCaraOpuesta(desde: observada, respectoA: caraPrincipal,
-                                                        principalMedido: PoseQR(posePrincipal.matriz * rutaDesdeQR)) {
+                                                        principalMedido: posePrincipal) {
             estimada = verificada
         }
         guard base.cercana(a: estimada, metros: 0.50, grados: 15),
