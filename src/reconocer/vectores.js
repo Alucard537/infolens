@@ -161,8 +161,18 @@ export function tieneRecorteObjeto(huella) {
   return !!huella.grabaciones?.some((g) => g.recorte === RECORTE_OBJETO);
 }
 
+export function tieneRecuadro(huella) {
+  return !huella.grabaciones?.length || huella.grabaciones.some((g) => !g.recorte);
+}
+
 function tipoRecorte(huella, i) {
-  return huella.grabaciones?.[huella.grupo?.[i]]?.recorte;
+  return huella.grabaciones?.[huella.grupo?.[i]]?.recorte || undefined;
+}
+
+function producto(a, b) {
+  let suma = 0;
+  for (let i = 0; i < a.length; i++) suma += a[i] * b[i];
+  return suma;
 }
 
 /** Conserva fotos distintas, incluso cuando vienen de una sesión anterior. */
@@ -177,26 +187,36 @@ export function elegirCapturas(capturas, anterior, limite, recorte) {
         duplicada = tipoRecorte(anterior, i) === recorte && parecidoGuardado(v, anterior, i) >= PARECIDO_DUPLICADO;
       }
     }
-    if (!duplicada) duplicada = unicas.some(({ v: otra }) => {
-      let puntos = 0;
-      for (let j = 0; j < v.length; j++) puntos += v[j] * otra[j];
-      return puntos >= PARECIDO_DUPLICADO;
-    });
+    if (!duplicada) duplicada = unicas.some(({ v: otra }) => producto(v, otra) >= PARECIDO_DUPLICADO);
     if (duplicada) repetidas++;
     else unicas.push(captura);
   }
-  const n = Math.min(limite, unicas.length);
-  const elegidas = Array.from({ length: n }, (_, i) => unicas[Math.floor((i + 0.5) * unicas.length / n)]);
-  return { elegidas, repetidas, sinEspacio: unicas.length - n };
+  if (unicas.length <= limite) return { elegidas: unicas, repetidas, sinEspacio: 0 };
+  // Si quedan pocas plazas, cada imagen nueva cubre una vista diferente de las elegidas.
+  const elegidas = [], cercania = new Float32Array(unicas.length).fill(-Infinity);
+  let siguiente = 0;
+  while (elegidas.length < limite) {
+    const elegida = unicas[siguiente];
+    elegidas.push(elegida);
+    cercania[siguiente] = Infinity;
+    let menor = Infinity;
+    for (let i = 0; i < unicas.length; i++) {
+      if (cercania[i] === Infinity) continue;
+      cercania[i] = Math.max(cercania[i], producto(elegida.v, unicas[i].v));
+      if (cercania[i] < menor) { menor = cercania[i]; siguiente = i; }
+    }
+  }
+  return { elegidas, repetidas, sinEspacio: unicas.length - elegidas.length };
 }
 
 /** Favorece una vista que encaje bien y usa una segunda vista como apoyo. */
 export function comparar({ objeto, recuadro }, guardadas) {
   const res = [];
+  const hayPiezasAisladas = guardadas.some(tieneRecorteObjeto);
   for (const h of guardadas) {
-    const recorte = tieneRecorteObjeto(h) ? RECORTE_OBJETO : undefined;
+    const recorte = objeto && tieneRecorteObjeto(h) ? RECORTE_OBJETO : undefined;
     const vector = recorte ? objeto : recuadro;
-    if (h.dim !== vector?.length || (h.modelo && h.modelo !== MODELO) || !h.n) continue;
+    if (h.dim !== vector?.length || (h.modelo && h.modelo !== MODELO) || !h.n || (!recorte && !tieneRecuadro(h))) continue;
     let mejor = -1, apoyo = -1;
     for (let i = 0; i < h.n; i++) {
       if (tipoRecorte(h, i) !== recorte) continue;
@@ -205,12 +225,13 @@ export function comparar({ objeto, recuadro }, guardadas) {
       else if (s > apoyo) apoyo = s;
     }
     const diferencia = Math.min(0.15, mejor - apoyo);
-    res.push({ elementoId: h.elementoId, parecido: Math.max(0, mejor - 0.2 * diferencia) });
+    res.push({ elementoId: h.elementoId, parecido: Math.max(0, mejor - 0.2 * diferencia),
+      automatico: !!recorte || !hayPiezasAisladas });
   }
   return res.sort((a, b) => b.parecido - a.parecido);
 }
 
 export function coincidenciaClara([primero, segundo]) {
-  if (!primero || primero.parecido < PARECIDO_SEGURO) return null;
+  if (!primero || primero.automatico === false || primero.parecido < PARECIDO_SEGURO) return null;
   return !segundo || primero.parecido - segundo.parecido >= VENTAJA_SEGURA ? primero.elementoId : null;
 }
