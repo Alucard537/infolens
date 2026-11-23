@@ -43,7 +43,8 @@ private struct NombreFlotantePrueba: View {
 
     var body: some View {
         GeometryReader { g in
-            if let punto = controlador.destinoEnPantalla, let nombre = controlador.recorrido?.info.nombre {
+            if controlador.recorrido?.colocacion == nil,
+               let punto = controlador.destinoEnPantalla, let nombre = controlador.recorrido?.info.nombre {
                 let x = g.size.width * CGFloat(punto.x)
                 let y = g.size.height * CGFloat(punto.y)
                 let ancho = min(152, g.size.width * 0.43)
@@ -74,22 +75,39 @@ private struct PanelPrueba: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             Spacer()
             VStack(alignment: .leading, spacing: 8) {
-                if controlador.destinoEnPantalla == nil {
-                    Text(controlador.recorrido?.info.nombre ?? "Prueba del recorrido").font(.headline)
-                }
-                if let referencia = controlador.recorrido?.info.referencia {
-                    Text(referencia).font(.subheadline)
+                if let recorrido = controlador.recorrido, let colocacion = recorrido.colocacion {
+                    Text("Colocar subancla · \(recorrido.info.nombre ?? "")").font(.headline)
+                    if let cara = recorrido.info.referencia, let medidas = recorrido.info.descripcion {
+                        Text("\(cara) · \(medidas)").font(.subheadline)
+                    }
+                    if controlador.destinoEnPantalla != nil {
+                        Text("Pega el QR de \(colocacion.ladoCm.formatted()) cm en el recuadro, con ARRIBA hacia el techo.")
+                            .font(.subheadline)
+                    } else if let rumbo = controlador.rumboGrados {
+                        HStack {
+                            Image(systemName: "arrow.up").rotationEffect(.degrees(rumbo))
+                            Text("Gira la cámara hacia el punto")
+                        }.font(.subheadline)
+                    }
+                } else {
+                    if controlador.destinoEnPantalla == nil {
+                        Text(controlador.recorrido?.info.nombre ?? "Prueba del recorrido").font(.headline)
+                    }
+                    if let referencia = controlador.recorrido?.info.referencia {
+                        Text(referencia).font(.subheadline)
+                    }
+                    Picker("Mostrar", selection: $controlador.soloLinea) {
+                        Text("Flechas").tag(false)
+                        Text("Línea").tag(true)
+                    }
+                    .pickerStyle(.segmented)
                 }
                 if let tramo = controlador.tramoActual { Text(tramo).font(.subheadline) }
-                Picker("Mostrar", selection: $controlador.soloLinea) {
-                    Text("Flechas").tag(false)
-                    Text("Línea").tag(true)
-                }
-                .pickerStyle(.segmented)
                 HStack {
                     Button("Volver a detectar QR") { controlador.buscarQR() }.buttonStyle(.bordered)
                     Spacer()
-                    Button("Cerrar", action: cerrar).buttonStyle(.borderedProminent)
+                    Button(controlador.recorrido?.colocacion == nil ? "Cerrar" : "Volver a editar", action: cerrar)
+                        .buttonStyle(.borderedProminent)
                 }
             }
             .padding(14)

@@ -333,6 +333,14 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         ultimoAviso = frame.timestamp
         let ruta = marcoRuta.transformMatrix(relativeTo: nil)
         let camara = frame.camera.transform
+        if recorrido.colocacion != nil, let punto = recorrido.puntos.last {
+            let vector = simd_inverse(camara) * (ruta * SIMD4<Float>(punto, 1))
+            let distancia = simd_length(SIMD3<Float>(vector.x, vector.y, vector.z))
+            let texto = "Distancia al centro: \(distancia.formatted(.number.precision(.fractionLength(2)))) m"
+            if tramoActual != texto { tramoActual = texto }
+            actualizarRumbo(vector)
+            return
+        }
         let local = simd_inverse(ruta) * camara.columns.3
         if buscarTramoCercano {
             progreso.ubicarTramo(puntos: recorrido.puntos, posicion: [local.x, local.y, local.z])
@@ -351,10 +359,14 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             if rumboGrados != nil { rumboGrados = nil }
         } else {
             let direccion = simd_inverse(camara) * (ruta * SIMD4<Float>(objetivo, 1))
-            let grados = atan2(Double(direccion.x), Double(-direccion.z)) * 180 / .pi
-            let rumbo = (grados / 5).rounded() * 5
-            if rumboGrados != rumbo { rumboGrados = rumbo }
+            actualizarRumbo(direccion)
         }
+    }
+
+    private func actualizarRumbo(_ direccion: SIMD4<Float>) {
+        let grados = atan2(Double(direccion.x), Double(-direccion.z)) * 180 / .pi
+        let rumbo = (grados / 5).rounded() * 5
+        if rumboGrados != rumbo { rumboGrados = rumbo }
     }
 
     private func actualizarVisuales(_ frame: ARFrame) {
@@ -379,7 +391,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         ultimaProyeccion = frame.timestamp
         var destino: EstadoAR.PuntoPantalla?
         if recorrido.icono, let punto = recorrido.posIcono ?? recorrido.puntos.last {
-            let p = mundo * SIMD4<Float>(punto + [0, 0.025, 0], 1)
+            let altura: Float = recorrido.colocacion == nil ? 0.025 : 0
+            let p = mundo * SIMD4<Float>(punto + [0, altura, 0], 1)
             if (inversaCamara * p).z < -0.05 {
                 let proyectado = frame.camera.projectPoint([p.x, p.y, p.z], orientation: .portrait, viewportSize: pantalla)
                 let x = Double(proyectado.x / pantalla.width)
@@ -418,6 +431,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private var buscarMensaje: String {
+        if let recorrido, recorrido.colocacion != nil {
+            return "🔍 Enfoca el QR principal (\(recorrido.anclaId))"
+        }
         if anclas.values.contains(where: { $0.subancla != nil && (anclaBuscada == nil || $0.principalId == anclaBuscada) }) {
             return "🔍 Busca el QR principal o una subancla de la máquina"
         }

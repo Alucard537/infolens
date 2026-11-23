@@ -4,12 +4,15 @@
 // comprobaciones y confirmación. Solo se pueden elegir anclas y componentes de la máquina de la guía.
 import {
   obtenerGuia, guardarGuia, obtenerMaquina, listarAnclas, elementosDeMaquina, localizacionesDeAncla, guardarAncla, siguienteIdAncla,
-  pasoVacio, ESTADOS_GUIA, TIPOS_GUIA,
+  pasoVacio, ESTADOS_GUIA, TIPOS_GUIA, obtenerAncla,
 } from '../maquinas.js';
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
 import { puntosDeTramos, tramosDePuntos, describir, deG, deSimple, simplesDeTramos } from '../coordenadas.js';
 import { pintarListaTramos } from '../ui/tramos.js';
+import { leerAjustes } from '../ajustes.js';
+import { datosDelVisor, enviarARKit, tieneARKitIntegrado } from '../ar/visor-nativo.js';
+import { CARAS_SUBANCLA, subanclasDe } from '../subanclas.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
 // Lee un número aunque se escriba "X=-130", "-130 cm" o con coma decimal ("1,5")
@@ -93,6 +96,10 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           <p class="nota">Después imprime su QR en ⚓ Gestión de anclas y pégalo en la máquina.</p>
         </div>
         ${!anclas.length ? '<p class="nota aviso-sin-anclas">Esta máquina aún no tiene anclas: crea una con el botón de arriba.</p>' : ''}
+        <details class="bloque-archivo colocacion-subanclas">
+          <summary>Colocar subanclas</summary>
+          <div class="opciones-colocacion"></div>
+        </details>
         <div class="bloque-archivo">
           <div class="titulo-archivo">🖼️ Imagen de portada</div>
           <img class="vista-foto portada" alt="" hidden>
@@ -132,7 +139,12 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     campo('descripcion').addEventListener('input', (e) => { g.descripcion = e.target.value; });
     app.querySelectorAll('[name="tipo"]').forEach((r) => r.addEventListener('change', () => { g.tipo = r.value; }));
     campo('estado').addEventListener('change', (e) => { g.estado = e.target.value; });
-    campo('ancla').addEventListener('change', async (e) => { g.anclaId = e.target.value || null; await cargarLocs(); pintarPasos(); });
+    campo('ancla').addEventListener('change', async (e) => {
+      g.anclaId = e.target.value || null;
+      pintarColocacion();
+      await cargarLocs();
+      pintarPasos();
+    });
     // Crear un ancla nueva sin salir del editor
     const formAncla = $('.form-ancla-guia');
     $('[data-a="crear-ancla"]').addEventListener('click', async () => {
@@ -154,6 +166,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         g.anclaId = a.id;
         formAncla.hidden = true;
         $('.aviso-sin-anclas')?.remove();
+        pintarColocacion();
         await cargarLocs();
         pintarPasos();
       } catch (ex) { er.hidden = false; er.textContent = ex.message; }
@@ -185,7 +198,62 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     });
     $('[data-a="guardar"]').addEventListener('click', () => guardar(false));
     $('[data-a="probar"]').addEventListener('click', () => guardar(true));
+    pintarColocacion();
     pintarPasos();
+  }
+
+  function pintarColocacion() {
+    const cont = app.querySelector('.opciones-colocacion');
+    const principal = anclas.find((a) => a.id === g.anclaId);
+    const lista = principal ? subanclasDe(principal) : [];
+    if (!lista.length) {
+      const aviso = document.createElement('p');
+      aviso.className = 'nota';
+      aviso.textContent = principal ? 'Crea una subancla para este QR en Gestión de anclas.' : 'Elige el ancla principal de la guía.';
+      cont.replaceChildren(aviso);
+      return;
+    }
+    cont.innerHTML = `
+      <label>Subancla <select name="subanclaColocacion"></select></label>
+      <p class="nota medidas-colocacion"></p>
+      <p class="nota ayuda-colocacion"></p>
+      ${tieneARKitIntegrado() ? '<button class="boton secundario" type="button" data-a="colocar-subancla">Marcar punto con la cámara</button>' : ''}
+      <p class="error-form" hidden></p>`;
+    const selector = cont.querySelector('select');
+    const medidas = cont.querySelector('.medidas-colocacion');
+    const error = cont.querySelector('.error-form');
+    for (const s of lista) selector.add(new Option(s.nombre, s.id));
+    const indicarMedidas = () => {
+      const s = lista.find((item) => item.id === selector.value);
+      medidas.textContent = `${CARAS_SUBANCLA[s.cara]} · ${describir(deG(s.pos))} · QR de ${s.ladoCm} cm`;
+      error.hidden = true;
+    };
+    selector.addEventListener('change', indicarMedidas);
+    indicarMedidas();
+    cont.querySelector('.ayuda-colocacion').textContent = tieneARKitIntegrado()
+      ? `Enfoca el QR principal «${principal.nombre}» para ver dónde pegar la subancla.`
+      : 'Para ver la marca sobre la máquina, abre este editor en InfoLens en el iPhone.';
+    const boton = cont.querySelector('[data-a="colocar-subancla"]');
+    boton?.addEventListener('click', async () => {
+      boton.disabled = true;
+      error.hidden = true;
+      const id = selector.value;
+      try {
+        const a = await obtenerAncla(principal.id);
+        if (!activo || !boton.isConnected || g.anclaId !== principal.id || selector.value !== id) return;
+        const s = a?.maquinaId === g.maquinaId && subanclasDe(a).find((item) => item.id === id);
+        if (!s) throw new Error('La subancla ya no está disponible para esta guía.');
+        const recorrido = datosDelVisor({
+          anclaId: a.id, ladoCm: leerAjustes().qrCm || 10, puntos: [[0, 0, 0], s.pos],
+          info: { nombre: s.nombre, referencia: CARAS_SUBANCLA[s.cara], descripcion: describir(deG(s.pos)) },
+          colocacion: { cara: s.cara, ladoCm: s.ladoCm }, flechas: false,
+        });
+        enviarARKit({ accion: 'prueba', recorrido });
+      } catch (e) {
+        error.textContent = e.message;
+        error.hidden = false;
+      } finally { boton.disabled = false; }
+    });
   }
 
   function mensaje(err, ok) {
