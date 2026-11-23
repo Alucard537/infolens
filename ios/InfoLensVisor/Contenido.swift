@@ -7,6 +7,7 @@ enum Contenido {
     static let verde = UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1)
     static let oro = UIColor(red: 1.0, green: 0.78, blue: 0.24, alpha: 1)
     static let azul = UIColor(red: 0.04, green: 0.52, blue: 1.0, alpha: 1)
+    static let menta = UIColor(red: 0.39, green: 0.91, blue: 0.69, alpha: 1)
 
     static func material(_ c: UIColor) -> SimpleMaterial { SimpleMaterial(color: c, roughness: 0.4, isMetallic: false) }
 
@@ -27,21 +28,22 @@ enum Contenido {
     static func crear(_ r: Recorrido, soloLinea: Bool) -> Entity {
         let raiz = Entity()
         let pts = r.puntos
-        for k in 0..<(pts.count - 1) {
+        let numeroTramos = r.flechas ? pts.count - 1 : 0
+        for k in 0..<numeroTramos {
             let a = pts[k], b = pts[k + 1], tramo = b - a
             let largo = simd_length(tramo)
             if largo < 0.001 { continue }
             let q = giro(hacia: tramo)
             if soloLinea {
-                let linea = caja([0.03, 0.012, largo], verde)
+                let linea = caja([0.012, 0.006, largo], menta)
                 linea.orientation = q
                 linea.position = a + tramo / 2
                 raiz.addChild(linea)
-                let esquina = bola(0.018, verde)
+                let esquina = bola(0.012, menta)
                 esquina.position = b
                 raiz.addChild(esquina)
             } else {
-                let n = max(1, Int(largo / 0.5))
+                let n = min(120, max(1, Int(largo / 0.5)))
                 for i in 0..<n {
                     let f = flecha()
                     f.orientation = q
@@ -50,24 +52,29 @@ enum Contenido {
                 }
             }
         }
-        if let fin = pts.last, pts.count >= 2 {
-            raiz.addChild(destino(fin, desde: pts[pts.count - 2], info: r.info))
+        if r.icono, let fin = r.posIcono ?? pts.last {
+            let destino = bola(0.025, azul)
+            destino.position = fin + [0, 0.025, 0]
+            raiz.addChild(destino)
         }
         return raiz
     }
 
-    /// Flecha plana que apunta hacia −Z (unos 16 cm).
+    private static let mallaFlecha: MeshResource = {
+        var forma = MeshDescriptor(name: "Chevrón")
+        forma.positions = MeshBuffers.Positions([
+            [0, 0, -0.070], [0.073, 0, 0.027], [0.045, 0, 0.050],
+            [0, 0, -0.009], [-0.045, 0, 0.050], [-0.073, 0, 0.027],
+        ])
+        forma.primitives = .triangles([0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5])
+        return (try? MeshResource.generate(from: [forma])) ?? .generateBox(size: 0.02)
+    }()
+
     static func flecha() -> Entity {
-        let e = Entity()
-        let palo = caja([0.035, 0.012, 0.10], verde)
-        palo.position = [0, 0, 0.03]
-        e.addChild(palo)
-        for s: Float in [-1, 1] {
-            let brazo = caja([0.03, 0.012, 0.09], verde)
-            brazo.orientation = simd_quatf(angle: s * 0.75, axis: [0, 1, 0])
-            brazo.position = [s * 0.03, 0, -0.035]
-            e.addChild(brazo)
-        }
+        var color = UnlitMaterial(color: menta)
+        color.faceCulling = .none
+        let e = ModelEntity(mesh: mallaFlecha, materials: [color])
+        e.name = "flecha"
         return e
     }
 
@@ -109,33 +116,6 @@ enum Contenido {
         segmento([0, 0, -lado * 0.09], punta, ancho: lado * 0.045, color: azul)
         segmento([-lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: azul)
         segmento([lado * 0.12, 0, -lado * 0.49], punta, ancho: lado * 0.045, color: azul)
-        return e
-    }
-
-    /// Destino: bola azul con la información del elemento encima, mirando hacia donde llega la persona.
-    static func destino(_ fin: SIMD3<Float>, desde previo: SIMD3<Float>, info: InfoElemento) -> Entity {
-        let e = Entity()
-        e.position = fin
-        let i = bola(0.04, azul); i.position = [0, 0.1, 0]
-        e.addChild(i)
-        var lineas = [info.nombre ?? "Destino"]
-        let ref = [info.referencia, info.id].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        if !ref.isEmpty { lineas.append(ref) }
-        if let d = info.descripcion, !d.isEmpty { lineas.append(String(d.prefix(60))) }
-        let malla = MeshResource.generateText(lineas.joined(separator: "\n"), extrusionDepth: 0.002,
-                                              font: .systemFont(ofSize: 0.035, weight: .semibold),
-                                              containerFrame: .zero, alignment: .center, lineBreakMode: .byWordWrapping)
-        let texto = ModelEntity(mesh: malla, materials: [UnlitMaterial(color: .white)])
-        let caja = texto.visualBounds(relativeTo: nil)
-        texto.position = [-caja.center.x, -caja.center.y, 0.002]
-        let fondo = Contenido.caja([caja.extents.x + 0.04, caja.extents.y + 0.03, 0.004], UIColor(white: 0.08, alpha: 1))
-        let cartel = Entity()
-        cartel.addChild(fondo); cartel.addChild(texto)
-        cartel.position = [0, 0.25, 0]
-        // Que el cartel mire hacia el tramo anterior (por donde llega la persona)
-        var mira = previo - fin; mira.y = 0
-        if simd_length(mira) > 0.001 { cartel.orientation = simd_quatf(angle: atan2(mira.x, mira.z), axis: [0, 1, 0]) }
-        e.addChild(cartel)
         return e
     }
 }

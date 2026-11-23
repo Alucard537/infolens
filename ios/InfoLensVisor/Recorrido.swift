@@ -19,19 +19,35 @@ private struct DatosRecorrido: Codable {
     var l: Double?
     var v: String?
     var q: String?
+    var flechas: Bool?
+    var icono: Bool?
+    var posIcono: [Double]?
+}
+
+struct AnclaAR: Decodable {
+    let id: String
+    let ladoCm: Double
+    let patron: String?
+
+    var modulos: [[Bool]]? { Recorrido.leerModulos(patron) }
+    var textoQR: String { "INFOLENS:" + id }
+    var valida: Bool { !id.isEmpty && id.count <= 120 && (1...200).contains(ladoCm) }
 }
 
 struct Recorrido {
     let clave = UUID()
-    var puntos: [SIMD3<Float>]
-    var info: InfoElemento
-    var anclaId: String
-    var ladoCm: Double
-    var soloLinea: Bool
-    /// Módulos del QR (true = negro), fila a fila desde arriba. nil si la web no los mandó.
-    var modulos: [[Bool]]?
+    let puntos: [SIMD3<Float>]
+    let info: InfoElemento
+    let ancla: AnclaAR
+    let soloLinea: Bool
+    var flechas = true
+    var icono = true
+    var posIcono: SIMD3<Float>?
 
-    var textoQR: String { "INFOLENS:" + anclaId }
+    var anclaId: String { ancla.id }
+    var ladoCm: Double { ancla.ladoCm }
+    var modulos: [[Bool]]? { ancla.modulos }
+    var textoQR: String { ancla.textoQR }
 
     static func prueba() -> Recorrido {
         // Coincide módulo a módulo con el QR de public/ejemplo/qr-prueba.html.
@@ -39,36 +55,45 @@ struct Recorrido {
         return Recorrido(
             puntos: [[0, 0, 0], [0, 0, -1], [0.5, 0, -1]],
             info: InfoElemento(nombre: "Destino de prueba", referencia: "1 m adelante · 50 cm a la derecha"),
-            anclaId: "TEST-1",
-            ladoCm: 10,
-            soloLinea: false,
-            modulos: Recorrido.leerModulos(marcador)
+            ancla: AnclaAR(id: "TEST-1", ladoCm: 10, patron: marcador),
+            soloLinea: false
         )
     }
 
     static func desdeURL(_ url: URL) -> Recorrido? {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let d = comps.queryItems?.first(where: { $0.name == "d" })?.value,
-              let datos = d.data(using: .utf8),
-              let r = try? JSONDecoder().decode(DatosRecorrido.self, from: datos) else { return nil }
-        let pts = r.p.compactMap { q -> SIMD3<Float>? in
-            q.count == 3 ? SIMD3<Float>(Float(q[0]), Float(q[1]), Float(q[2])) : nil
-        }
-        guard pts.count >= 2 else { return nil }
+              let d = comps.queryItems?.first(where: { $0.name == "d" })?.value else { return nil }
+        return desdeDatos(Data(d.utf8))
+    }
+
+    static func desdeDatos(_ datos: Data) -> Recorrido? {
+        guard datos.count <= 100_000,
+              let r = try? JSONDecoder().decode(DatosRecorrido.self, from: datos),
+              (2...200).contains(r.p.count) else { return nil }
+        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q)
+        let pts = r.p.compactMap(punto)
+        guard ancla.valida, pts.count == r.p.count else { return nil }
         return Recorrido(
             puntos: pts,
             info: r.i ?? InfoElemento(nombre: "Destino"),
-            anclaId: r.a ?? "",
-            ladoCm: (r.l ?? 10) > 0 ? (r.l ?? 10) : 10,
+            ancla: ancla,
             soloLinea: r.v == "linea",
-            modulos: Recorrido.leerModulos(r.q)
+            flechas: r.flechas ?? true,
+            icono: r.icono ?? true,
+            posIcono: r.posIcono.flatMap(punto)
         )
+    }
+
+    private static func punto(_ q: [Double]) -> SIMD3<Float>? {
+        guard q.count == 3, q.allSatisfy({ $0.isFinite && abs($0) < 1000 }) else { return nil }
+        return SIMD3<Float>(Float(q[0]), Float(q[1]), Float(q[2]))
     }
 
     /// "N:hex" → matriz N x N
     static func leerModulos(_ texto: String?) -> [[Bool]]? {
         guard let texto, let dos = texto.firstIndex(of: ":"), let n = Int(texto[..<dos]), n > 10, n < 200 else { return nil }
-        let hex = Array(texto[texto.index(after: dos)...])
+        let hex = texto[texto.index(after: dos)...]
+        guard hex.count == (n * n + 3) / 4 else { return nil }
         var bits: [Bool] = []
         bits.reserveCapacity(hex.count * 4)
         for c in hex {

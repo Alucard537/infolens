@@ -15,7 +15,7 @@ import { pantallaHuella } from './pantallas/huella.js';
 import { pedirPermisoSensor } from './ar/permiso-sensor.js';
 import { esAdmin } from './permisos.js';
 import { pantallaAdmin } from './pantallas/admin.js';
-import { botonVisor, tieneVisorNativo } from './ar/visor-nativo.js';
+import { botonVisor, tieneVisorNativo, tieneARKitIntegrado } from './ar/visor-nativo.js';
 import { maquinaActiva, maquinaActivaId, establecerMaquinaActiva, migrarDatosAntiguos, elementosDeMaquina } from './maquinas.js';
 import { pantallaMaquinas, pantallaMaquinaForm, pantallaMaquina, pantallaAnclas } from './pantallas/maquinas.js';
 import { pantallaLocalizacion } from './pantallas/localizacion.js';
@@ -28,7 +28,9 @@ import { pantallaDiagnosticoAR } from './pantallas/diagnostico-ar.js';
 document.title = APP_NAME;
 
 // Guardar la app en el móvil para que funcione sin internet (en desarrollo no hace nada)
-try { registerSW({ immediate: true }); } catch (e) { console.warn('Service worker:', e); }
+if (!tieneARKitIntegrado()) {
+  try { registerSW({ immediate: true }); } catch (e) { console.warn('Service worker:', e); }
+}
 
 // Pedir al navegador que no borre los datos de la app por falta de espacio
 try {
@@ -53,7 +55,12 @@ const cargarEscaner = () => import('./pantallas/escaner.js');
 // Pantallas con cámara: botón ESCÁNER / ANCLA / guía en marcha. El permiso del sensor de movimiento
 // del iPhone tiene que pedirse en el mismo toque.
 const CON_CAMARA = ['escaner', 'ancla', 'guia-ejecutar', 'huella'];
-const irConCamara = (ruta) => { pedirPermisoSensor(); ir(ruta); };
+const usaARKit = (pantalla, posicionar) => tieneARKitIntegrado() &&
+  (pantalla === 'guia-ejecutar' || (pantalla === 'ancla' && !posicionar));
+const irConCamara = (ruta) => {
+  if (!usaARKit(ruta.split(/[/?]/)[1], ruta.includes('posicionar=1'))) pedirPermisoSensor();
+  ir(ruta);
+};
 
 async function pantallaInicio() {
   const admin = esAdmin();
@@ -117,7 +124,7 @@ function pruebaFlechas() {
   const prueba = { anclaId: 'TEST-1', ladoCm: 10, info: { nombre: 'Destino de prueba' } };
   div.querySelector('.fijo').appendChild(botonVisor({
     ...prueba, puntos: [[0, 0, 0], [0, 0, -1.3], [1.5, 0, -1.3]],
-  }, '📱 Recorrido de prueba en el visor nativo'));
+  }, tieneARKitIntegrado() ? 'Iniciar prueba con QR' : '📱 Recorrido de prueba en el visor nativo'));
   const filas = document.createElement('ol');
   div.querySelector('.tramos-prueba').appendChild(filas);
   const lista = [{ dir: 'adelante', cm: '130' }, { dir: 'derecha', cm: '150' }];
@@ -189,6 +196,19 @@ async function mostrar() {
       alEntrar: (d) => sustituir(d || '#/'),
       alSalir: () => sustituir('#/'),
     });
+  } else if (usaARKit(pantalla, params.get('posicionar') === '1')) {
+    const { pantallaRecorridoNativo } = await import('./pantallas/recorrido-nativo.js');
+    if (miTurno !== turno) return;
+    limpiar = pantallaRecorridoNativo(app, {
+      guiaId: pantalla === 'guia-ejecutar' ? id : null,
+      maquinaId: maquinaActivaId(),
+      pasoInicial: parseInt(params.get('paso') || '0', 10) || 0,
+      verLocId: params.get('ver'),
+      abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
+      abrirImagen,
+      volver: () => ir(pantalla === 'guia-ejecutar' ? '#/guia/' + enc(id) : '#/'),
+      posicionar: () => irConCamara('#/ancla?posicionar=1'),
+    });
   } else if (pantalla === 'escaner' || pantalla === 'ancla' || pantalla === 'guia-ejecutar') {
     const { pantallaEscaner } = await cargarEscaner();
     if (miTurno !== turno) return;
@@ -196,6 +216,7 @@ async function mostrar() {
       modo: pantalla === 'escaner' ? 'escaner' : pantalla === 'ancla' ? 'ancla' : 'guia',
       guiaId: pantalla === 'guia-ejecutar' ? id : null,
       pasoInicial: parseInt(params.get('paso') || '0', 10) || 0,
+      posicionarEnInicio: params.get('posicionar') === '1',
       verLocId: params.get('ver'),
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
       darDeAlta: (i) => ir('#/nuevo/' + enc(i) + '?maquina=' + enc(maquinaActivaId() || '')),
@@ -234,7 +255,7 @@ async function mostrar() {
       volver,
       // Previsualizar: abre ANCLA con ese recorrido (en la máquina del elemento)
       previsualizar: (loc) => { establecerMaquinaActiva(loc.maquinaId); irConCamara('#/ancla?ver=' + enc(loc.id)); },
-      posicionarConCamara: () => irConCamara('#/ancla'),
+      posicionarConCamara: () => irConCamara('#/ancla?posicionar=1'),
     });
   } else if (pantalla === 'guias') {
     // El administrador puede gestionar las guías de cualquier máquina; el usuario, solo las de la activa

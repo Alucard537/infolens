@@ -13,6 +13,7 @@ html, body {
   -webkit-text-size-adjust: 100%;
 }
 body.modo-escaner { overflow: hidden; background: #000; }
+.modo-arkit, .modo-arkit body, .escaner.recorrido-arkit { background: transparent; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
 /* ---------- páginas normales ---------- */
@@ -72,6 +73,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: rgba(15, 27, 36, 0.7); font-size: 17px;
 }
 .esc-estado[hidden] { visibility: hidden; display: block; }
+.recorrido-arkit .esc-estado { font-size: 14px; }
+.vista-arkit {
+  position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 65px); right: 12px;
+  display: flex; align-items: center; gap: 6px; padding: 4px 7px 4px 10px; border-radius: 9px;
+  background: #13212b; color: #b8c7d3; font-size: 13px;
+}
+.vista-arkit select { min-height: 30px; color: #fff; background: #243746; border: 0; border-radius: 6px; }
+.rumbo-arkit {
+  position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 72px); left: 16px;
+  color: #92efcb; font-size: 26px; pointer-events: none; text-shadow: 0 2px 5px #13212b;
+}
 .esc-panel {
   position: absolute; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));
   max-height: 75vh; overflow: auto; padding: 16px; border-radius: 18px;

@@ -30,7 +30,10 @@ const SEPARACION_ICONO = 0.15;    // hueco entre el borde del QR y la "i" (respe
 const tamanoModelo = (lado) => Math.min(0.3, Math.max(0.12, lado * 2.5));
 
 // modo: 'escaner' (identificar elementos), 'ancla' (localizar componentes) o 'guia' (ejecutar una guía)
-export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, pasoInicial = 0, verLocId = null, abrirDetalle, darDeAlta, volver, abrirImagen }) {
+export function pantallaEscaner(app, {
+  modo = 'escaner', guiaId = null, pasoInicial = 0, posicionarEnInicio = false, verLocId = null,
+  abrirDetalle, darDeAlta, volver, abrirImagen,
+}) {
   let ajustes = leerAjustes();
   const maquinaId = maquinaActivaId();
   // Todos los elementos y anclas en memoria para clasificar al instante cada QR leído.
@@ -499,6 +502,10 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, pasoInic
           esAdmin, avisar, verLocId,
           gravedadCalibrada: (id) => (escaneo ? escaneo.gravedad(id) : null),
         });
+        if (posicionarEnInicio && esAdmin()) {
+          modulo.alternarPosicionar();
+          $('[data-accion="posicionar"]')?.classList.add('activo');
+        }
       } else if (modo === 'guia') {
         modulo = crearModoGuia({
           capa, panel: $('.nav-panel'), seguidos, guia: guiaActual, maquinaId, abrirDetalle,
