@@ -1,56 +1,9 @@
-// El QR calibra la ruta. ARKit mantiene su posición en el mundo al caminar fuera de su vista.
+// La ruta es hija del QR. ARKit conserva su última posición en el mundo mientras el QR no se ve.
 import ARKit
 import Combine
 import RealityKit
 import SwiftUI
 import simd
-
-private struct PoseQR {
-    let posicion: SIMD3<Float>
-    let rotacion: simd_quatf
-
-    init(_ matriz: simd_float4x4) {
-        let p = matriz.columns.3
-        posicion = [p.x, p.y, p.z]
-        rotacion = simd_quatf(matriz)
-    }
-
-    private init(posicion: SIMD3<Float>, rotacion: simd_quatf) {
-        self.posicion = posicion
-        self.rotacion = rotacion
-    }
-
-    var matriz: simd_float4x4 {
-        var m = simd_float4x4(rotacion)
-        m.columns.3 = SIMD4<Float>(posicion, 1)
-        return m
-    }
-
-    func cercana(a otra: PoseQR) -> Bool {
-        simd_distance(posicion, otra.posicion) <= 0.03 &&
-            abs(simd_dot(rotacion.vector, otra.rotacion.vector)) >= cos(Float(3) * .pi / 360)
-    }
-
-    func combinada(con otra: PoseQR, cantidad: Int) -> PoseQR {
-        let peso = 1 / Float(cantidad)
-        return PoseQR(posicion: posicion + (otra.posicion - posicion) * peso,
-                      rotacion: simd_slerp(rotacion, otra.rotacion, peso))
-    }
-
-    var marcoRecorrido: simd_float4x4? {
-        let m = matriz
-        // En un QR horizontal se usa el borde superior impreso. En una pared se usa
-        // la normal del QR, igual que al guardar las medidas en InfoLens.
-        let normal = m.columns.1
-        let haciaAtras = abs(normal.y) >= sqrt(Float(0.5)) ? m.columns.2 : normal
-        let horizontal = SIMD3<Float>(haciaAtras.x, 0, haciaAtras.z)
-        guard simd_length_squared(horizontal) > 0.0001 else { return nil }
-        let z = simd_normalize(horizontal), arriba = SIMD3<Float>(0, 1, 0)
-        let x = simd_cross(arriba, z)
-        return simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(arriba, 0),
-                                      SIMD4<Float>(z, 0), m.columns.3))
-    }
-}
 
 final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var estado = "🔍 Busca el QR del ancla"
@@ -65,7 +18,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private let marcaTramo = Contenido.bola(0.035, Contenido.oro)
     private var origen: AnchorEntity?
     private var contenido: Entity?
-    private var candidata: (id: UUID, referencia: PoseQR, media: PoseQR, cantidad: Int, desde: TimeInterval)?
+    private var anclaje = AnclajeQR()
+    private var poseParaProgreso: PoseQR?
     private var progreso = ProgresoRuta()
     private var ultimoAviso: TimeInterval = 0
     private var sesionId = UUID()
@@ -82,15 +36,16 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         vista.session.delegateQueue = .main
         vista.session.delegate = self
         marcoQR.addChild(Contenido.bordeQR(ladoM))
+        marcoQR.addChild(marcoRuta)
         arrancar()
     }
 
     private func arrancar() {
         if let origen { vista.scene.removeAnchor(origen) }
         marcoQR.removeFromParent()
-        marcoRuta.removeFromParent()
         origen = nil
-        candidata = nil
+        anclaje = AnclajeQR()
+        poseParaProgreso = nil
         progreso = ProgresoRuta()
         ultimoAviso = 0
         interrumpida = false
@@ -137,7 +92,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             return
         }
         pideQR = true
-        candidata = nil
+        anclaje.dejarDeVerQR()
         pausarGuia()
         mostrarEstado("🔍 Vuelve a enfocar el QR del ancla.")
     }
@@ -151,7 +106,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
         guard enMarcha, !interrumpida else { return }
         guard case .normal = frame.camera.trackingState else {
-            candidata = nil
+            anclaje.dejarDeVerQR()
             pausarGuia()
             let mensaje: String
             switch frame.camera.trackingState {
@@ -165,23 +120,22 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         }
         let qr = frame.anchors.lazy.compactMap { $0 as? ARImageAnchor }
             .first { $0.isTracked && $0.referenceImage.name == recorrido.anclaId }
-        if let qr { observar(qr, en: frame.timestamp) }
-        else { candidata = nil }
-        guard origen != nil, !pideQR else {
+        let poseActual = qr.flatMap { anclaje.observar(PoseQR($0.transform), id: $0.identifier, en: frame.timestamp) }
+        if let poseActual { aplicarPoseQR(poseActual) }
+        guard origen != nil, !pideQR, qr == nil || poseActual != nil else {
             pausarGuia()
             mostrarEstado(qr == nil ? (avisoImagen ?? "🔍 Busca el QR del ancla (\(recorrido.anclaId))")
                          : "Mantén el QR bien encuadrado un momento.")
             return
         }
         marcoQR.isEnabled = true
-        marcoRuta.isEnabled = true
-        mostrarEstado(qr == nil ? "📍 Ancla fijada en el entorno" : "✅ QR del ancla localizado")
+        mostrarEstado(qr == nil ? "📍 Última posición del QR en el entorno" : "✅ Siguiendo el QR del ancla")
         actualizarTramo(frame)
     }
 
     func sessionWasInterrupted(_ session: ARSession) {
         interrumpida = true
-        candidata = nil
+        anclaje.dejarDeVerQR()
         pausarGuia()
         mostrarEstado("Guía en pausa. Esperando a que vuelva la cámara.")
     }
@@ -198,39 +152,29 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         mostrarEstado("❌ AR: \(error.localizedDescription)")
     }
 
-    private func observar(_ imagen: ARImageAnchor, en tiempo: TimeInterval) {
-        guard pideQR else { return }
-        let muestra = PoseQR(imagen.transform)
-        guard var estable = candidata, estable.id == imagen.identifier,
-              estable.referencia.cercana(a: muestra) else {
-            candidata = (imagen.identifier, muestra, muestra, 1, tiempo)
-            return
-        }
-        estable.cantidad += 1
-        estable.media = estable.media.combinada(con: muestra, cantidad: estable.cantidad)
-        candidata = estable
-        guard estable.cantidad >= 5, tiempo - estable.desde >= 0.25 else { return }
-
+    private func aplicarPoseQR(_ pose: PoseQR) {
         if origen == nil {
-            guard let ruta = estable.media.marcoRecorrido else { return }
+            guard let rutaDesdeQR = anclaje.rutaDesdeQR else { return }
             let fijo = AnchorEntity(world: SIMD3<Float>.zero)
             fijo.addChild(marcoQR)
-            fijo.addChild(marcoRuta)
-            marcoQR.setTransformMatrix(estable.media.matriz, relativeTo: fijo)
-            marcoRuta.setTransformMatrix(ruta, relativeTo: fijo)
+            marcoRuta.setTransformMatrix(rutaDesdeQR, relativeTo: marcoQR)
             vista.scene.addAnchor(fijo)
             origen = fijo
             rehacer()
         }
-        // Volver a ver el QR reanuda la guía sin desplazar su origen en la sesión activa.
-        candidata = nil
+        marcoQR.setTransformMatrix(pose.matriz, relativeTo: origen)
+        if poseParaProgreso?.cercana(a: pose, metros: 0.10, grados: 10) != true {
+            progreso = ProgresoRuta()
+            poseParaProgreso = pose
+            ultimoAviso = 0
+        }
         pideQR = false
     }
 
     private func actualizarTramo(_ frame: ARFrame) {
         guard contenido != nil, frame.timestamp - ultimoAviso >= 0.12 else { return }
         ultimoAviso = frame.timestamp
-        let ruta = marcoRuta.transform.matrix
+        let ruta = marcoRuta.transformMatrix(relativeTo: nil)
         let camara = frame.camera.transform
         let local = simd_inverse(ruta) * camara.columns.3
         let tramo = progreso.actualizar(puntos: recorrido.puntos, posicion: [local.x, local.y, local.z])
@@ -264,7 +208,6 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
 
     private func pausarGuia() {
         marcoQR.isEnabled = false
-        marcoRuta.isEnabled = false
         if tramoActual != nil { tramoActual = nil }
         if rumboGrados != nil { rumboGrados = nil }
     }

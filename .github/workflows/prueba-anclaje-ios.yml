@@ -20,9 +20,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/infolens-smoke"
-          printf 'import simd\n' > "$RUNNER_TEMP/infolens-smoke/main.swift"
-          sed -n '/^private struct PoseQR {/,/^}/p' ios/InfoLensVisor/ControladorAR.swift | sed 's/^private struct PoseQR/struct PoseQR/' >> "$RUNNER_TEMP/infolens-smoke/main.swift"
-          cat >> "$RUNNER_TEMP/infolens-smoke/main.swift" <<'SWIFT'
+          cat > "$RUNNER_TEMP/infolens-smoke/main.swift" <<'SWIFT'
+          import simd
           import Foundation
           let demo = Recorrido.prueba()
           precondition(demo.textoQR == "INFOLENS:TEST-1")
@@ -42,7 +41,7 @@ jobs:
           }
           func ejes(_ inclinacion: Float, delante: Float) {
               let inclinada = giro * simd_quatf(angle: inclinacion, axis: SIMD3<Float>(1, 0, 0))
-              let marco = pose(inclinada, centro: centro).marcoRecorrido!
+              let marco = pose(inclinada, centro: centro).marcoInicialRecorrido!
               let adelante = marco * SIMD4<Float>(0, 0, -1, 0)
               let derecha = marco * SIMD4<Float>(1, 0, 0, 0)
               precondition(simd_distance(SIMD3<Float>(adelante.x, adelante.y, adelante.z), giro.act([0, 0, delante])) < 0.0001)
@@ -58,10 +57,51 @@ jobs:
           let cercano = pose(giro, centro: centro + [0.02, 0, 0])
           precondition(a.cercana(a: cercano))
           precondition(!a.cercana(a: pose(giro, centro: centro + [0.08, 0, 0])))
-          precondition(simd_distance(a.combinada(con: cercano, cantidad: 2).posicion, centro + [0.01, 0, 0]) < 0.0001)
+          precondition(simd_distance(a.combinada(con: cercano, peso: 0.5).posicion, centro + [0.01, 0, 0]) < 0.0001)
           print("Ejes del recorrido comprobados en suelo, inclinado, pared y techo")
+          func comprobarMovimiento(inicial: simd_quatf, eje: SIMD3<Float>) {
+              let id = UUID()
+              var anclaje = AnclajeQR()
+              let original = pose(inicial, centro: centro)
+              for i in 0..<5 {
+                  precondition(anclaje.observar(original, id: id, en: 1 + 0.05 * Double(i)) == nil)
+              }
+              precondition(anclaje.observar(original, id: id, en: 1.26) != nil)
+              let local = anclaje.rutaDesdeQR!
+              let rutaInicial = original.matriz * local
+              let destino = SIMD4<Float>(0.5, 0, -1, 1)
+              let cuartoDeVuelta = simd_quatf(angle: .pi / 2, axis: eje)
+              let traslado = SIMD3<Float>(0.31, 0.08, 0.23)
+              let movida = pose(cuartoDeVuelta * inicial, centro: centro + traslado)
+              for i in 1...25 {
+                  precondition(anclaje.observar(movida, id: id, en: 1.26 + 0.03 * Double(i)) != nil)
+              }
+              let puntoInicial = rutaInicial * destino
+              let desplazamiento = SIMD3<Float>(puntoInicial.x, puntoInicial.y, puntoInicial.z) - centro
+              let esperado = centro + traslado + cuartoDeVuelta.act(desplazamiento)
+              let puntoActual = anclaje.pose!.matriz * local * destino
+              precondition(simd_distance(SIMD3<Float>(puntoActual.x, puntoActual.y, puntoActual.z), esperado) < 0.0001)
+
+              // Reaparece el mismo QR en la pose original. Conserva la ?ltima pose hasta verificarlo.
+              precondition(anclaje.observar(original, id: id, en: 4) == nil)
+              precondition(anclaje.pose!.cercana(a: movida))
+              for i in 1..<5 {
+                  precondition(anclaje.observar(original, id: id, en: 4 + 0.05 * Double(i)) == nil)
+              }
+              precondition(anclaje.observar(original, id: id, en: 4.26) != nil)
+              let recuperado = anclaje.pose!.matriz * anclaje.rutaDesdeQR! * destino
+              precondition(simd_distance(recuperado, puntoInicial) < 0.0001)
+
+              anclaje.dejarDeVerQR()
+              let idNuevo = UUID()
+              precondition(anclaje.observar(movida, id: idNuevo, en: 5) == nil)
+              precondition(anclaje.pose!.cercana(a: original))
+          }
+          comprobarMovimiento(inicial: giro, eje: [0, 1, 0])
+          comprobarMovimiento(inicial: simd_quatf(angle: .pi / 2, axis: [1, 0, 0]), eje: [0, 0, 1])
+          print("El QR transmite 90 grados al destino y conserva su pose si sale de c?mara")
           SWIFT
-          xcrun swiftc ios/InfoLensVisor/Recorrido.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
+          xcrun swiftc ios/InfoLensVisor/Recorrido.swift ios/InfoLensVisor/AnclajeQR.swift "$RUNNER_TEMP/infolens-smoke/main.swift" -o "$RUNNER_TEMP/infolens-smoke/revisar"
           "$RUNNER_TEMP/infolens-smoke/revisar"
       - name: Compilar el visor para iPhone
         run: |

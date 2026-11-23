@@ -100,7 +100,7 @@ struct PantallaAR: View {
                     }
                     .pickerStyle(.segmented)
                     HStack(spacing: 10) {
-                        Button("🔄 Buscar QR") { controlador.buscarQR() }
+                        Button("Volver a detectar QR") { controlador.buscarQR() }
                             .buttonStyle(.bordered)
                         Button("✕ Cerrar") { cerrar() }
                             .buttonStyle(.borderedProminent)
