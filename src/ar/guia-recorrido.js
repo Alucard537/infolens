@@ -2,6 +2,14 @@ export const VIGENCIA_QR_MS = 650;
 export const VIGENCIA_ENTORNO_MS = 500;
 export const MAX_ENTORNO_SIN_QR_MS = 12000;
 
+/** Destino del paso por tramos propios, posición antigua o localización del elemento. */
+export function destinoDelPaso(paso, localizaciones) {
+  const puntos = paso.rutaPropia;
+  if (Array.isArray(puntos) && puntos.length) return { pos: puntos.at(-1), ruta: puntos.slice(0, -1) };
+  if (Array.isArray(paso.destinoPropio)) return { pos: paso.destinoPropio, ruta: [] };
+  return localizaciones.get(paso.elementoId) || null;
+}
+
 export function fuentePoseAncla(ancla, ahora) {
   if (!ancla?.visible || !Number.isFinite(ancla.vistoQR)) return null;
   const sinQR = ahora - ancla.vistoQR;

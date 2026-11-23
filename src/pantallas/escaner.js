@@ -30,7 +30,7 @@ const SEPARACION_ICONO = 0.15;    // hueco entre el borde del QR y la "i" (respe
 const tamanoModelo = (lado) => Math.min(0.3, Math.max(0.12, lado * 2.5));
 
 // modo: 'escaner' (identificar elementos), 'ancla' (localizar componentes) o 'guia' (ejecutar una guía)
-export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId = null, abrirDetalle, darDeAlta, volver, abrirImagen }) {
+export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, pasoInicial = 0, verLocId = null, abrirDetalle, darDeAlta, volver, abrirImagen }) {
   let ajustes = leerAjustes();
   const maquinaId = maquinaActivaId();
   // Todos los elementos y anclas en memoria para clasificar al instante cada QR leído.
@@ -80,6 +80,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
           </select>
         </label>
         <label class="fila"><input type="checkbox" data-ajuste="debug"> Mostrar esquinas y distancia</label>
+        ${modo !== 'escaner' ? '<label>Mostrar recorrido <select data-ajuste="lidarVista"><option value="flechas">Flechas</option><option value="linea">Línea</option></select></label>' : ''}
         ${modo !== 'escaner' ? '<label class="fila"><input type="checkbox" data-ajuste="entorno"> Seguir la posición con el entorno (suelo / pared) cuando no se ve el QR</label>' : ''}
         ${esAdmin() && modo !== 'escaner' ? '<label class="fila"><input type="checkbox" data-ajuste="ejes"> Mostrar los ejes X / Y / Z del ancla (para configurar coordenadas)</label>' : ''}
         <p class="nota">Para afinar: pon el móvil a una distancia conocida del QR (por ejemplo 1 m) y mueve
@@ -98,6 +99,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
   const btnLinterna = $('[data-accion="linterna"]');
   const panel = $('.esc-panel');
   panel.querySelector('[data-ajuste="posModelo"]').value = ajustes.posModelo === 'debajo' ? 'debajo' : 'encima';
+  const selectorVista = panel.querySelector('[data-ajuste="lidarVista"]');
+  if (selectorVista) selectorVista.value = ajustes.lidarVista === 'linea' ? 'linea' : 'flechas';
   const casillaEntorno = panel.querySelector('[data-ajuste="entorno"]');
   if (casillaEntorno) casillaEntorno.checked = ajustes.entorno !== false;
   let debug = false;
@@ -225,7 +228,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     capaEtiquetas.appendChild(etiqueta);
 
     const seguido = {
-      id, tipo, ancla: an || null, elementoDetectado: elDetectado || null, oculto: tipo === 'oculto',
+      id, tipo, ancla: an || null, elementoDetectado: elDetectado || null, oculto: tipo === 'oculto' || tipo === 'ancla-activa',
       elemento, raiz, flotar, icono, etiqueta, modelo: null, lidar: lidarQR, lidarPreparado: false, aparecio: 0,
       filtros: Array.from({ length: 8 }, () => new OneEuro()),
       visto: 0, visible: false, esquinas: null, distancia: 0,
@@ -354,8 +357,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       let s = seguidos.get(id);
       if (!s) { s = crearSeguido(id); seguidos.set(id, s); }
 
-      // Esquinas en píxeles del vídeo, suavizadas
-      const esq = qr.esquinas.map(([x, y], i) => [
+      // El QR del ancla usa la medición de este fotograma para seguir el papel al moverlo.
+      const esq = qr.esquinas.map(([x, y], i) => s.tipo === 'ancla-activa' ? [x / k, y / k] : [
         s.filtros[i * 2].filter(x / k, tiempo),
         s.filtros[i * 2 + 1].filter(y / k, tiempo),
       ]);
@@ -448,7 +451,6 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     conEntorno: () => ajustes.entorno !== false,
     infoEntorno: () => infoEntorno,
     alMedir: (id, g) => {
-      if (guiaActual && guiaActual.anclaId === id) guiaActual.anclaGravedad = g;
       const a = anclas && anclas.get(id);
       if (a) a.gravedad = g;
       if (esAdmin()) guardarGravedadAncla(id, g).catch(() => {});
@@ -485,7 +487,7 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
           return;
         }
         guiaActual = {
-          ...guia, anclaNombre: anc.nombre, anclaGravedad: anc.gravedad || null,
+          ...guia, anclaNombre: anc.nombre,
           // Solo elementos de la máquina activa (nunca de otra, aunque coincida el ID)
           elementos: new Map([...els].filter(([, e]) => e.maquinaId === maquinaId)),
         };
@@ -494,13 +496,13 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
       if (modo === 'ancla') {
         modulo = crearModoAncla({
           capa, panel: $('.nav-panel'), panelPos: $('.pos-panel'), seguidos, abrirDetalle, maquinaId,
-          ladoCm: () => ajustes.qrCm, esAdmin, avisar, verLocId,
+          esAdmin, avisar, verLocId,
           gravedadCalibrada: (id) => (escaneo ? escaneo.gravedad(id) : null),
         });
       } else if (modo === 'guia') {
         modulo = crearModoGuia({
           capa, panel: $('.nav-panel'), seguidos, guia: guiaActual, maquinaId, abrirDetalle,
-          abrirImagen: abrirImagen || (() => {}), alSalir: volver, ladoCm: () => ajustes.qrCm,
+          abrirImagen: abrirImagen || (() => {}), alSalir: volver, pasoInicial,
         });
       }
     } catch (e) {
@@ -643,6 +645,8 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
         s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
         s.visible = true; s.raiz.visible = true; s.flotar.visible = !s.oculto; s.etiqueta.hidden = s.oculto;
         s.aparecio = ahora;
+      } else if (s.tipo === 'ancla-activa' && !s.porEntorno) {
+        s.pos.copy(s.objetivoPos); s.rot.copy(s.objetivoRot);
       } else {
         s.pos.lerp(s.objetivoPos, suav); s.rot.slerp(s.objetivoRot, suav);
       }
@@ -793,40 +797,53 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     }
   }
 
-  // Borde del QR del ancla con líneas discontinuas: AMARILLO = detectado (estabilizando),
-  // VERDE = bien definido (ya se muestra el modelo 3D centrado en el QR)
-  let fase = 0;
+  // Borde, centro proyectado y orientación de la última lectura del QR.
+  const puntoQR = new THREE.Vector3();
   function dibujarBordeQR(c, g) {
     const b = escaneo && escaneo.borde;
     const s = b && seguidos.get(b.id);
     if (!s || !s.esquinas) return;
     const pts = s.esquinas.map(([x, y]) => [g.ox + x * g.s, g.oy + y * g.s]);
     const color = b.definido ? '#30d158' : '#ffd60a';
-    fase = (fase + 1) % 1000;
     c.save();
-    c.lineWidth = 6;
     c.lineJoin = 'round';
-    c.setLineDash([16, 10]);
-    c.lineDashOffset = -fase * 0.8; // las rayas se mueven: se ve que está "vivo"
+    c.setLineDash([10, 7]);
     c.strokeStyle = 'rgba(0,0,0,0.55)';
-    c.lineWidth = 9;
-    c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.stroke();
+    c.lineWidth = 6;
+    c.beginPath();
+    pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+    c.closePath(); c.stroke();
     c.strokeStyle = color;
-    c.lineWidth = 5;
-    c.beginPath(); pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y))); c.closePath(); c.stroke();
-    // Borde de arriba (ADELANTE) un poco más marcado, y el texto
+    c.lineWidth = 3;
+    c.stroke();
     c.setLineDash([]);
-    c.lineWidth = 8;
+    c.lineWidth = 5;
     c.beginPath(); c.moveTo(...pts[0]); c.lineTo(...pts[1]); c.stroke();
-    const mx = (pts[0][0] + pts[1][0]) / 2, my = (pts[0][1] + pts[1][1]) / 2;
-    c.font = '700 15px -apple-system, system-ui, sans-serif';
-    c.textAlign = 'center';
-    c.fillStyle = 'rgba(0,0,0,0.7)';
-    const txt = b.definido ? '✓ QR bien definido · ▲ ADELANTE' : 'Mantén quieto…';
-    const w = c.measureText(txt).width + 14;
-    c.fillRect(mx - w / 2, my - 34, w, 24);
-    c.fillStyle = color;
-    c.fillText(txt, mx, my - 16);
+    if (b.definido) {
+      const proyectar = (y) => {
+        puntoQR.set(0, y, 0).applyQuaternion(s.objetivoRot).add(s.objetivoPos).project(camara);
+        return [(puntoQR.x + 1) * g.W / 2, (1 - puntoQR.y) * g.H / 2];
+      };
+      const [x, y] = proyectar(0);
+      const [px, py] = proyectar((ajustes.qrCm / 100) * 0.64);
+      const largo = Math.hypot(px - x, py - y);
+      if (largo > 8) {
+        const dx = (px - x) / largo, dy = (py - y) / largo;
+        const punta = Math.min(14, largo * 0.32);
+        c.strokeStyle = c.fillStyle = '#38bdf8';
+        c.lineCap = 'round';
+        c.beginPath(); c.moveTo(x, y); c.lineTo(px - dx * punta / 2, py - dy * punta / 2); c.stroke();
+        c.beginPath(); c.moveTo(px, py);
+        c.lineTo(px - dx * punta - dy * punta / 2, py - dy * punta + dx * punta / 2);
+        c.lineTo(px - dx * punta + dy * punta / 2, py - dy * punta - dx * punta / 2);
+        c.closePath(); c.fill();
+        c.beginPath(); c.arc(x, y, Math.min(6, largo * 0.19), 0, Math.PI * 2);
+        c.lineWidth = 3;
+        c.stroke();
+        c.fillStyle = '#fff';
+        c.fill();
+      }
+    }
     c.restore();
   }
 
@@ -1059,6 +1076,10 @@ export function pantallaEscaner(app, { modo = 'escaner', guiaId = null, verLocId
     if (e.target.dataset.ajuste === 'camaraId') {
       ajustes = guardarAjustes({ camaraId: e.target.value });
       iniciarCamara();
+    }
+    if (e.target.dataset.ajuste === 'lidarVista') {
+      ajustes = guardarAjustes({ lidarVista: e.target.value });
+      capa.cambiarVista(ajustes.lidarVista);
     }
   });
 

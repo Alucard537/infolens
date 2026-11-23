@@ -1,6 +1,6 @@
 // Realidad aumentada de navegación con QR ancla.
 //
-// crearCapaRecorrido: dibuja un recorrido (flechas 3D + icono de destino + etiqueta) en el sistema de
+// crearCapaRecorrido: dibuja un recorrido (flechas 3D e icono de destino) en el sistema de
 //   coordenadas del QR ancla. Usa el QR o el seguimiento del entorno mientras la pose sea reciente.
 //
 // crearModoAncla: botón ANCLA. Activa un ancla de la máquina activa, muestra el menú de sus
@@ -8,13 +8,10 @@
 import * as THREE from 'three';
 import { marcoQR, gravedadEnQR, puntosRecorrido, crearFlechas } from './navegacion.js';
 import { fuentePoseAncla, progresoRecorrido, textoTramo } from './guia-recorrido.js';
-import { anclaTresD } from './recorrido-lidar.js';
 import { leerAjustes } from '../ajustes.js';
 import { crearIcono } from './icono.js';
 import { obtenerArchivo } from '../db.js';
 import { deG, describir } from '../coordenadas.js';
-import { bloquePasoLidar } from './bloque-lidar.js';
-import { tieneVisorNativo } from './visor-nativo.js';
 import {
   localizacionesDeAncla, guardarLocalizacion, guardarGravedadAncla, obtenerAncla,
 } from '../maquinas.js';
@@ -30,11 +27,13 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
   const v = new THREE.Vector3(), hacia = new THREE.Vector3(), lateral = new THREE.Vector3();
   const objetivoCam = new THREE.Vector3(), posicionG = new THREE.Vector3();
   const marcaTramo = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffc83d }));
+  const iconoDestino = crearIcono(true);
 
   // Flecha en el borde de la pantalla que señala el siguiente punto del recorrido.
   const indicador = document.createElement('div');
   indicador.className = 'indicador-destino';
-  indicador.innerHTML = '<span class="ind-flecha">➤</span><span class="ind-texto"></span>';
+  indicador.innerHTML = '<span class="ind-flecha" aria-hidden="true">➤</span>';
+  const flechaIndicador = indicador.firstElementChild;
   indicador.hidden = true;
   capaEtiquetas.appendChild(indicador);
 
@@ -84,50 +83,52 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
   function ocultar() {
     indicador.hidden = true;
     if (!r) return;
-    if (r.flechas) escena.remove(r.flechas);
+    quitarCamino();
     if (r.destino) escena.remove(r.destino);
-    if (r.etiqueta) r.etiqueta.remove();
     r = null;
   }
 
+  function quitarCamino() {
+    if (!r?.flechas) return;
+    escena.remove(r.flechas);
+    marcaTramo.removeFromParent();
+    for (const objeto of r.flechas.children) if (objeto.userData.linea) objeto.geometry.dispose();
+    for (const material of r.flechas.userData.materiales) material.dispose();
+    r.flechas = null;
+  }
+
+  function dibujarCamino(vista) {
+    const linea = vista === 'linea';
+    r.flechas = crearFlechas(r.puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: 0.006 });
+    r.flechas.add(marcaTramo);
+    r.flechas.matrixAutoUpdate = false;
+    r.flechas.visible = false;
+    escena.add(r.flechas);
+  }
+
+  function cambiarVista(vista) {
+    if (!r?.flechas) return;
+    quitarCamino();
+    dibujarCamino(vista);
+  }
+
   /**
-   * loc: { pos, ruta, posIcono }; opciones: conFlechas, conIcono, titulo, subtitulo, descripcion, alTocar.
+   * loc: { pos, ruta, posIcono }; opciones: conFlechas, conIcono, alTocar.
    * (Conserva el sistema de referencia ya calculado si el ancla es la misma.)
    */
-  function mostrar(loc, { rutaPropia = null, conFlechas = true, conIcono = true, titulo = '', subtitulo = '', descripcion = '', alTocar } = {}) {
+  function mostrar(loc, { conFlechas = true, conIcono = true, alTocar } = {}) {
     const prev = r;
     ocultar();
-    const puntos = puntosRecorrido({ pos: loc.pos, ruta: rutaPropia || loc.ruta || [] });
+    const puntos = puntosRecorrido(loc);
     const destinoG = new THREE.Vector3(...(loc.posIcono || loc.pos));
     r = { puntos, destinoG, alTocar, visto: prev?.visto || false, indice: 1, tramo: null };
-    if (conFlechas) {
-      const linea = leerAjustes().lidarVista === 'linea';
-      r.flechas = crearFlechas(puntos, 0.5, { conLinea: linea, conFlechas: !linea, conAro: false, grosorLinea: linea ? 0.018 : 0.008 });
-      r.flechas.add(anclaTresD(0.14)); // el ⚓ centrado en el QR del ancla (origen)
-      r.flechas.add(marcaTramo);
-      r.flechas.matrixAutoUpdate = false;
-      r.flechas.visible = false;
-      escena.add(r.flechas);
-    }
+    if (conFlechas) dibujarCamino(leerAjustes().lidarVista);
     if (conIcono) {
       r.destino = new THREE.Group();
       r.destino.matrixAutoUpdate = false;
       r.destino.visible = false;
-      r.destino.add(crearIcono(true));
+      r.destino.add(iconoDestino);
       escena.add(r.destino);
-      const e = document.createElement('div');
-      e.className = 'etiqueta nav-destino';
-      e.innerHTML = '<div class="et-textos"><div class="et-nombre"></div><div class="et-ref"></div><div class="et-desc"></div></div>'
-        + (alTocar ? '<button class="et-mas" aria-label="Ver ficha">+</button>' : '');
-      e.querySelector('.et-nombre').textContent = titulo;
-      e.querySelector('.et-ref').textContent = subtitulo;
-      const d = e.querySelector('.et-desc');
-      d.textContent = descripcion ? (descripcion.length > 140 ? descripcion.slice(0, 140) + '…' : descripcion) : '';
-      d.hidden = !descripcion;
-      e.querySelector('.et-mas')?.addEventListener('click', alTocar);
-      e.hidden = true;
-      capaEtiquetas.appendChild(e);
-      r.etiqueta = e;
     }
   }
 
@@ -138,7 +139,6 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
     if (!fuente) {
       if (r.flechas) r.flechas.visible = false;
       if (r.destino) r.destino.visible = false;
-      if (r.etiqueta) r.etiqueta.hidden = true;
       indicador.hidden = true;
       r.tramo = null;
       return { fiable: false, esperandoAncla: !r.visto };
@@ -173,6 +173,17 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
   }
 
   function etiquetas(g) {
+    if (r?.flechas?.visible) {
+      // El límite en pantalla evita que una flecha cercana ocupe toda la cámara.
+      const escalaPorMetro = 2 * 64 / (g.H * camara.projectionMatrix.elements[5] * 0.16);
+      for (const flecha of r.flechas.children) {
+        const tramo = flecha.userData.tramo;
+        if (!tramo) continue;
+        const profundidad = -v.copy(flecha.position).applyMatrix4(matG).z;
+        flecha.visible = profundidad > 0.08;
+        if (flecha.visible) flecha.scale.setScalar(Math.min(tramo.escala, profundidad * escalaPorMetro));
+      }
+    }
     // Nombres de los ejes del ancla
     for (const { et, punta } of etiquetasEjes) {
       if (!ejes.visible) { et.hidden = true; continue; }
@@ -189,20 +200,12 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
         let dx = detras ? objetivoCam.x : p.x, dy = detras ? objetivoCam.y : p.y;
         if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1; // justo detrás: "gírate"
         const ang = Math.atan2(-dy, dx); // en pantalla (y hacia abajo)
-        const radio = Math.min(g.W, g.H) / 2 - 60;
+        const radio = Math.max(0, Math.min(g.W, g.H) / 2 - 38);
         const cx = g.W / 2 + Math.cos(ang) * radio, cy = g.H / 2 + Math.sin(ang) * radio;
-        indicador.style.transform = `translate(${cx - 40}px, ${cy - 30}px)`;
-        indicador.querySelector('.ind-flecha').style.transform = `rotate(${ang}rad)`;
-        indicador.querySelector('.ind-texto').textContent = textoTramo(r.tramo);
+        indicador.style.transform = `translate(${cx - 22}px, ${cy - 22}px)`;
+        flechaIndicador.style.transform = `rotate(${ang}rad)`;
       }
     } else indicador.hidden = true;
-    if (!r || !r.destino || !r.destino.visible) { if (r && r.etiqueta) r.etiqueta.hidden = true; return; }
-    v.set(0, 0.75, 0).applyMatrix4(r.destino.matrixWorld).project(camara);
-    if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) { r.etiqueta.hidden = true; return; }
-    r.etiqueta.hidden = false;
-    const x = ((v.x + 1) / 2) * g.W, y = ((1 - v.y) / 2) * g.H;
-    const ancho = r.etiqueta.offsetWidth, alto = r.etiqueta.offsetHeight;
-    r.etiqueta.style.transform = `translate(${Math.min(Math.max(x - ancho / 2, 8), g.W - ancho - 8)}px, ${y - alto - 6}px)`;
   }
 
   /** ¿Se ha tocado el icono de destino? (llama a alTocar) */
@@ -217,7 +220,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
   function reiniciarReferencia() { if (r) { r.visto = false; r.indice = 1; } }
 
   return {
-    mostrar, ocultar, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
+    mostrar, ocultar, cambiarVista, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
     set forzarEjes(v) { forzarEjes = !!v; }, get activo() { return !!r; },
   };
 }
@@ -226,11 +229,11 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
 // Modo ANCLA (localizar componentes de la máquina activa)
 // ======================================================================
 export function crearModoAncla({
-  capa, panel, panelPos, seguidos, abrirDetalle, maquinaId, ladoCm, esAdmin, avisar, verLocId = null, gravedadCalibrada = () => null }) {
+  capa, panel, panelPos, seguidos, abrirDetalle, maquinaId, esAdmin, avisar, verLocId = null, gravedadCalibrada = () => null }) {
   let anclaId = null;          // ancla activa (QR de la máquina activa)
   let ancla = null;
   let locs = [];               // localizaciones válidas para esa ancla
-  let nav = null;              // { loc } navegación en curso
+  let avisoRecorrido = null;
   let posicionar = false;
   let cargando = false;
   const fotos = new Map();
@@ -275,15 +278,17 @@ export function crearModoAncla({
     h.innerHTML = '<span class="nav-ancla"></span><button class="boton-mini" data-n="cambiar">🔄 Cambiar de ancla</button>';
     h.querySelector('.nav-ancla').textContent = `⚓ ${ancla ? ancla.nombre : anclaId}`;
     h.querySelector('[data-n="cambiar"]').addEventListener('click', () => {
-      capa.ocultar(); nav = null; anclaId = null; ancla = null; locs = [];
+      capa.ocultar(); avisoRecorrido = null; anclaId = null; ancla = null; locs = [];
+      panel.classList.remove('tarjeta-recorrido');
       panel.innerHTML = '<p class="rec-msg">Apunta al QR del ancla que quieras usar.</p>';
     });
     return h;
   }
 
   function mostrarMenu() {
-    nav = null;
+    avisoRecorrido = null;
     capa.ocultar();
+    panel.classList.remove('tarjeta-recorrido');
     panel.innerHTML = '';
     panel.appendChild(cabecera());
     const det = document.createElement('details');
@@ -317,33 +322,38 @@ export function crearModoAncla({
       avisar('Esa localización no corresponde a la máquina o al ancla activas.');
       return;
     }
-    nav = { loc: l };
-    capa.mostrar(l, {
-      titulo: c.nombre, subtitulo: `${c.referencia} · ${c.id}`, alTocar: () => abrirDetalle(c.id),
-    });
-    panel.innerHTML = '';
-    panel.appendChild(cabecera());
-    const t = document.createElement('div');
-    t.className = 'rec-titulo nav-titulo';
-    panel.appendChild(t);
-    const aviso = document.createElement('p');
-    aviso.className = 'nota nav-aviso';
-    panel.appendChild(aviso);
-    nav.titulo = t; nav.aviso = aviso;
-    const fila = document.createElement('div');
-    fila.className = 'botones-archivo';
-    fila.innerHTML = '<button class="boton" data-n="ficha">ℹ️ Ver ficha</button><button class="boton secundario" data-n="fin">✕ Terminar</button>';
-    fila.querySelector('[data-n="ficha"]').addEventListener('click', () => abrirDetalle(c.id));
-    fila.querySelector('[data-n="fin"]').addEventListener('click', mostrarMenu);
-    panel.appendChild(fila);
-    if (ancla && tieneVisorNativo()) {
-      panel.appendChild(bloquePasoLidar({
-        puntos: [[0, 0, 0], ...(l.ruta || []), l.pos],
-        info: { id: c.id, nombre: c.nombre, referencia: c.referencia, descripcion: c.descripcion },
-        anclaId: ancla.id,
-        ladoCm: ladoCm(),
-      }));
-    }
+    const indice = locs.findIndex(({ id }) => id === l.id);
+    const siguiente = indice >= 0 ? locs[indice + 1] : null;
+    panel.classList.add('tarjeta-recorrido');
+    panel.innerHTML = `
+      <span class="guia-paso"></span>
+      <h2 class="guia-titulo"></h2>
+      <p class="guia-referencia"></p>
+      <p class="nota nav-aviso"></p>
+      <details class="guia-cuerpo">
+        <summary>Ficha del elemento</summary>
+        <p class="nota nav-descripcion"></p>
+        <button class="boton-mini" data-n="ficha">Ver ficha completa</button>
+      </details>
+      <div class="guia-nav">
+        <button class="boton secundario" data-n="fin">Ver lista</button>
+        <button class="boton" data-n="sig">Siguiente ›</button>
+      </div>`;
+    const $ = (selector) => panel.querySelector(selector);
+    $('.guia-paso').textContent = `Elemento ${indice + 1} de ${locs.length}`;
+    $('.guia-titulo').textContent = c.nombre;
+    $('.guia-referencia').textContent = [c.referencia, c.id].filter(Boolean).join(' · ');
+    const descripcion = $('.nav-descripcion');
+    descripcion.textContent = c.descripcion || '';
+    descripcion.hidden = !c.descripcion;
+    avisoRecorrido = $('.nav-aviso');
+    $('[data-n="ficha"]').addEventListener('click', () => abrirDetalle(c.id));
+    $('[data-n="fin"]').addEventListener('click', mostrarMenu);
+    const siguienteBoton = $('[data-n="sig"]');
+    siguienteBoton.disabled = !siguiente;
+    siguienteBoton.addEventListener('click', () => { if (siguiente) empezar(siguiente); });
+    const ficha = $('.guia-cuerpo');
+    capa.mostrar(l, { alTocar: () => { ficha.open = true; } });
   }
 
   // ---------- "Posicionar" (administrador): elemento y ancla a la vista a la vez ----------
@@ -418,22 +428,13 @@ export function crearModoAncla({
         if (vista) activar(vista.id);
       }
       if (posicionar) pintarPosicionar(arriba, ahora);
-      if (!nav) return;
+      if (!avisoRecorrido) return;
       const est = capa.actualizar(arriba, ahora, seguidos.get(anclaId));
       if (!est) return;
-      const c = nav.loc.elemento;
-      if (est.esperandoAncla) {
-        nav.titulo.textContent = `🧭 ${c.nombre}`;
-        nav.aviso.textContent = 'Apunta al QR del ancla para ver el recorrido.';
-        return;
-      }
-      nav.titulo.textContent = `🧭 ${c.nombre}${est.fiable ? ' · ' + textoTramo(est) : ''}`;
-      nav.aviso.className = 'nota nav-aviso' + (est.fiable ? '' : ' aviso-recalibrar');
-      nav.aviso.textContent = !est.fiable
-        ? '⚠️ Guía en pausa. Vuelve a enfocar el QR del ancla.'
-        : est.llegada ? 'Toca la «i» del destino para ver su ficha.'
-          : est.fuente === 'entorno' ? 'Siguiendo con la cámara. Ve hacia el punto amarillo.'
-            : 'Sigue las flechas hasta el punto amarillo.';
+      const texto = est.fiable ? textoTramo(est)
+        : est.esperandoAncla ? 'Apunta al QR del ancla.' : 'Guía en pausa. Vuelve a enfocar el QR.';
+      avisoRecorrido.classList.toggle('aviso-recalibrar', !est.fiable);
+      if (avisoRecorrido.textContent !== texto) avisoRecorrido.textContent = texto;
     },
     etiquetas(g) { capa.etiquetas(g); },
     tocado(raycaster) { return capa.tocado(raycaster); },

@@ -1,134 +1,140 @@
-// Ejecución de una GUÍA en realidad aumentada (localización o mantenimiento).
-// 1. Pide escanear el QR del ancla de la guía (de la máquina activa).
-// 2. Va paso a paso: instrucciones, fotos, vídeos, advertencias, comprobaciones y confirmación.
-//    Solo se muestran las flechas y el icono del paso actual.
-// 3. Para avanzar hay que cumplir lo que pida el paso (aceptar la advertencia, marcar comprobaciones,
-//    confirmar). Una guía no sustituye al procedimiento técnico autorizado ni a las medidas de seguridad.
 import { obtenerArchivo } from '../db.js';
-import { localizacionesDeAncla, TIPOS_GUIA } from '../maquinas.js';
-import { tieneVisorNativo } from './visor-nativo.js';
-import { gravedadEnQR } from './navegacion.js';
-import { textoTramo } from './guia-recorrido.js';
-import { deG, describir } from '../coordenadas.js';
+import { localizacionesDeAncla } from '../maquinas.js';
+import { destinoDelPaso, textoTramo } from './guia-recorrido.js';
 
-export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDetalle, abrirImagen, alSalir, ladoCm = () => 10 }) {
+export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDetalle, abrirImagen, alSalir, pasoInicial = 0 }) {
+  const total = guia.pasos.length;
+  let paso = Math.min(Math.max(0, pasoInicial), total - 1);
+  let activo = true;
   let iniciada = false;
-  let paso = 0;
-  let locs = new Map();           // elementoId -> localización (de ESTA máquina y ESTA ancla)
   let terminada = false;
-  const urls = [];
-  const cumplido = new Map();     // índice de paso -> { advertencia, comprobaciones:Set, confirmado }
-  let infoAR = null;              // texto de estado del recorrido del paso
-  let plegado = false;
+  let localizaciones = new Map();
+  let detalle = null;
+  let urls = [];
+  let turnoMedios = 0;
+  const cumplido = new Map();
 
-  const url = async (fid) => {
-    const a = fid && (await obtenerArchivo(fid));
-    if (!a) return null;
-    const u = URL.createObjectURL(a.blob);
-    urls.push(u);
-    return u;
-  };
-
-  const estadoDe = (i) => {
-    if (!cumplido.has(i)) cumplido.set(i, { advertencia: false, comprobaciones: new Set(), confirmado: false });
-    return cumplido.get(i);
-  };
-  const puedeAvanzar = (i) => {
-    const p = guia.pasos[i], e = estadoDe(i);
-    if (p.advertencia && !e.advertencia) return false;
-    if ((p.comprobaciones || []).some((_, k) => !e.comprobaciones.has(k))) return false;
-    if (p.confirmar && !e.confirmado) return false;
-    return true;
-  };
-
-  function esperarAncla() {
-    panel.innerHTML = '';
-    const t = document.createElement('div');
-    t.className = 'rec-titulo';
-    t.textContent = `📘 ${guia.nombre}`;
-    panel.appendChild(t);
-    const p = document.createElement('p');
-    p.className = 'rec-msg';
-    p.textContent = `Apunta al QR del ancla "${guia.anclaNombre || guia.anclaId}" para empezar la guía.`;
-    panel.appendChild(p);
-    const b = document.createElement('button');
-    b.className = 'boton secundario';
-    b.textContent = '✕ Salir de la guía';
-    b.addEventListener('click', alSalir);
-    panel.appendChild(b);
+  function estadoDe(indice) {
+    if (!cumplido.has(indice)) cumplido.set(indice, { advertencia: false, comprobaciones: new Set(), confirmado: false });
+    return cumplido.get(indice);
   }
 
-  async function pintarPaso() {
-    const p = guia.pasos[paso];
-    const total = guia.pasos.length;
-    const e = estadoDe(paso);
-    panel.innerHTML = '';
-    panel.classList.toggle('plegado', plegado);
-    // Cabecera
-    const cab = document.createElement('div');
-    cab.className = 'guia-cab';
-    cab.innerHTML = '<div><div class="guia-nombre"></div><div class="guia-paso"></div><p class="nota guia-ar"></p></div><button class="boton-mini" data-g="plegar"></button>';
-    cab.querySelector('.guia-nombre').textContent = `📘 ${guia.nombre}`;
-    cab.querySelector('.guia-paso').textContent = `Paso ${paso + 1} de ${total} · ${TIPOS_GUIA[guia.tipo] || ''}`;
-    cab.querySelector('[data-g="plegar"]').textContent = plegado ? '▴ Ver instrucciones' : '▾ Ocultar';
-    cab.querySelector('[data-g="plegar"]').addEventListener('click', () => { plegado = !plegado; pintarPaso(); });
-    panel.appendChild(cab);
-    const cuerpo = document.createElement('div');
-    cuerpo.className = 'guia-cuerpo';
-    panel.appendChild(cuerpo);
-    if (p._destinoAR && p.flechas !== false && tieneVisorNativo()) {
-      const b = document.createElement('button');
-      b.className = 'boton boton-lidar';
-      b.textContent = '🧭 Ver este paso con LiDAR';
-      b.addEventListener('click', () => { location.hash = `#/guia-lidar/${encodeURIComponent(guia.id)}?paso=${paso}`; });
-      cuerpo.appendChild(b);
-    }
-    // Título e instrucciones
-    const h = document.createElement('h3');
-    h.className = 'guia-titulo';
-    h.textContent = p.titulo || (p.elementoId && p.elemento ? `Localizar: ${p.elemento.nombre}` : `Paso ${paso + 1}`);
-    cuerpo.appendChild(h);
-    infoAR = cab.querySelector('.guia-ar');
-    if (p.elemento) {
-      const c = document.createElement('div');
-      c.className = 'guia-componente';
-      c.innerHTML = '<b></b><span></span><button class="boton-mini">ℹ️ Ficha</button>';
-      c.querySelector('b').textContent = p.elemento.nombre;
-      c.querySelector('span').textContent = ` · ${p.elemento.referencia}`;
-      c.querySelector('button').addEventListener('click', () => abrirDetalle(p.elemento.id));
-      cuerpo.appendChild(c);
-    }
-    if (p.texto) {
-      const t = document.createElement('p');
-      t.className = 'guia-texto';
-      t.textContent = p.texto;
-      cuerpo.appendChild(t);
-    }
-    // Fotos y vídeos
-    if ((p.imagenes || []).length) {
-      const fila = document.createElement('div');
-      fila.className = 'guia-medios';
-      for (const fid of p.imagenes) {
-        const u = await url(fid);
-        if (!u) continue;
+  function puedeAvanzar() {
+    const p = guia.pasos[paso], e = estadoDe(paso);
+    return (!p.advertencia || e.advertencia) &&
+      (p.comprobaciones || []).every((_, i) => e.comprobaciones.has(i)) &&
+      (!p.confirmar || e.confirmado);
+  }
+
+  function limpiarMedios() {
+    turnoMedios++;
+    urls.forEach((url) => URL.revokeObjectURL(url));
+    urls = [];
+  }
+
+  async function cargarMedios(ids, contenedor, tipo, titulo, turno) {
+    for (const fid of ids || []) {
+      const archivo = await obtenerArchivo(fid);
+      if (!activo || turno !== turnoMedios) return;
+      if (!archivo) continue;
+      const url = URL.createObjectURL(archivo.blob);
+      urls.push(url);
+      if (tipo === 'imagen') {
         const b = document.createElement('button');
         b.className = 'guia-foto';
-        b.innerHTML = '<img alt="">';
-        b.querySelector('img').src = u;
-        b.addEventListener('click', () => abrirImagen(u, h.textContent));
-        fila.appendChild(b);
+        b.setAttribute('aria-label', 'Ampliar foto del paso');
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = url;
+        b.appendChild(img);
+        b.addEventListener('click', () => abrirImagen(url, titulo));
+        contenedor.appendChild(b);
+      } else {
+        const video = document.createElement('video');
+        video.className = 'guia-video';
+        video.controls = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        video.src = url;
+        contenedor.appendChild(video);
       }
-      cuerpo.appendChild(fila);
+      contenedor.hidden = false;
     }
-    for (const fid of p.videos || []) {
-      const u = await url(fid);
-      if (!u) continue;
-      const vid = document.createElement('video');
-      vid.className = 'guia-video';
-      vid.src = u; vid.controls = true; vid.playsInline = true; vid.preload = 'metadata';
-      cuerpo.appendChild(vid);
+  }
+
+  function pintarPaso() {
+    limpiarMedios();
+    const p = guia.pasos[paso];
+    const e = estadoDe(paso);
+    const elemento = guia.elementos.get(p.elementoId);
+    const titulo = p.titulo || elemento?.nombre || `Paso ${paso + 1}`;
+    const destino = destinoDelPaso(p, localizaciones);
+    panel.innerHTML = `
+      <div class="guia-cab">
+        <div class="guia-contexto"><span class="guia-nombre"></span><span class="guia-paso"></span></div>
+        <button class="boton-mini" data-g="plegar" aria-controls="guia-instrucciones"></button>
+      </div>
+      <h2 class="guia-titulo"></h2>
+      <p class="guia-referencia"></p>
+      <p class="nota guia-ar"></p>
+      <div id="guia-instrucciones" class="guia-cuerpo"></div>
+      <div class="guia-nav">
+        <button class="boton secundario" data-g="ant">‹ Anterior</button>
+        <button class="boton" data-g="sig"></button>
+      </div>`;
+    const $ = (selector) => panel.querySelector(selector);
+    $('.guia-nombre').textContent = guia.nombre;
+    $('.guia-paso').textContent = `Paso ${paso + 1} de ${total}`;
+    $('.guia-titulo').textContent = titulo;
+    const ref = $('.guia-referencia');
+    ref.textContent = elemento ? [elemento.nombre === titulo ? '' : elemento.nombre, elemento.referencia].filter(Boolean).join(' · ') : '';
+    ref.hidden = !ref.textContent;
+    detalle = { destino, elemento, info: $('.guia-ar') };
+
+    const cuerpo = $('.guia-cuerpo');
+    const plegar = $('[data-g="plegar"]');
+    function instrucciones(abiertas) {
+      cuerpo.hidden = !abiertas;
+      plegar.setAttribute('aria-expanded', String(abiertas));
+      plegar.textContent = abiertas ? 'Ocultar' : 'Detalles';
     }
-    // Advertencia de seguridad (hay que aceptarla para continuar)
+    plegar.addEventListener('click', () => instrucciones(cuerpo.hidden));
+    const ant = $('[data-g="ant"]'), sig = $('[data-g="sig"]');
+    ant.disabled = paso === 0;
+    sig.textContent = paso === total - 1 ? 'Finalizar guía' : 'Siguiente ›';
+    function actualizarBoton() {
+      sig.disabled = !puedeAvanzar();
+      sig.title = sig.disabled ? 'Completa las comprobaciones de este paso' : '';
+    }
+    ant.addEventListener('click', () => { if (paso > 0) { paso--; pintarPaso(); } });
+    sig.addEventListener('click', () => {
+      if (!puedeAvanzar()) return;
+      if (paso === total - 1) finalizar();
+      else { paso++; pintarPaso(); }
+    });
+
+    if (p.texto) {
+      const texto = document.createElement('p');
+      texto.className = 'guia-texto';
+      texto.textContent = p.texto;
+      cuerpo.appendChild(texto);
+    }
+    if (elemento) {
+      const ficha = document.createElement('div');
+      ficha.className = 'guia-ficha';
+      if (elemento.descripcion) {
+        const desc = document.createElement('p');
+        desc.className = 'nota';
+        desc.textContent = elemento.descripcion;
+        ficha.appendChild(desc);
+      }
+      const b = document.createElement('button');
+      b.className = 'boton-mini';
+      b.textContent = 'Ver ficha completa';
+      b.addEventListener('click', () => abrirDetalle(elemento.id));
+      ficha.appendChild(b);
+      cuerpo.appendChild(ficha);
+    }
     if (p.advertencia) {
       const a = document.createElement('div');
       a.className = 'guia-advertencia';
@@ -136,161 +142,106 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       a.querySelector('p').textContent = p.advertencia;
       const cb = a.querySelector('input');
       cb.checked = e.advertencia;
-      cb.addEventListener('change', () => { e.advertencia = cb.checked; actualizarBotones(); });
+      cb.addEventListener('change', () => { e.advertencia = cb.checked; actualizarBoton(); });
       cuerpo.appendChild(a);
     }
-    // Comprobaciones
-    if ((p.comprobaciones || []).length) {
+    if (p.comprobaciones?.length) {
       const c = document.createElement('div');
       c.className = 'guia-comprobaciones';
-      c.innerHTML = '<div class="guia-adv-titulo">☑️ Comprobaciones</div>';
-      p.comprobaciones.forEach((texto, k) => {
-        const l = document.createElement('label');
-        l.className = 'fila check';
-        l.innerHTML = '<input type="checkbox"> <span></span>';
-        l.querySelector('span').textContent = texto;
-        const cb = l.querySelector('input');
-        cb.checked = e.comprobaciones.has(k);
-        cb.addEventListener('change', () => { if (cb.checked) e.comprobaciones.add(k); else e.comprobaciones.delete(k); actualizarBotones(); });
-        c.appendChild(l);
+      c.innerHTML = '<div class="guia-adv-titulo">Comprobaciones</div>';
+      p.comprobaciones.forEach((texto, i) => {
+        const label = document.createElement('label');
+        label.className = 'fila check';
+        label.innerHTML = '<input type="checkbox"><span></span>';
+        label.querySelector('span').textContent = texto;
+        const cb = label.querySelector('input');
+        cb.checked = e.comprobaciones.has(i);
+        cb.addEventListener('change', () => {
+          if (cb.checked) e.comprobaciones.add(i); else e.comprobaciones.delete(i);
+          actualizarBoton();
+        });
+        c.appendChild(label);
       });
       cuerpo.appendChild(c);
     }
-    // Confirmación
     if (p.confirmar) {
       const b = document.createElement('button');
       b.className = 'boton boton-fijar';
-      const pintar = () => { b.textContent = e.confirmado ? '✅ Paso completado' : '✔ Marcar el paso como completado'; };
+      const pintar = () => { b.textContent = e.confirmado ? '✓ Paso completado' : 'Marcar el paso como completado'; };
       pintar();
-      b.addEventListener('click', () => { e.confirmado = !e.confirmado; pintar(); actualizarBotones(); });
+      b.addEventListener('click', () => { e.confirmado = !e.confirmado; pintar(); actualizarBoton(); });
       cuerpo.appendChild(b);
     }
-    // Navegación
-    const nav = document.createElement('div');
-    nav.className = 'guia-nav';
-    nav.innerHTML = '<button class="boton secundario" data-g="ant">‹ Anterior</button><button class="boton" data-g="sig"></button>';
-    nav.querySelector('[data-g="ant"]').disabled = paso === 0;
-    nav.querySelector('[data-g="ant"]').addEventListener('click', () => { paso--; cargarPaso(); });
-    const sig = nav.querySelector('[data-g="sig"]');
-    sig.textContent = paso === total - 1 ? '🏁 Finalizar guía' : 'Siguiente ›';
-    sig.addEventListener('click', () => {
-      if (!puedeAvanzar(paso)) return;
-      if (paso === total - 1) finalizar(); else { paso++; cargarPaso(); }
-    });
-    panel.appendChild(nav);
-    const salir = document.createElement('button');
-    salir.className = 'quitar';
-    salir.textContent = 'Salir de la guía';
-    salir.addEventListener('click', () => { if (confirm('¿Salir de la guía?')) alSalir(); });
-    panel.appendChild(salir);
-    actualizarBotones();
-    panel.scrollTop = 0;
-  }
-
-  function actualizarBotones() {
-    const sig = panel.querySelector('[data-g="sig"]');
-    if (!sig) return;
-    const ok = puedeAvanzar(paso);
-    sig.disabled = !ok;
-    sig.title = ok ? '' : 'Completa lo que pide el paso para continuar';
-  }
-
-  function cargarPaso() {
-    const p = guia.pasos[paso];
-    p.elemento = p.elementoId ? guia.elementos.get(p.elementoId) || null : null;
-    const propios = Array.isArray(p.rutaPropia) && p.rutaPropia.length ? p.rutaPropia : null;
-    // ¿Adónde se va en este paso? Por orden:
-    //  1. los TRAMOS del paso (desde el QR del ancla): el destino es el final del último tramo
-    //  2. una posición final suelta (guías antiguas)
-    //  3. la localización guardada del componente respecto al ancla de la guía
-    let destino = null, origen = '';
-    if (propios) { destino = { pos: propios[propios.length - 1], ruta: propios.slice(0, -1), posIcono: null }; origen = `${propios.length} tramo(s) del paso`; }
-    else if (Array.isArray(p.destinoPropio)) { destino = { pos: p.destinoPropio, ruta: [], posIcono: null }; origen = 'posición final del paso'; }
-    else if (p.elementoId && locs.get(p.elementoId)) { destino = locs.get(p.elementoId); origen = 'localización del componente'; }
-    const flechas = p.flechas !== false, icono = p.icono !== false; // por defecto, sí
-    p.diagnostico = destino ? `destino: ${describir(deG(destino.pos))} desde el QR (${origen})` : null;
-    p.sinFlechas = !!destino && !flechas;
-    p._destinoAR = destino;
-    if (destino && (flechas || icono)) {
-      capa.mostrar(destino, {
-        conFlechas: flechas, conIcono: icono,
-        titulo: p.elemento ? p.elemento.nombre : (p.titulo || `Paso ${paso + 1}`),
-        subtitulo: p.elemento ? `${p.elemento.referencia} · ${p.elemento.id}` : '',
-        descripcion: p.elemento && guia.tipo === 'localizacion' ? p.elemento.descripcion || '' : '',
-        alTocar: p.elemento ? () => abrirDetalle(p.elemento.id) : null,
-      });
-      p.sinLocalizacion = false;
-    } else {
-      capa.ocultar();
-      p.sinLocalizacion = !!p.elementoId && !destino;
+    for (const [ids, tipo] of [[p.imagenes, 'imagen'], [p.videos, 'video']]) {
+      if (!ids?.length) continue;
+      const medios = document.createElement('div');
+      medios.className = tipo === 'imagen' ? 'guia-medios' : 'guia-videos';
+      medios.hidden = true;
+      cuerpo.appendChild(medios);
+      cargarMedios(ids, medios, tipo, titulo, turnoMedios).catch((error) => console.warn('Medios de la guía:', error));
     }
-    pintarPaso();
+    plegar.hidden = !cuerpo.children.length;
+    instrucciones(!!(p.texto || p.advertencia || p.comprobaciones?.length || p.confirmar));
+    actualizarBoton();
+
+    if (destino && (p.flechas !== false || p.icono !== false)) {
+      capa.mostrar(destino, {
+        conFlechas: p.flechas !== false, conIcono: p.icono !== false,
+        alTocar: elemento ? () => instrucciones(true) : null,
+      });
+    } else capa.ocultar();
   }
 
   function finalizar() {
     terminada = true;
+    limpiarMedios();
     capa.ocultar();
-    panel.classList.remove('plegado');
-    panel.innerHTML = '';
-    const t = document.createElement('div');
-    t.className = 'rec-titulo';
-    t.textContent = `🏁 Guía finalizada: ${guia.nombre}`;
-    panel.appendChild(t);
-    const p = document.createElement('p');
-    p.className = 'nota';
-    p.textContent = `Has completado los ${guia.pasos.length} pasos.`;
-    panel.appendChild(p);
-    const b = document.createElement('button');
-    b.className = 'boton';
-    b.textContent = 'Volver';
-    b.addEventListener('click', alSalir);
-    panel.appendChild(b);
+    panel.innerHTML = '<div class="rec-titulo"></div><p class="nota"></p><button class="boton">Volver</button>';
+    panel.querySelector('.rec-titulo').textContent = `Guía finalizada · ${guia.nombre}`;
+    panel.querySelector('p').textContent = pasoInicial > 0 ? 'Has llegado al final de la guía.' : `Has completado los ${total} pasos.`;
+    panel.querySelector('button').addEventListener('click', alSalir);
   }
 
-  esperarAncla();
+  panel.classList.add('tarjeta-recorrido');
+  panel.innerHTML = '<p class="rec-msg"></p>';
+  panel.querySelector('p').textContent = `Apunta al QR del ancla «${guia.anclaNombre || guia.anclaId}».`;
   panel.hidden = false;
 
   return {
+    get anclaActivaId() { return guia.anclaId; },
     actualizar(_dt, arriba, ahora) {
       if (terminada) return;
       const sa = seguidos.get(guia.anclaId);
       capa.actualizarEjes(arriba, sa);
-      // Cómo está colocado el QR del ancla (pared, mesa…): se mide con el sensor la primera vez que se ve
-      if (sa && sa.visible && !guia.anclaGravedad) {
-        const gL = gravedadEnQR(sa.rot, arriba);
-        guia.anclaGravedad = [gL.x, gL.y, gL.z];
-      }
-      if (!iniciada && sa && sa.visible && sa.tipo === 'ancla-activa') {
+      if (!iniciada && sa?.visible && sa.tipo === 'ancla-activa') {
         iniciada = true;
-        localizacionesDeAncla(maquinaId, guia.anclaId).then((l) => {
-          locs = new Map(l.map((x) => [x.elementoId, x]));
-          cargarPaso();
+        localizacionesDeAncla(maquinaId, guia.anclaId).then((locs) => {
+          if (!activo) return;
+          localizaciones = new Map(locs.map((l) => [l.elementoId, l]));
+          pintarPaso();
+        }).catch((error) => {
+          if (activo) panel.querySelector('p').textContent = 'No se pudieron cargar las localizaciones.';
+          console.warn('Localizaciones de la guía:', error);
         });
       }
-      if (!iniciada || !infoAR) return;
-      const p = guia.pasos[paso];
+      if (!detalle) return;
+      const { destino, elemento, info } = detalle;
       const est = capa.actualizar(arriba, ahora, sa);
-      if (p.sinFlechas) {
-        infoAR.className = 'nota guia-ar aviso-recalibrar';
-        infoAR.textContent = '⚠️ Este paso tiene las flechas desactivadas: márcalas en el editor de la guía (casilla "Mostrar flechas 3D").';
-      } else if (p.sinLocalizacion) {
-        infoAR.textContent = 'Este componente no tiene localización respecto al ancla de la guía (ni posición final propia en el paso).';
-      } else if (!est) {
-        infoAR.textContent = p.elementoId || p.diagnostico ? '' : 'Este paso no tiene destino: solo instrucciones.';
-      } else if (est.esperandoAncla) {
-        infoAR.textContent = 'Apunta al QR del ancla para ver el recorrido.';
-      } else {
-        infoAR.className = 'nota guia-ar' + (est.fiable ? '' : ' aviso-recalibrar');
-        infoAR.textContent = est.fiable
-          ? `🧭 ${textoTramo(est)}${p.diagnostico ? ' · ' + p.diagnostico : ''}`
-          : '⚠️ Guía en pausa. Vuelve a enfocar el QR del ancla.';
-      }
+      let texto = 'Paso de instrucciones';
+      if (est?.fiable) texto = textoTramo(est);
+      else if (est) texto = est.esperandoAncla ? 'Apunta al QR del ancla' : 'Guía en pausa. Vuelve a enfocar el QR.';
+      else if (!destino && elemento) texto = 'Este elemento no tiene una posición guardada para este QR.';
+      else if (destino) texto = '';
+      info.classList.toggle('aviso-recalibrar', !!est && !est.fiable);
+      if (info.textContent !== texto) info.textContent = texto;
+      info.hidden = !texto;
     },
     etiquetas(g) { capa.etiquetas(g); },
     tocado(raycaster) { return capa.tocado(raycaster); },
     detener() {
+      activo = false;
+      limpiarMedios();
       capa.ocultar();
-      urls.forEach((u) => URL.revokeObjectURL(u));
     },
   };
 }

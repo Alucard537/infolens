@@ -75,7 +75,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .esc-panel {
   position: absolute; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));
   max-height: 75vh; overflow: auto; padding: 16px; border-radius: 18px;
-  background: rgba(15, 27, 36, 0.94); font-size: 17px;
+  background: rgba(15, 27, 36, 0.94); font-size: 17px; z-index: 4;
 }
 .esc-panel h3 { margin: 0 0 8px; color: var(--azul); }
 .esc-panel label { display: block; margin: 14px 0; }
@@ -313,9 +313,7 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 }
 .nav-panel[hidden], .pos-panel[hidden] { display: none; }
 .nav-menu summary { font-size: 17px; font-weight: 700; min-height: 40px; display: flex; align-items: center; cursor: pointer; }
-.nav-titulo { font-size: 18px; }
 .nav-aviso { margin: 4px 0 8px; }
-.etiqueta.nav-destino { border-color: #34c759; }
 .pos-anclas { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
 .boton-mini.activo { background: #ffd60a; color: #2b2300; }
 .pos-fila { display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 0; border-top: 1px solid #2b4456; font-size: 16px; }
@@ -373,8 +371,33 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .estado-desactivada { background: #5a1f1f; }
 .portada-guia img { width: 100%; max-height: 240px; object-fit: cover; border-radius: 14px; display: block; }
 .portada-guia[hidden] { display: none; }
-.nav-panel.plegado .guia-cuerpo { display: none; }
+.nav-panel.tarjeta-recorrido {
+  z-index: 2; display: flex; flex-direction: column; gap: 4px;
+  max-width: 540px; max-height: min(60dvh, 520px); margin-inline: auto;
+  padding: 12px 14px;
+  overflow: hidden; background: #13212b; border: 1px solid #516775;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.46);
+}
+.nav-panel.tarjeta-recorrido[hidden], .tarjeta-recorrido .guia-cuerpo[hidden] { display: none; }
+.tarjeta-recorrido .guia-titulo { margin: 0; line-height: 1.22; overflow-wrap: anywhere; }
+.guia-referencia { margin: 0; font-size: 14px; color: var(--texto2); overflow-wrap: anywhere; }
+.tarjeta-recorrido .guia-ar, .tarjeta-recorrido .nav-aviso { margin: 1px 0; font-size: 14px; color: #9ce5cf; }
+.tarjeta-recorrido .guia-cuerpo {
+  min-height: 0; overflow: auto; overscroll-behavior: contain;
+  padding: 7px 0; border-top: 1px solid #324555;
+}
+.tarjeta-recorrido summary { cursor: pointer; min-height: 34px; }
+.tarjeta-recorrido .guia-nav { flex: none; margin-top: 4px; }
+.tarjeta-recorrido .guia-nav .boton {
+  width: auto; min-width: 0; min-height: 48px; margin: 0; padding: 4px 10px;
+  border-radius: 12px; font-size: 16px;
+}
+.tarjeta-recorrido .guia-nav .secundario { background: #243746; }
+.tarjeta-recorrido .guia-nav .boton:not(.secundario) { background: #92efcb; }
 .guia-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.guia-contexto { display: flex; gap: 4px 9px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
+.guia-contexto .guia-nombre { overflow-wrap: anywhere; }
+.guia-cab [data-g="plegar"] { flex: none; min-height: 36px; }
 .guia-nombre { font-weight: 700; color: var(--azul); }
 .guia-paso { font-size: 14px; color: var(--texto2); }
 .guia-titulo { margin: 8px 0 4px; font-size: 19px; }
@@ -383,6 +406,7 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .guia-componente { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
 .guia-componente .boton-mini { margin-left: auto; }
 .guia-medios { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.guia-medios[hidden] { display: none; }
 .guia-foto { position: relative; width: 96px; height: 96px; padding: 0; border: none; border-radius: 10px; overflow: hidden; background: #fff; }
 .guia-foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .quitar-medio { position: absolute; top: 2px; right: 2px; min-height: 30px; padding: 0 8px; }
@@ -403,15 +427,13 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 /* Casillas de verificación siempre visibles (marcadas con ✓) */
 input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: var(--azul); margin: 0; }
 .indicador-destino {
-  position: absolute; left: 0; top: 0; width: 80px; display: flex; flex-direction: column; align-items: center;
-  pointer-events: none; text-align: center;
+  position: absolute; left: 0; top: 0; pointer-events: none;
 }
 .indicador-destino[hidden] { display: none; }
 .ind-flecha {
-  display: flex; align-items: center; justify-content: center; width: 54px; height: 54px; border-radius: 50%;
-  background: #34c759; color: #062b12; font-size: 30px; box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.35);
+  display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%;
+  background: #92efcb; color: #102920; font-size: 24px; box-shadow: 0 0 0 3px #13212b;
 }
-.ind-texto { margin-top: 4px; padding: 2px 6px; border-radius: 8px; background: rgba(15, 27, 36, 0.85); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .etiqueta-eje {
   position: absolute; left: 0; top: 0; pointer-events: none; font-weight: 800; font-size: 16px;
   text-shadow: 0 0 3px #000, 0 0 6px #000;

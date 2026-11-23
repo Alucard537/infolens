@@ -1,21 +1,9 @@
-// GUÍA CON LiDAR: la guía paso a paso SIN la cámara de la app (como la prueba del inicio, que funciona).
-// Cada paso tiene su botón del AR de Apple con un solo objeto: ancla 🟥 + flechas + componente 🟦.
-// Si la app tuviera la cámara abierta, el AR de Apple se abriría sin realidad aumentada.
+// Lectura de las instrucciones de la guía y acceso a su paso en la cámara de InfoLens.
 import { obtenerArchivo, mapaElementos } from '../db.js';
 import { obtenerGuia, obtenerAncla, localizacionesDeAncla, maquinaActivaId, TIPOS_GUIA } from '../maquinas.js';
 import { esAdmin } from '../permisos.js';
-import { bloquePasoLidar } from '../ar/bloque-lidar.js';
-import { leerAjustes } from '../ajustes.js';
+import { destinoDelPaso } from '../ar/guia-recorrido.js';
 import { deG, describir } from '../coordenadas.js';
-
-/** ¿Adónde se va en un paso? 1) sus tramos, 2) posición final suelta (antiguas), 3) localización del componente. */
-export function destinoDelPaso(p, locs) {
-  const propios = Array.isArray(p.rutaPropia) && p.rutaPropia.length ? p.rutaPropia : null;
-  if (propios) return { pos: propios[propios.length - 1], ruta: propios.slice(0, -1) };
-  if (Array.isArray(p.destinoPropio)) return { pos: p.destinoPropio, ruta: [] };
-  const l = p.elementoId && locs.get(p.elementoId);
-  return l ? { pos: l.pos, ruta: l.ruta || [] } : null;
-}
 
 export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetalle, abrirImagen, editar, conCamara }) {
   let activo = true;
@@ -64,11 +52,11 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
           <div class="fila-botones-guia">
             <button class="volver">‹ Salir</button>
             ${esAdmin() && editar ? '<button class="boton-mini" data-g="editar">✏️ Editar guía</button>' : ''}
-            ${conCamara ? '<button class="boton-mini" data-g="camara">📷 Modo cámara</button>' : ''}
           </div>
           <div class="guia-nombre"></div>
           <div class="guia-paso"></div>
           <h2 class="guia-titulo"></h2>
+          ${conCamara ? '<button class="boton" data-g="camara">Abrir este paso con la cámara</button>' : ''}
           <div class="lidar-paso"></div>
           <div class="cuerpo-paso"></div>
           <div class="guia-nav"><button class="boton secundario" data-g="ant">‹ Anterior</button><button class="boton" data-g="sig"></button></div>
@@ -76,17 +64,12 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
       const $ = (s) => app.querySelector(s);
       $('.volver').addEventListener('click', () => { if (confirm('¿Salir de la guía?')) volver(); });
       $('[data-g="editar"]')?.addEventListener('click', () => editar(g.id));
-      $('[data-g="camara"]')?.addEventListener('click', () => conCamara(g.id));
+      $('[data-g="camara"]')?.addEventListener('click', () => conCamara(g.id, paso));
       $('.guia-nombre').textContent = `📘 ${g.nombre}`;
       $('.guia-paso').textContent = `Paso ${paso + 1} de ${total} · ${TIPOS_GUIA[g.tipo] || ''} · Ancla: ${ancla.nombre}`;
       $('.guia-titulo').textContent = p.titulo || (el ? `Localizar: ${el.nombre}` : `Paso ${paso + 1}`);
       const lp = $('.lidar-paso');
       if (destino && p.flechas !== false) {
-        const info = el
-          ? { nombre: el.nombre, referencia: el.referencia, id: el.id, descripcion: el.descripcion || '' }
-          : { nombre: p.titulo || `Paso ${paso + 1}`, referencia: g.nombre, id: '', descripcion: p.texto || '' };
-        const puntos = [[0, 0, 0], ...(destino.ruta || []), destino.pos];
-        lp.appendChild(bloquePasoLidar({ puntos, info, anclaId: g.anclaId, ladoCm: leerAjustes().qrCm || 10 }));
         const d = document.createElement('p');
         d.className = 'nota';
         d.textContent = `📍 Destino: ${describir(deG(destino.pos))} desde el QR del ancla.`;

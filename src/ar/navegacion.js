@@ -15,8 +15,6 @@ import { unzipSync, zipSync, strToU8, strFromU8 } from 'three/examples/jsm/libs/
 import QRCode from 'qrcode';
 import { crearIcono } from './icono.js';
 
-const VERDE = 0x34c759;
-
 /** Ejes de G expresados en coordenadas L, a partir de "arriba" en coordenadas L. */
 // QR "tumbado" (suelo, mesa, techo) si su cara mira a menos de 45° de la vertical; si no, "de pared".
 // Tumbado: ADELANTE = hacia su borde de arriba (la flecha "▲ ADELANTE" impresa).
@@ -57,13 +55,23 @@ export function marcoQR(posQR, rotQR, arribaCamara, salida = new THREE.Matrix4()
 let geoFlecha = null;
 function geometriaFlecha() {
   if (geoFlecha) return geoFlecha;
-  // Flecha plana que apunta hacia +Z (un "chevron" con algo de grosor), de 16 cm de largo
+  // Chevrón bajo, con bisel y la punta hacia +Z.
   const forma = new THREE.Shape();
-  forma.moveTo(0, 0.08); forma.lineTo(0.07, 0.0); forma.lineTo(0.035, 0.0);
-  forma.lineTo(0.035, -0.08); forma.lineTo(-0.035, -0.08); forma.lineTo(-0.035, 0.0);
-  forma.lineTo(-0.07, 0.0); forma.closePath();
-  const g = new THREE.ExtrudeGeometry(forma, { depth: 0.012, bevelEnabled: false });
-  g.translate(0, 0, -0.006);
+  forma.moveTo(-0.070, -0.025);
+  forma.lineTo(-0.010, 0.055);
+  forma.quadraticCurveTo(0, 0.068, 0.010, 0.055);
+  forma.lineTo(0.070, -0.025);
+  forma.quadraticCurveTo(0.075, -0.032, 0.068, -0.038);
+  forma.lineTo(0.051, -0.051);
+  forma.quadraticCurveTo(0.044, -0.056, 0.038, -0.048);
+  forma.lineTo(0, 0.003);
+  forma.lineTo(-0.038, -0.048);
+  forma.quadraticCurveTo(-0.044, -0.056, -0.051, -0.051);
+  forma.lineTo(-0.068, -0.038);
+  forma.quadraticCurveTo(-0.075, -0.032, -0.070, -0.025);
+  forma.closePath();
+  const g = new THREE.ExtrudeGeometry(forma, { depth: 0.004, bevelSize: 0.002, bevelThickness: 0.002, bevelSegments: 2, curveSegments: 4 });
+  g.translate(0, 0, -0.002);
   g.rotateX(-Math.PI / 2); // la forma estaba en XY: ahora queda tumbada, apuntando a -Z...
   g.rotateY(Math.PI);      // ...y la giramos para que apunte a +Z
   geoFlecha = g;
@@ -84,11 +92,10 @@ export function puntosRecorrido(nav) {
  */
 export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFlechas = true, conAro = true, grosorLinea = 0.008 } = {}) {
   const grupo = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, roughness: 0.4, metalness: 0.1 });
-  const materialLinea = new THREE.MeshStandardMaterial({ color: VERDE, emissive: 0x145c2a, transparent: true, opacity: 0.7 });
+  const material = new THREE.MeshStandardMaterial({ color: 0x63e9b1, emissive: 0x247859, roughness: 0.55 });
+  const materialLinea = new THREE.MeshStandardMaterial({ color: 0x63e9b1, emissive: 0x175b43, transparent: true, opacity: 0.65 });
   grupo.userData.materiales = [material, materialLinea];
   const arriba = new THREE.Vector3(0, 1, 0);
-  const ESCALA_FLECHA = new THREE.Vector3(0.9, 0.9, 0.9);
   if (conAro && puntos.length) {
     // Marca de salida junto al QR del ancla (un aro en el suelo del recorrido)
     const aro = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.012, 8, 32), materialLinea);
@@ -121,9 +128,11 @@ export function crearFlechas(puntos, separacion = 0.5, { conLinea = true, conFle
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
       const f = new THREE.Mesh(geometriaFlecha(), material);
-      f.matrixAutoUpdate = false;
-      f.matrix.copy(giro).scale(ESCALA_FLECHA).setPosition(a.clone().addScaledVector(tramo, t));
-      f.userData.tramo = { i, t };
+      const escala = Math.min(1, largo * 5);
+      f.quaternion.setFromRotationMatrix(giro);
+      f.scale.setScalar(escala);
+      f.position.copy(a).addScaledVector(tramo, t);
+      f.userData.tramo = { escala };
       grupo.add(f);
     }
   }
