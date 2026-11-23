@@ -89,7 +89,12 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     const ref = $('.guia-referencia');
     ref.textContent = elemento ? [elemento.nombre === titulo ? '' : elemento.nombre, elemento.referencia].filter(Boolean).join(' · ') : '';
     ref.hidden = !ref.textContent;
-    detalle = { destino, elemento, info: $('.guia-ar') };
+    const mostrarMarcas = p.flechas !== false || p.icono !== false;
+    const avisoFijo = !destino
+      ? (elemento ? `Falta la posición de este elemento para «${guia.anclaNombre || guia.anclaId}». Añádela en Localizaciones o en los tramos del paso.` : 'Paso de instrucciones')
+      : (!mostrarMarcas ? 'Activa las flechas o el icono en la edición de este paso.' : null);
+    detalle = { avisoFijo, conIcono: p.icono !== false, info: $('.guia-ar') };
+    detalle.info.textContent = avisoFijo ?? 'Preparando la marca del elemento…';
 
     const cuerpo = $('.guia-cuerpo');
     const plegar = $('[data-g="plegar"]');
@@ -184,7 +189,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     instrucciones(!!(p.texto || p.advertencia || p.comprobaciones?.length || p.confirmar));
     actualizarBoton();
 
-    if (destino && (p.flechas !== false || p.icono !== false)) {
+    if (destino && mostrarMarcas) {
       capa.mostrar(destino, {
         conFlechas: p.flechas !== false, conIcono: p.icono !== false,
         nombre: elemento?.nombre || titulo,
@@ -226,15 +231,18 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
           console.warn('Localizaciones de la guía:', error);
         });
       }
-      if (!detalle) return;
-      const { destino, elemento, info } = detalle;
+      if (!detalle || detalle.avisoFijo !== null) return;
+      const { info, conIcono } = detalle;
       const est = capa.actualizar(arriba, ahora, sa);
-      let texto = 'Paso de instrucciones';
-      if (est?.fiable) texto = textoTramo(est);
-      else if (est) texto = est.esperandoAncla ? 'Apunta al QR del ancla' : 'Guía en pausa. Vuelve a enfocar el QR.';
-      else if (!destino && elemento) texto = 'Este elemento no tiene una posición guardada para este QR.';
-      else if (destino) texto = '';
-      info.classList.toggle('aviso-recalibrar', !!est && !est.fiable);
+      let texto = '';
+      if (est?.error) texto = est.error;
+      else if (est?.pendiente) texto = 'Preparando la marca del elemento…';
+      else if (est?.fiable) {
+        texto = textoTramo(est);
+        if (!conIcono) texto += ' · Icono del elemento desactivado';
+        else if (est.fueraDeCamara) texto += ' · Marca fuera de cámara';
+      } else if (est) texto = est.esperandoAncla ? 'Apunta al QR del ancla' : 'Guía en pausa. Vuelve a enfocar el QR.';
+      info.classList.toggle('aviso-recalibrar', !!(est?.error || est?.fiable === false));
       if (info.textContent !== texto) info.textContent = texto;
       info.hidden = !texto;
     },

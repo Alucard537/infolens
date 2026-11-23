@@ -70,8 +70,11 @@ final class AplicacionInfoLens: ObservableObject {
         guard id == sesion else { return }
         switch accion {
         case "recorrido":
+            let destinoId = mensaje["destinoId"] as? Int
             if let recorrido = leerRecorrido(mensaje["recorrido"]) {
-                controlador?.cambiarRecorrido(recorrido, destinoId: mensaje["destinoId"] as? Int)
+                controlador?.cambiarRecorrido(recorrido, destinoId: destinoId)
+            } else {
+                controlador?.cambiarRecorrido(nil, destinoId: destinoId, error: "La posición del elemento no es válida. Revisa los tramos o su localización.")
             }
         case "ocultar": controlador?.cambiarRecorrido(nil)
         case "vista": controlador?.soloLinea = mensaje["vista"] as? String == "linea"

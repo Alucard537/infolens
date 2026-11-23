@@ -84,6 +84,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 72px); left: 16px;
   color: #92efcb; font-size: 26px; pointer-events: none; text-shadow: 0 2px 5px #13212b;
 }
+.indicacion-destino {
+  position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 114px);
+  left: 50%; transform: translateX(-50%); z-index: 1; pointer-events: none;
+  display: flex; align-items: center; gap: 10px; max-width: calc(100% - 24px);
+  padding: 8px 13px; border: 1px solid #79cbb4; border-radius: 14px;
+  background: #13212b; color: #fff; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.indicacion-destino[hidden] { display: none; }
+.indicacion-destino > span { color: #92efcb; font-size: 28px; line-height: 1; }
+.indicacion-destino strong, .indicacion-destino small { display: block; overflow-wrap: anywhere; }
 .ficha-flotante {
   position: absolute; top: 0; left: 0; z-index: 1; pointer-events: none;
   display: flex; align-items: center; gap: 8px; max-width: min(192px, 47vw);
