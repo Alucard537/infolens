@@ -28,10 +28,58 @@ struct AnclaAR: Decodable {
     let id: String
     let ladoCm: Double
     let patron: String?
+    let subancla: SubanclaAR?
 
+    init(id: String, ladoCm: Double, patron: String?, subancla: SubanclaAR? = nil) {
+        self.id = id
+        self.ladoCm = ladoCm
+        self.patron = patron
+        self.subancla = subancla
+    }
+
+    var principalId: String { subancla?.anclaId ?? id }
     var modulos: [[Bool]]? { Recorrido.leerModulos(patron) }
-    var textoQR: String { "INFOLENS:" + id }
-    var valida: Bool { !id.isEmpty && id.count <= 120 && (1...200).contains(ladoCm) }
+    var textoQR: String { subancla == nil ? "INFOLENS:" + id : id }
+    var valida: Bool {
+        guard !id.isEmpty, id.count <= 120, (1...200).contains(ladoCm) else { return false }
+        guard let subancla else { return true }
+        return id.hasPrefix("INFOLENS-SUB:S-") && subancla.valida && (2...16).contains(ladoCm)
+    }
+}
+
+struct SubanclaAR: Decodable {
+    enum Cara: String, Decodable {
+        case frontal, derecha, trasera, izquierda
+
+        var normal: SIMD3<Float> {
+            switch self {
+            case .frontal: return [0, 0, 1]
+            case .derecha: return [1, 0, 0]
+            case .trasera: return [0, 0, -1]
+            case .izquierda: return [-1, 0, 0]
+            }
+        }
+    }
+
+    let anclaId: String
+    let nombre: String
+    let pos: [Float]
+    let cara: Cara
+
+    var valida: Bool {
+        !anclaId.isEmpty && anclaId.count <= 120 && !nombre.isEmpty && nombre.count <= 80 &&
+            pos.count == 3 && pos.allSatisfy { $0.isFinite && abs($0) < 1000 } && pos.contains { $0 != 0 }
+    }
+
+    /// Lleva los ejes del QR de ARKit (derecha, normal, abajo) a los ejes de la guía.
+    func poseRecorrido(desde poseQR: PoseQR) -> PoseQR {
+        let y = cara.normal
+        let z = SIMD3<Float>(0, -1, 0)
+        let x = simd_cross(y, z)
+        let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(x, 0), SIMD4<Float>(y, 0),
+            SIMD4<Float>(z, 0), SIMD4<Float>(pos[0], pos[1], pos[2], 1)))
+        return PoseQR(poseQR.matriz * simd_inverse(desdeMarca))
+    }
 }
 
 struct Recorrido {

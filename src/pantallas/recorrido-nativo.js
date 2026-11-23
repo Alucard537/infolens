@@ -5,6 +5,7 @@ import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearModoAncla } from '../ar/modo-navegacion.js';
 import { datosDelVisor, enviarARKit, modulosQR } from '../ar/visor-nativo.js';
+import { subanclasDe, textoQRSubancla } from '../subanclas.js';
 
 /** La interfaz y los pasos viven en InfoLens. ARKit mantiene la misma sesión entre elementos. */
 export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, verLocId, volver, abrirDetalle, abrirImagen, posicionar }) {
@@ -99,7 +100,14 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         return;
       }
       const referencias = (enGuia ? anclas.filter((a) => a.id === guia.anclaId) : anclas)
-        .map((a) => ({ id: a.id, ladoCm, patron: modulosQR('INFOLENS:' + a.id) }));
+        .flatMap((a) => [
+          { id: a.id, ladoCm, patron: modulosQR('INFOLENS:' + a.id) },
+          ...subanclasDe(a).map((s) => {
+            const id = textoQRSubancla(s.id);
+            return { id, ladoCm: s.ladoCm, patron: modulosQR(id),
+              subancla: { anclaId: a.id, nombre: s.nombre, pos: s.pos, cara: s.cara } };
+          }),
+        ]);
       if (!referencias.length || referencias.length > 100) {
         estado.textContent = !referencias.length
           ? 'Esta máquina no tiene el QR de anclaje necesario.'

@@ -56,6 +56,9 @@ final class AplicacionInfoLens: ObservableObject {
                   let datos = try? JSONSerialization.data(withJSONObject: objetos), datos.count < 350_000,
                   let anclas = try? JSONDecoder().decode([AnclaAR].self, from: datos),
                   (1...100).contains(anclas.count), anclas.allSatisfy(\.valida) else { return }
+            let principales = Set(anclas.filter { $0.subancla == nil }.map(\.id))
+            guard !principales.isEmpty, Set(anclas.map(\.id)).count == anclas.count,
+                  anclas.allSatisfy({ principales.contains($0.principalId) }) else { return }
             cerrar()
             sesion = id
             let ar = ControladorAR(anclas: anclas, soloLinea: mensaje["vista"] as? String == "linea")
