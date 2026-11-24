@@ -168,7 +168,7 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
       li.querySelector('[data-a="ed"]').addEventListener('click', () => editarElemento(e.id));
       li.querySelector('[data-a="loc"]').addEventListener('click', () => localizaciones(e.id));
       li.querySelector('[data-a="des"]').addEventListener('click', async () => {
-        if (!confirm(`¿Quitar "${e.nombre}" de la máquina ${id}?\n\nEl elemento NO se borra; se borran sus localizaciones en esta máquina.`)) return;
+        if (!confirm(`¿Quitar "${e.nombre}" de la máquina ${id}?\n\nEl elemento conservará su ficha y perderá sus posiciones en esta máquina. Las guías publicadas que lo usaban pasarán a borrador.`)) return;
         await desvincularElemento(e.id);
         pintar();
       });
@@ -205,7 +205,7 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
       pintarLista();
       cont.querySelector('[data-a="asociar"]').addEventListener('click', async () => {
         const mover = [...elegidos].filter((x) => otros.some((o) => o.id === x));
-        if (mover.length && !confirm(`${mover.length} elementos están en otra máquina. Se moverán a ${id} y perderán sus localizaciones anteriores. ¿Continuar?`)) return;
+        if (mover.length && !confirm(`${mover.length} elementos están en otra máquina. Se moverán a ${id} y perderán sus posiciones anteriores. Las guías publicadas que los usaban pasarán a borrador. ¿Continuar?`)) return;
         for (const x of elegidos) await asignarElemento(x, id);
         pintar();
       });

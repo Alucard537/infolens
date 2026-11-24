@@ -2,6 +2,7 @@
 import { listarElementos, obtenerArchivo } from '../db.js';
 import { esAdmin } from '../permisos.js';
 import { maquinaActivaId } from '../maquinas.js';
+import { elegirMaquinaDestino } from '../ui/trasladar.js';
 
 // Quita acentos y pasa a minúsculas para buscar sin importar cómo se escriba
 const simplificar = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -65,10 +66,19 @@ export function pantallaLista(app, { abrirDetalle, nuevo, hojaQR, volver }) {
             <span class="fila-nombre"></span>
             <span class="fila-ref"></span>
           </span>
-        </button>`;
+        </button>
+        ${esAdmin() ? `<div class="acciones-guia">
+          <button class="boton-mini" data-traslado="mover">Mover</button>
+          <button class="boton-mini" data-traslado="duplicar">Duplicar</button>
+        </div>` : ''}`;
       li.querySelector('.fila-nombre').textContent = e.nombre;
       li.querySelector('.fila-ref').textContent = `${e.referencia} · ${e.id}${esAdmin() && e.maquinaId !== maq ? ' · ' + (e.maquinaId || 'sin máquina') : ''}`;
       li.querySelector('button').addEventListener('click', () => abrirDetalle(e.id));
+      li.querySelectorAll('[data-traslado]').forEach((boton) => boton.addEventListener('click', () => {
+        elegirMaquinaDestino($('.pagina'), e, {
+          duplicar: boton.dataset.traslado === 'duplicar', alGuardar: (resultado) => abrirDetalle(resultado.id),
+        });
+      }));
       const img = li.querySelector('img');
       if (img) { img.dataset.mini = e.miniaturaId; observador.observe(img); }
       frag.appendChild(li);

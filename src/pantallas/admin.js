@@ -11,7 +11,7 @@ const campo = (nombre, texto, autocompletar) => `
     </span>
   </label>`;
 
-export function pantallaAdmin(app, { volver, alEntrar, alSalir, destino }) {
+export function pantallaAdmin(app, { volver, alEntrar, alSalir, destino, recibirActualizacion }) {
   function pintar() {
     const admin = esAdmin();
     const hay = hayContrasena();
@@ -55,10 +55,12 @@ export function pantallaAdmin(app, { volver, alEntrar, alSalir, destino }) {
         </form>
         <p class="nota">⚠️ Apúntala en un sitio seguro: no se puede recuperar.</p>`;
     }
+    if (!admin) html += '<button class="boton secundario" type="button" data-accion="recibir">📥 Recibir actualización</button>';
     html += '</div>';
     app.innerHTML = html;
 
     app.querySelector('.volver').addEventListener('click', volver);
+    app.querySelector('[data-accion="recibir"]')?.addEventListener('click', recibirActualizacion);
     app.querySelectorAll('.ver-clave').forEach((b) => b.addEventListener('click', () => {
       const i = b.previousElementSibling;
       i.type = i.type === 'password' ? 'text' : 'password';

@@ -69,16 +69,15 @@ async function pantallaInicio() {
     <div class="pagina">
       <h1 class="titulo-app"></h1>
       <button class="usuario ${admin ? 'es-admin' : ''}" data-ir="#/admin">${admin ? '🔑 Administrador' : '👤 Usuario normal'}</button>
-      <button class="maquina-activa ${maquina ? '' : 'sin-maquina'}" data-ir="#/maquinas">
+      <p class="maquina-activa ${maquina ? '' : 'sin-maquina'}">
         MÁQUINA ACTIVA: <b class="nombre-maquina"></b>
-      </button>
+      </p>
       <div class="botones-principales">
-        <button class="boton grande" data-ir="#/escaner" data-camara>📷 ESCÁNER</button>
-        <button class="boton grande secundario" data-ir="#/maquinas">🏭 MÁQUINAS</button>
-        <button class="boton grande" data-ir="#/ancla" data-camara>⚓ ANCLA</button>
+        <button class="boton grande" data-ir="#/maquinas">🏭 MÁQUINAS</button>
         <button class="boton grande secundario" data-ir="#/guias">📘 GUÍAS</button>
+        <button class="boton grande" data-ir="#/escaner" data-camara>📷 ESCÁNER</button>
+        <button class="boton grande secundario" data-ir="#/elementos">📋 ELEMENTOS <span class="cuenta"></span></button>
       </div>
-      <button class="boton secundario" data-ir="#/elementos">📋 Elementos de la máquina <span class="cuenta"></span></button>
       ${admin ? `
       <h2>🔑 Administración</h2>
       <button class="boton secundario" data-ir="#/maquinas">🏭 Gestión de máquinas</button>
@@ -86,14 +85,12 @@ async function pantallaInicio() {
       <button class="boton secundario" data-ir="#/guias">📘 Gestión de guías</button>
       <button class="boton secundario" data-ir="#/nuevo">➕ Añadir elemento</button>
       <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
-      <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>` : `
-      <button class="boton secundario" data-ir="#/copia">📥 Recibir actualización</button>`}
-      <button class="boton secundario" data-ir="#/admin">${admin ? '🚪 Salir del modo administrador' : '🔒 Entrar como administrador'}</button>
+      <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>
       <button class="boton secundario" data-ir="#/diagnostico-ar">🔬 Diagnóstico del AR con LiDAR</button>
-      <p class="nota">Versión ${__VERSION__}</p>
+      <p class="nota">Versión ${__VERSION__}</p>` : ''}
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
-  app.querySelector('.nombre-maquina').textContent = maquina ? `${maquina.nombre} (${maquina.id})` : 'ninguna — toca para elegir';
+  app.querySelector('.nombre-maquina').textContent = maquina ? `${maquina.nombre} (${maquina.id})` : 'elige una en Máquinas';
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
     if (b.hasAttribute('data-camara')) irConCamara(b.dataset.ir); else ir(b.dataset.ir);
   }));
@@ -116,7 +113,7 @@ async function mostrar() {
 
   // Pantallas solo para el administrador: si no lo es, se le pide la contraseña
   const SOLO_ADMIN = ['nuevo', 'editar', 'importar', 'hoja', 'qr', 'huella', 'maquina', 'maquina-nueva', 'maquina-editar',
-    'localizacion', 'guia-editar', 'guia-nueva', 'anclas'];
+    'localizacion', 'guia-editar', 'guia-nueva', 'ancla', 'anclas', 'diagnostico-ar'];
   if (SOLO_ADMIN.includes(pantalla) && !esAdmin()) {
     location.replace('#/admin?ir=' + encodeURIComponent(location.hash));
     return;
@@ -137,6 +134,7 @@ async function mostrar() {
   } else if (pantalla === 'admin') {
     pantallaAdmin(app, {
       volver: () => ir('#/'),
+      recibirActualizacion: () => ir('#/copia'),
       destino: params.get('ir'),
       alEntrar: (d) => sustituir(d || '#/'),
       alSalir: () => sustituir('#/'),
@@ -209,7 +207,7 @@ async function mostrar() {
       // Volver a un sitio fijo (no "atrás"): si se vino desde la gestión de una máquina, a ella; si no, al inicio
       volver: () => ir(params.get('maquina') ? '#/maquina/' + enc(params.get('maquina')) : '#/'),
       abrir: (g) => ir('#/guia/' + enc(g)),
-      editar: (g) => ir('#/guia-editar/' + enc(g)),
+      editar: (g, maquina) => ir('#/guia-editar/' + enc(g) + (maquina ? '?maquina=' + enc(maquina) : '')),
       nueva: (m) => ir('#/guia-nueva?maquina=' + enc(m)),
     });
   } else if (pantalla === 'guia' && id) {
@@ -229,12 +227,14 @@ async function mostrar() {
       conCamara: (g, paso) => irConCamara('#/guia-ejecutar/' + enc(g) + '?paso=' + paso),
     });
   } else if (pantalla === 'guia-nueva' || (pantalla === 'guia-editar' && id)) {
+    const maquina = params.get('maquina');
+    const consultaMaquina = maquina ? '?maquina=' + enc(maquina) : '';
     limpiar = pantallaGuiaEditor(app, {
       id: pantalla === 'guia-editar' ? id : null,
-      maquinaId: params.get('maquina') || maquinaActivaId(),
-      volver: () => ir('#/guias' + (params.get('maquina') ? '?maquina=' + enc(params.get('maquina')) : '')),
+      maquinaId: maquina || maquinaActivaId(),
+      volver: () => ir('#/guias' + consultaMaquina),
       // Actualizar la dirección sin recargar el editor
-      alGuardar: (g) => history.replaceState(null, '', '#/guia-editar/' + enc(g)),
+      alGuardar: (g) => history.replaceState(null, '', '#/guia-editar/' + enc(g) + consultaMaquina),
       probar: (g) => {
         // La guía se prueba en su máquina
         import('./maquinas.js').then(async ({ obtenerGuia }) => {
@@ -247,6 +247,7 @@ async function mostrar() {
   } else if (pantalla === 'detalle' && id) {
     limpiar = pantallaDetalle(app, id, {
       volver,
+      abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
       editar: (i) => ir('#/editar/' + enc(i)),
       imprimirQR: (i) => ir('#/qr/' + enc(i)),
       huella: (i) => ir('#/huella/' + enc(i)),

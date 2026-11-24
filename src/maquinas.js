@@ -2,7 +2,7 @@
 // REGLA FUNDAMENTAL: cada máquina es un entorno independiente. Ningún elemento, ancla, coordenada
 // ni guía de una máquina puede usarse con otra. Las comprobaciones se hacen AL GUARDAR y AL
 // CONSULTAR (no solo en pantalla).
-import { db, normalizarId, borrarArchivos } from './db.js';
+import { db, normalizarId, borrarArchivos, guardarArchivo, siguienteId, CAMPOS_ARCHIVO, pasoSinElemento, quitarReferenciasDelElemento } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { CARAS_MAQUINA, ORIENTACIONES_QR, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
 
@@ -94,20 +94,52 @@ export async function elementosSinMaquina() {
 
 /** Asocia un elemento existente a una máquina (si venía de otra, sus localizaciones antiguas se borran). */
 export async function asignarElemento(elementoId, maquinaId) {
-  if (!(await db.maquinas.get(maquinaId))) throw new Error('Esa máquina no existe.');
-  await db.transaction('rw', db.elementos, db.localizaciones, async () => {
+  return db.transaction('rw', [db.maquinas, db.elementos, db.localizaciones, db.guias], async () => {
+    if (!(await db.maquinas.get(maquinaId))) throw new Error('Esa máquina no existe.');
     const el = await db.elementos.get(elementoId);
     if (!el) throw new Error('Ese elemento no existe.');
-    if (el.maquinaId !== maquinaId) await db.localizaciones.where('elementoId').equals(elementoId).delete();
-    await db.elementos.update(elementoId, { maquinaId, modificado: Date.now() });
+    if (el.maquinaId === maquinaId) return el;
+    const movido = { ...el, maquinaId, modificado: Date.now() };
+    await quitarReferenciasDelElemento(el);
+    await db.elementos.put(movido);
+    return movido;
   });
 }
 
 /** Desvincula un elemento de su máquina SIN borrarlo (y quita sus localizaciones). */
 export async function desvincularElemento(elementoId) {
-  await db.transaction('rw', db.elementos, db.localizaciones, async () => {
-    await db.localizaciones.where('elementoId').equals(elementoId).delete();
+  await db.transaction('rw', db.elementos, db.localizaciones, db.guias, async () => {
+    const elemento = await db.elementos.get(elementoId);
+    if (!elemento) return;
+    await quitarReferenciasDelElemento(elemento);
     await db.elementos.update(elementoId, { maquinaId: null, modificado: Date.now() });
+  });
+}
+
+async function copiarArchivo(id) {
+  const archivo = id && await db.archivos.get(id);
+  return archivo ? guardarArchivo(archivo.blob, archivo.nombre) : null;
+}
+
+async function copiarElementoEn(elemento, maquinaId) {
+  let id = await siguienteId();
+  while (await db.anclas.get(id)) id = 'V-' + String(Number(id.slice(2)) + 1).padStart(4, '0');
+  const copia = { ...elemento, id, maquinaId, creado: Date.now(), modificado: Date.now() };
+  if (elemento.maquinaId === maquinaId) copia.nombre = `${elemento.nombre || elemento.id} (copia)`;
+  delete copia.nav;
+  for (const campo of CAMPOS_ARCHIVO) copia[campo] = await copiarArchivo(elemento[campo]);
+  await db.elementos.add(copia);
+  const huella = await db.huellas.get(elemento.id);
+  if (huella) await db.huellas.put({ ...huella, elementoId: copia.id });
+  return copia;
+}
+
+export async function duplicarElemento(id, maquinaId) {
+  return db.transaction('rw', [db.maquinas, db.elementos, db.archivos, db.huellas, db.anclas], async () => {
+    if (!(await db.maquinas.get(maquinaId))) throw new Error('Esa máquina no existe.');
+    const elemento = await db.elementos.get(id);
+    if (!elemento) throw new Error('Ese elemento no existe.');
+    return copiarElementoEn(elemento, maquinaId);
   });
 }
 
@@ -288,8 +320,6 @@ const redondear = (p) => p.map((n) => Math.round(Number(n) * 1000) / 1000);
 const esPunto = (p) => Array.isArray(p) && p.length === 3 && p.every((n) => Number.isFinite(Number(n)));
 
 export async function guardarLocalizacion({ maquinaId, anclaId, elementoId, pos, ruta = [], posIcono = null }) {
-  const problema = await problemaCoherencia(maquinaId, anclaId, elementoId);
-  if (problema) throw new Error(problema);
   if (!esPunto(pos)) throw new Error('La posición necesita X, Y y Z.');
   if (!ruta.every(esPunto)) throw new Error('Algún punto intermedio no tiene X, Y y Z.');
   if (posIcono && !esPunto(posIcono)) throw new Error('La posición del icono necesita X, Y y Z.');
@@ -298,8 +328,12 @@ export async function guardarLocalizacion({ maquinaId, anclaId, elementoId, pos,
     pos: redondear(pos), ruta: ruta.map(redondear), posIcono: posIcono ? redondear(posIcono) : null,
     modificado: Date.now(),
   };
-  await db.localizaciones.put(loc);
-  return loc;
+  return db.transaction('rw', [db.maquinas, db.anclas, db.elementos, db.localizaciones], async () => {
+    const problema = await problemaCoherencia(maquinaId, anclaId, elementoId);
+    if (problema) throw new Error(problema);
+    await db.localizaciones.put(loc);
+    return loc;
+  });
 }
 
 export async function borrarLocalizacion(id) {
@@ -365,21 +399,21 @@ export function pasoVacio() {
 /** Guarda una guía comprobando que todo (ancla y elementos de los pasos) es de su máquina. */
 export async function guardarGuia(datos) {
   if (!String(datos.nombre || '').trim()) throw new Error('Escribe el nombre de la guía.');
-  if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('La guía tiene que pertenecer a una máquina que exista.');
-  if (datos.anclaId) {
-    const a = await db.anclas.get(datos.anclaId);
-    if (!a || a.maquinaId !== datos.maquinaId) throw new Error('El ancla elegida no pertenece a la máquina de la guía.');
-  }
-  for (const [i, p] of (datos.pasos || []).entries()) {
-    if (!p.elementoId) continue;
-    const el = await db.elementos.get(p.elementoId);
-    if (!el || el.maquinaId !== datos.maquinaId) throw new Error(`Paso ${i + 1}: el elemento ${p.elementoId} no pertenece a la máquina de la guía.`);
-  }
-  if (datos.estado === 'publicada') {
-    if (!datos.anclaId) throw new Error('Para publicarla, la guía necesita un ancla QR.');
-    if (!(datos.pasos || []).length) throw new Error('Para publicarla, la guía necesita al menos un paso.');
-  }
-  return db.transaction('rw', db.guias, db.archivos, async () => {
+  return db.transaction('rw', [db.guias, db.archivos, db.maquinas, db.anclas, db.elementos], async () => {
+    if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('La guía tiene que pertenecer a una máquina que exista.');
+    if (datos.anclaId) {
+      const a = await db.anclas.get(datos.anclaId);
+      if (!a || a.maquinaId !== datos.maquinaId) throw new Error('El ancla elegida no pertenece a la máquina de la guía.');
+    }
+    for (const [i, p] of (datos.pasos || []).entries()) {
+      if (!p.elementoId) continue;
+      const el = await db.elementos.get(p.elementoId);
+      if (!el || el.maquinaId !== datos.maquinaId) throw new Error(`Paso ${i + 1}: el elemento ${p.elementoId} no pertenece a la máquina de la guía.`);
+    }
+    if (datos.estado === 'publicada') {
+      if (!datos.anclaId) throw new Error('Para publicarla, la guía necesita un ancla QR.');
+      if (!(datos.pasos || []).length) throw new Error('Para publicarla, la guía necesita al menos un paso.');
+    }
     const id = datos.id || (await siguienteIdGuia());
     const anterior = await db.guias.get(id);
     if (anterior && anterior.maquinaId !== datos.maquinaId) throw new Error('No se puede mover una guía a otra máquina.');
@@ -409,30 +443,54 @@ export async function borrarGuia(id) {
   await borrarArchivos(archivosDeGuia(g));
 }
 
-/** Duplica una guía (con copia de sus archivos) como borrador. */
-export async function duplicarGuia(id) {
-  const g = await db.guias.get(id);
-  if (!g) throw new Error('La guía no existe.');
-  const copiar = async (fid) => {
-    const a = fid && (await db.archivos.get(fid));
-    if (!a) return null;
-    const nuevo = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    await db.archivos.put({ ...a, id: nuevo });
-    return nuevo;
-  };
-  const pasos = [];
-  for (const p of g.pasos || []) {
-    pasos.push({
-      ...p,
-      id: Math.random().toString(36).slice(2, 10),
-      imagenes: (await Promise.all((p.imagenes || []).map(copiar))).filter(Boolean),
-      videos: (await Promise.all((p.videos || []).map(copiar))).filter(Boolean),
-      ampliacionId: await copiar(p.ampliacionId),
-    });
-  }
-  const { id: _quitar, ...resto } = g;
-  return guardarGuia({ ...resto, id: null, nombre: g.nombre + ' (copia)', estado: 'borrador', portadaId: await copiar(g.portadaId), pasos });
+async function trasladarGuia(id, destino, duplicar) {
+  return db.transaction('rw', [db.guias, db.maquinas, db.anclas, db.elementos, db.archivos, db.huellas], async () => {
+    const original = await db.guias.get(id);
+    if (!original) throw new Error('La guía no existe.');
+    const maquinaId = destino ?? original.maquinaId;
+    if (!(await db.maquinas.get(maquinaId))) throw new Error('Esa máquina no existe.');
+    const cambiaMaquina = maquinaId !== original.maquinaId;
+    if (!cambiaMaquina && !duplicar) return original;
+
+    const copias = new Map();
+    const pasos = [];
+    for (const p of original.pasos || []) {
+      let paso = { ...p };
+      if (p.elementoId) {
+        const previo = await db.elementos.get(p.elementoId);
+        if (previo?.maquinaId !== maquinaId) {
+          if (cambiaMaquina && previo?.maquinaId === original.maquinaId) {
+            if (!copias.has(previo.id)) copias.set(previo.id, await copiarElementoEn(previo, maquinaId));
+            paso.elementoId = copias.get(previo.id).id;
+          } else paso = pasoSinElemento(paso, previo);
+        }
+      }
+      if (duplicar) {
+        paso.id = pasoVacio().id;
+        paso.imagenes = (await Promise.all((p.imagenes || []).map(copiarArchivo))).filter(Boolean);
+        paso.videos = (await Promise.all((p.videos || []).map(copiarArchivo))).filter(Boolean);
+        paso.ampliacionId = await copiarArchivo(p.ampliacionId);
+      }
+      pasos.push(paso);
+    }
+    const ahora = Date.now();
+    const guia = {
+      ...original, maquinaId, pasos, estado: 'borrador', modificado: ahora,
+      anclaId: cambiaMaquina ? null : original.anclaId,
+    };
+    if (duplicar) {
+      guia.id = await siguienteIdGuia();
+      guia.nombre = `${original.nombre} (copia)`;
+      guia.creado = ahora;
+      guia.portadaId = await copiarArchivo(original.portadaId);
+      await db.guias.add(guia);
+    } else await db.guias.put(guia);
+    return guia;
+  });
 }
+
+export const duplicarGuia = (id, maquinaId) => trasladarGuia(id, maquinaId, true);
+export const moverGuia = (id, maquinaId) => trasladarGuia(id, maquinaId, false);
 
 // ---------- paso de datos antiguos al sistema de máquinas ----------
 

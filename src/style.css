@@ -423,6 +423,19 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .lista-guias li { margin: 8px 0; }
 .fila-guia { cursor: pointer; margin-bottom: 0; }
 .acciones-guia { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 4px 0; }
+.traslado-maquina {
+  width: min(440px, calc(100% - 32px)); max-height: 85dvh; padding: 20px;
+  background: var(--tarjeta); color: var(--texto); border: 1px solid #516775; border-radius: 18px;
+}
+.traslado-maquina::backdrop { background: rgba(7, 14, 20, 0.72); }
+.traslado-maquina h2 { margin: 0 0 8px; }
+.traslado-nombre { margin: 0 0 16px; font-weight: 700; overflow-wrap: anywhere; }
+.traslado-maquina select {
+  display: block; width: 100%; min-height: 44px; margin-top: 5px; padding: 0 10px;
+  border: 1px solid #516775; border-radius: 10px; background: #0b141b; color: var(--texto); font: inherit;
+}
+.traslado-maquina .boton:disabled { opacity: 0.5; }
+.traslado-aviso:empty { display: none; }
 .estado-guia { margin-left: auto; font-size: 13px; padding: 4px 10px; border-radius: 10px; flex: none; }
 .estado-borrador { background: #3a4a56; }
 .estado-publicada { background: #1f6b3a; }

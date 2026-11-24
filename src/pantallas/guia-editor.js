@@ -424,6 +424,10 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     sel.value = p.elementoId || '';
     const estadoLoc = () => {
       const t = q('.estado-loc');
+      if (!p.elementoId && p.elementoPendiente) {
+        t.textContent = `Selecciona el elemento para este paso. Antes usaba «${p.elementoPendiente}».`;
+        return;
+      }
       if (!p.elementoId && !leerTramos().length) { t.textContent = p.flechas === false ? '⚠️ "Mostrar flechas 3D" está DESACTIVADO.' : ''; return; }
       const conTramos = leerTramos().length > 0;
       t.textContent = conTramos ? '🧭 Se usarán los tramos de este paso (abajo).'
@@ -442,7 +446,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       if (c === 'flechas' || c === 'icono' || c === 'confirmar') p[c] = e.target.checked;
       if (c === 'titulo') resumen();
     });
-    sel.addEventListener('change', () => { p.elementoId = sel.value || null; estadoLoc(); });
+    sel.addEventListener('change', () => { p.elementoId = sel.value || null; if (p.elementoId) delete p.elementoPendiente; estadoLoc(); });
     d.addEventListener('click', (e) => {
       const m = e.target.dataset.m;
       if (!m) return;

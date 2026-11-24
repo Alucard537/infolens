@@ -78,7 +78,7 @@ export async function siguienteId(prefijo = 'V-') {
  *   - { blob, nombre } -> se guarda (sustituyendo al anterior)
  */
 export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
-  return db.transaction('rw', [db.elementos, db.archivos, db.localizaciones, db.maquinas], async () => {
+  return db.transaction('rw', [db.elementos, db.archivos, db.localizaciones, db.maquinas, db.guias], async () => {
     const anterior = await db.elementos.get(datos.id);
     if (esNuevo && anterior) throw new Error(`Ya existe un elemento con el ID ${datos.id}`);
     const ahora = Date.now();
@@ -94,7 +94,7 @@ export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
     }
     // Si cambia de máquina, sus localizaciones de la máquina anterior dejan de valer
     if (anterior && (anterior.maquinaId || null) !== (el.maquinaId || null)) {
-      await db.localizaciones.where('elementoId').equals(el.id).delete();
+      await quitarReferenciasDelElemento(anterior);
     }
     for (const campo of CAMPOS_ARCHIVO) {
       const nuevo = archivos[campo];
@@ -114,13 +114,37 @@ export async function guardarElemento(datos, archivos = {}, esNuevo = false) {
   });
 }
 
+export function pasoSinElemento(paso, elemento) {
+  const nombre = elemento?.nombre || paso.elementoId;
+  return {
+    ...paso, elementoId: null, titulo: paso.titulo || nombre,
+    elementoPendiente: nombre || null,
+  };
+}
+
+/** Desvincula el QR y sus posiciones dentro de la transacción que cambia el elemento. */
+export async function quitarReferenciasDelElemento(elemento) {
+  if (elemento.maquinaId) {
+    const guias = await db.guias.where('maquinaId').equals(elemento.maquinaId).toArray();
+    for (const guia of guias) {
+      if (!guia.pasos?.some((paso) => paso.elementoId === elemento.id)) continue;
+      await db.guias.update(guia.id, {
+        pasos: guia.pasos.map((paso) => paso.elementoId === elemento.id ? pasoSinElemento(paso, elemento) : paso),
+        estado: guia.estado === 'publicada' ? 'borrador' : guia.estado,
+        modificado: Date.now(),
+      });
+    }
+  }
+  await db.localizaciones.where('elementoId').equals(elemento.id).delete();
+}
+
 export async function borrarElemento(id) {
-  return db.transaction('rw', [db.elementos, db.archivos, db.huellas, db.localizaciones], async () => {
+  return db.transaction('rw', [db.elementos, db.archivos, db.huellas, db.localizaciones, db.guias], async () => {
     const el = await db.elementos.get(id);
     if (!el) return;
     for (const campo of CAMPOS_ARCHIVO) if (el[campo]) await db.archivos.delete(el[campo]);
     await db.huellas.delete(id);
-    await db.localizaciones.where('elementoId').equals(id).delete(); // sus localizaciones ya no sirven
+    await quitarReferenciasDelElemento(el);
     await db.elementos.delete(id);
   });
 }

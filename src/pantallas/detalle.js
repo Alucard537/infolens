@@ -2,16 +2,17 @@
 import { obtenerElemento, obtenerArchivo, obtenerHuella } from '../db.js';
 import { esAdmin } from '../permisos.js';
 import { maquinaActivaId, obtenerMaquina, localizacionesDeElemento } from '../maquinas.js';
+import { elegirMaquinaDestino } from '../ui/trasladar.js';
 
 // El visor (con pdf.js, que es grande) se carga solo cuando hace falta
 const visor = () => import('../ui/visor.js');
 
-export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR, huella, localizaciones }) {
+export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR, huella, localizaciones, abrirDetalle }) {
   let activo = true;
   const urls = [];
   app.innerHTML = '<div class="pagina"><p class="nota">Cargando…</p></div>';
 
-  (async () => {
+  const mostrar = async () => {
     const el = await obtenerElemento(id);
     if (!activo) return;
     if (!el) {
@@ -51,6 +52,10 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
           <button class="boton secundario" data-accion="editar">✏️ Editar</button>
           <button class="boton secundario" data-accion="qr">🖨️ Imprimir QR</button>
         </div>
+        <div class="det-botones">
+          <button class="boton secundario" data-traslado="mover">Mover</button>
+          <button class="boton secundario" data-traslado="duplicar">Duplicar</button>
+        </div>
         <button class="boton secundario" data-accion="huella">🎯 Reconocer sin QR ${hu ? '(huella: ' + hu.n + ' imágenes)' : '(sin huella)'}</button>` : ''}
         <p class="nota det-nav"></p>
         ${esAdmin() ? '<button class="boton secundario" data-accion="loc">🧭 Localizaciones (' + locs.length + ')</button>' : ''}
@@ -78,6 +83,18 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
     $('[data-accion="editar"]')?.addEventListener('click', () => editar(el.id));
     $('[data-accion="qr"]')?.addEventListener('click', () => imprimirQR(el.id));
     $('[data-accion="huella"]')?.addEventListener('click', () => huella(el.id));
+    app.querySelectorAll('[data-traslado]').forEach((boton) => boton.addEventListener('click', () => {
+      elegirMaquinaDestino($('.pagina'), el, {
+        duplicar: boton.dataset.traslado === 'duplicar',
+        alGuardar: (resultado) => {
+          if (resultado.id !== el.id) abrirDetalle(resultado.id);
+          else {
+            for (const u of urls.splice(0)) URL.revokeObjectURL(u);
+            mostrar();
+          }
+        },
+      });
+    }));
 
     if (foto) {
       const u = URL.createObjectURL(foto.blob);
@@ -99,7 +116,8 @@ export function pantallaDetalle(app, id, { volver, editar, darDeAlta, imprimirQR
       });
     }
     visor(); // ir cargando el visor en segundo plano para que abra rápido
-  })();
+  };
+  mostrar();
 
   return () => {
     activo = false;

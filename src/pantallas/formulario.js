@@ -236,7 +236,7 @@ export function pantallaFormulario(app, { id, idSugerido, maquinaSugerida, alGua
     datos.maquinaId = f.maquinaId.value || null;
     if (!datos.maquinaId) return mostrarError('Elige la máquina a la que pertenece el elemento.');
     if (!esNuevo && actual && actual.maquinaId && actual.maquinaId !== datos.maquinaId
-      && !confirm(`El elemento pasa de la máquina ${actual.maquinaId} a ${datos.maquinaId}. Se borrarán sus localizaciones en la máquina anterior. ¿Continuar?`)) return;
+      && !confirm(`El elemento pasa de la máquina ${actual.maquinaId} a ${datos.maquinaId}. Se quitarán sus posiciones anteriores. Las guías publicadas que lo usaban pasarán a borrador. ¿Continuar?`)) return;
     const boton = form.querySelector('[type="submit"]');
     boton.disabled = true;
     boton.textContent = 'Guardando…';

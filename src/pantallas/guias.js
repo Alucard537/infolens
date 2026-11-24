@@ -1,11 +1,12 @@
 // GUÍAS de la máquina activa: listado (usuarios: solo publicadas; administrador: todas, con su estado
 // y opciones de gestión) y portada de cada guía antes de empezarla.
 import {
-  listarGuias, obtenerGuia, obtenerMaquina, obtenerAncla, borrarGuia, duplicarGuia, guardarGuia,
+  listarGuias, obtenerGuia, obtenerMaquina, obtenerAncla, borrarGuia, guardarGuia,
   ESTADOS_GUIA, TIPOS_GUIA, maquinaActivaId,
 } from '../maquinas.js';
 import { obtenerArchivo } from '../db.js';
 import { esAdmin } from '../permisos.js';
+import { elegirMaquinaDestino } from '../ui/trasladar.js';
 
 export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) {
   let activo = true;
@@ -49,6 +50,7 @@ export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) 
         ${admin ? `<div class="acciones-guia">
           <button class="boton-mini" data-a="editar">✏️ Editar</button>
           <button class="boton-mini" data-a="estado">${g.estado === 'publicada' ? '⏸️ Desactivar' : '📢 Publicar'}</button>
+          <button class="boton-mini" data-a="mover">Mover</button>
           <button class="boton-mini" data-a="duplicar">📄 Duplicar</button>
           <button class="boton-mini" data-a="borrar">🗑️</button>
         </div>` : ''}`;
@@ -62,7 +64,11 @@ export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) 
       li.querySelector('[data-a="estado"]')?.addEventListener('click', async () => {
         try { await guardarGuia({ ...g, estado: g.estado === 'publicada' ? 'desactivada' : 'publicada' }); pintar(); } catch (e) { alert(e.message); }
       });
-      li.querySelector('[data-a="duplicar"]')?.addEventListener('click', async () => { await duplicarGuia(g.id); pintar(); });
+      const trasladar = (duplicar) => elegirMaquinaDestino($('.pagina'), g, {
+        guia: true, duplicar, alGuardar: (resultado) => editar(resultado.id, resultado.maquinaId),
+      });
+      li.querySelector('[data-a="mover"]')?.addEventListener('click', () => trasladar(false));
+      li.querySelector('[data-a="duplicar"]')?.addEventListener('click', () => trasladar(true));
       li.querySelector('[data-a="borrar"]')?.addEventListener('click', async () => {
         if (!confirm(`¿Eliminar la guía "${g.nombre}"? No se puede deshacer.`)) return;
         await borrarGuia(g.id); pintar();
