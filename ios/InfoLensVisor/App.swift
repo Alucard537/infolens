@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct InfoLensApp: App {
     @StateObject private var aplicacion = AplicacionInfoLens()
+    @Environment(\.scenePhase) private var faseEscena
 
     var body: some Scene {
         WindowGroup {
@@ -28,6 +29,9 @@ struct InfoLensApp: App {
                     }
                 }
             }
+            .onAppear { aplicacion.cambiarFase(faseEscena) }
+            .onChange(of: faseEscena) { aplicacion.cambiarFase($0) }
+            .onDisappear { aplicacion.cambiarFase(.inactive) }
             .onOpenURL { url in
                 if let recorrido = Recorrido.desdeURL(url) { aplicacion.abrirPrueba(recorrido) }
                 else { aplicacion.error = "Ese enlace no contiene un recorrido válido." }

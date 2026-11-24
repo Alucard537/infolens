@@ -5,7 +5,13 @@ import RealityKit
 
 @MainActor
 final class AplicacionInfoLens: ObservableObject {
-    @Published private(set) var controlador: ControladorAR?
+    @Published private(set) var controlador: ControladorAR? {
+        didSet {
+            oldValue?.alCambiarCamara = nil
+            controlador?.alCambiarCamara = { [weak self] in self?.actualizarBloqueoPantalla() }
+            actualizarBloqueoPantalla()
+        }
+    }
     @Published private(set) var pruebaAbierta = false
     @Published var error: String?
     @Published private(set) var modeloEnEdicion: ModeloGuiaAR?
@@ -14,6 +20,8 @@ final class AplicacionInfoLens: ObservableObject {
 
     private var servidor: ServidorWeb?
     private weak var web: WKWebView?
+    private var observacionCamaraWeb: NSKeyValueObservation?
+    private var escenaActiva = false
     private var sesion: String?
     private var solicitudCalibracion: String?
     private var solicitudModelo: String?
@@ -23,6 +31,10 @@ final class AplicacionInfoLens: ObservableObject {
 
     func cargar(en web: WKWebView) {
         self.web = web
+        observacionCamaraWeb = web.observe(\.cameraCaptureState, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.actualizarBloqueoPantalla() }
+        }
+        actualizarBloqueoPantalla()
         guard servidor == nil else {
             web.load(URLRequest(url: ServidorWeb.inicio))
             return
@@ -39,6 +51,25 @@ final class AplicacionInfoLens: ObservableObject {
             case .failure(let error): self?.error = "No se pudo abrir InfoLens. \(error.localizedDescription)"
             }
         }
+    }
+
+    func cambiarFase(_ fase: ScenePhase) {
+        escenaActiva = fase == .active
+        actualizarBloqueoPantalla()
+    }
+
+    private func actualizarBloqueoPantalla() {
+        let mantenerEncendida = escenaActiva && (controlador?.camaraActiva == true || web?.cameraCaptureState == .active)
+        if UIApplication.shared.isIdleTimerDisabled != mantenerEncendida {
+            UIApplication.shared.isIdleTimerDisabled = mantenerEncendida
+        }
+    }
+
+    fileprivate func desmontarWeb(_ web: WKWebView) {
+        guard self.web === web else { return }
+        observacionCamaraWeb = nil
+        self.web = nil
+        cerrar()
     }
 
     func cerrar() {
@@ -280,10 +311,11 @@ struct WebInfoLens: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinador) {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "infolens")
+        coordinator.aplicacion.desmontarWeb(uiView)
     }
 
     final class Coordinador: NSObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
-        private let aplicacion: AplicacionInfoLens
+        fileprivate let aplicacion: AplicacionInfoLens
         private var descargas: [ObjectIdentifier: URL] = [:]
 
         init(aplicacion: AplicacionInfoLens) { self.aplicacion = aplicacion }
@@ -326,6 +358,10 @@ struct WebInfoLens: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            aplicacion.cerrar()
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             aplicacion.cerrar()
         }
 

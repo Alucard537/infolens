@@ -52,6 +52,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var medicionSubancla: MedicionSubancla?
     @Published var soloLinea: Bool { didSet { rehacer() } }
     var alCambiarEstado: ((EstadoAR) -> Void)?
+    var alCambiarCamara: (() -> Void)?
+    var camaraActiva: Bool { enMarcha && !interrumpida }
 
     let vista = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     private(set) var recorrido: Recorrido?
@@ -75,8 +77,12 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var ultimoAviso: TimeInterval = 0
     private var ultimaProyeccion: TimeInterval = 0
     private var sesionId = UUID()
-    private var enMarcha = false
-    private var interrumpida = false
+    private var enMarcha = false {
+        didSet { if oldValue != enMarcha { alCambiarCamara?() } }
+    }
+    private var interrumpida = false {
+        didSet { if oldValue != interrumpida { alCambiarCamara?() } }
+    }
     private var pideQR = true
     private var avisoImagen: String?
     private var anclaFijada: String?
@@ -184,9 +190,9 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         poseParaProgreso = nil
         progreso = ProgresoRuta()
         ultimoAviso = 0
+        enMarcha = false
         interrumpida = false
         pideQR = true
-        enMarcha = false
         avisoImagen = nil
         sesionId = UUID()
         pausarGuia()
