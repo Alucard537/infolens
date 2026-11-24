@@ -12,6 +12,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
   let detalle = null;
   let urls = [];
   let turnoMedios = 0;
+  let cerrarAmpliacion = null;
   const cumplido = new Map();
 
   function estadoDe(indice) {
@@ -28,6 +29,8 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
 
   function limpiarMedios() {
     turnoMedios++;
+    cerrarAmpliacion?.();
+    cerrarAmpliacion = null;
     urls.forEach((url) => URL.revokeObjectURL(url));
     urls = [];
   }
@@ -77,6 +80,8 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       <h2 class="guia-titulo"></h2>
       <p class="guia-referencia"></p>
       <p class="nota guia-ar"></p>
+      ${p.ampliacionId ? `<button class="boton-mini guia-ampliar" type="button" data-g="ampliar" hidden>Ampliar información</button>
+        <p class="nota guia-error-ampliacion" role="status" hidden></p>` : ''}
       <div id="guia-instrucciones" class="guia-cuerpo"></div>
       <div class="guia-nav">
         <button class="boton secundario" data-g="ant">‹ Anterior</button>
@@ -93,8 +98,34 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     const avisoFijo = !destino
       ? (elemento ? `Falta la posición de este elemento para «${guia.anclaNombre || guia.anclaId}». Añádela en Localizaciones o en los tramos del paso.` : 'Paso de instrucciones')
       : (!mostrarMarcas ? 'Activa las flechas o el icono en la edición de este paso.' : null);
-    detalle = { avisoFijo, conIcono: p.icono !== false, info: $('.guia-ar') };
+    const ampliar = $('[data-g="ampliar"]');
+    detalle = { avisoFijo, conIcono: p.icono !== false, info: $('.guia-ar'), ampliar };
     detalle.info.textContent = avisoFijo ?? 'Preparando la marca del elemento…';
+    ampliar?.addEventListener('click', async () => {
+      if (cerrarAmpliacion) return;
+      const turno = turnoMedios;
+      const aviso = $('.guia-error-ampliacion');
+      ampliar.disabled = true;
+      aviso.hidden = true;
+      let url;
+      try {
+        const archivo = await obtenerArchivo(p.ampliacionId);
+        if (!archivo?.blob) throw new Error('El archivo de este paso no está disponible.');
+        const tipo = archivo.tipoMime || archivo.blob.type;
+        if (tipo !== 'application/pdf' && !tipo.startsWith('video/')) throw new Error('El archivo no es un PDF o vídeo.');
+        const { abrirInformacionFlotante } = await import('../ui/visor.js');
+        if (!activo || turno !== turnoMedios) return;
+        url = URL.createObjectURL(archivo.blob);
+        cerrarAmpliacion = abrirInformacionFlotante(url, titulo, tipo, () => {
+          URL.revokeObjectURL(url);
+          cerrarAmpliacion = null;
+          if (activo && turno === turnoMedios) ampliar.focus({ preventScroll: true });
+        });
+      } catch (error) {
+        if (url) URL.revokeObjectURL(url);
+        if (activo && turno === turnoMedios) { aviso.textContent = error.message; aviso.hidden = false; }
+      } finally { ampliar.disabled = false; }
+    });
 
     const cuerpo = $('.guia-cuerpo');
     const plegar = $('[data-g="plegar"]');
@@ -232,8 +263,9 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
         });
       }
       if (!detalle || detalle.avisoFijo !== null) return;
-      const { info, conIcono } = detalle;
+      const { info, conIcono, ampliar } = detalle;
       const est = capa.actualizar(arriba, ahora, sa);
+      if (ampliar?.hidden && est?.fiable && est.llegada) ampliar.hidden = false;
       let texto = '';
       if (est?.error) texto = est.error;
       else if (est?.pendiente) texto = 'Preparando la marca del elemento…';

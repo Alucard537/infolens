@@ -156,6 +156,30 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .visor-contenido { position: absolute; left: 0; top: 0; }
 .visor-img, .visor-pdf-pagina { display: block; background: #fff; }
 .visor-cargando { color: #fff; padding: 20px; }
+.visor-zona-flotante {
+  position: fixed; z-index: 10; pointer-events: none;
+  inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+    max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+}
+.visor-flotante {
+  position: absolute; inset: auto; pointer-events: auto; overflow: hidden;
+  border: 1px solid #516775; border-radius: 14px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.55);
+}
+.visor-flotante .visor-barra, .visor-flotante .visor-pie { padding: 4px 6px; gap: 6px; }
+.visor-flotante .visor-barra .esc-btn, .visor-flotante .visor-pie .esc-btn { min-width: 40px; width: 40px; height: 40px; }
+.visor-flotante .visor-titulo {
+  flex: 1; min-width: 0; padding: 8px 2px; font-size: 16px;
+  cursor: grab; touch-action: none; user-select: none;
+}
+.visor-flotante .visor-titulo:active { cursor: grabbing; }
+.visor-flotante .visor-pagina { min-width: 0; font-size: 14px; }
+.visor-video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.visor-borde-flotante { display: flex; justify-content: flex-end; background: #0f1b24; }
+.visor-tirador {
+  display: grid; place-items: center; width: 44px; height: 28px; color: var(--texto2);
+  cursor: nwse-resize; touch-action: none; user-select: none;
+}
 
 /* ---------- Fase 3: lista y formulario ---------- */
 .buscador, .formulario input:not([type="radio"]):not([type="checkbox"]), .formulario textarea {
@@ -437,6 +461,8 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .guia-titulo { margin: 8px 0 4px; font-size: 19px; }
 .guia-texto { white-space: pre-wrap; line-height: 1.4; margin: 6px 0; }
 .guia-ar { margin: 2px 0 6px; }
+.guia-ampliar { align-self: flex-start; min-height: 42px; margin: 3px 0; border: 1px solid #5aa891; color: #b7f4de; }
+.guia-ampliar[hidden], .guia-error-ampliacion[hidden], [data-quitar-ampliacion][hidden] { display: none; }
 .guia-componente { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
 .guia-componente .boton-mini { margin-left: auto; }
 .guia-medios { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }

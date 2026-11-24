@@ -4,7 +4,7 @@
 // comprobaciones y confirmación. Solo se pueden elegir anclas y componentes de la máquina de la guía.
 import {
   obtenerGuia, guardarGuia, obtenerMaquina, listarAnclas, elementosDeMaquina, localizacionesDeAncla, guardarAncla, siguienteIdAncla,
-  pasoVacio, ESTADOS_GUIA, TIPOS_GUIA, obtenerAncla, guardarConfiguracionAncla, guardarMedicionSubancla,
+  pasoVacio, ESTADOS_GUIA, TIPOS_GUIA, obtenerAncla, guardarConfiguracionAncla, guardarMedicionSubancla, archivosDeGuia,
 } from '../maquinas.js';
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
@@ -30,7 +30,8 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
   let escrituraAncla = null;
   let calibracionPendiente = null;
   const archivosNuevos = new Set(); // subidos en esta edición (se borran si no se guarda)
-  let guardado = false;
+  let guardando = false;
+  const ampliacionesEnCarga = new Set();
   const urls = new Map();
   const abiertos = new Set();
 
@@ -75,7 +76,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
   async function subir(archivo, esFoto) {
     let blob = archivo, nombre = archivo.name || 'archivo';
     if (esFoto) { blob = (await prepararFoto(archivo)).imagen; nombre = nombre.replace(/\.[^.]+$/, '') + '.jpg'; }
-    else if (archivo.size > 200 * MB) throw new Error('El vídeo pesa más de 200 MB: recórtalo o redúcelo antes.');
+    else if (archivo.size > 200 * MB) throw new Error('El archivo pesa más de 200 MB. Elige uno más pequeño.');
     const fid = await guardarArchivo(blob, nombre);
     archivosNuevos.add(fid);
     return fid;
@@ -358,6 +359,15 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       <div class="titulo-archivo">🎬 Vídeos</div>
       <div class="medios-videos"></div>
       <label class="boton-mini">➕ Añadir vídeo<input type="file" accept="video/*" class="entrada-oculta" data-e="video"></label>
+      <div class="bloque-archivo">
+        <div class="titulo-archivo">Información al llegar</div>
+        <p class="nota">El usuario podrá abrir este PDF o vídeo cuando la cámara indique que ha llegado al destino.</p>
+        <p class="nota nombre-ampliacion" aria-live="polite"></p>
+        <div class="acciones-paso">
+          <label class="boton-mini"><span class="seleccionar-ampliacion">Elegir PDF o vídeo</span><input type="file" accept=".pdf,application/pdf,video/*,.mp4,.m4v,.mov,.webm" class="entrada-oculta" data-ampliacion></label>
+          <button type="button" class="boton-mini" data-quitar-ampliacion hidden>Quitar archivo</button>
+        </div>
+      </div>
       <label>Componente de la máquina (opcional)<select data-c="elementoId"><option value="">— Ninguno —</option></select></label>
       <p class="nota estado-loc"></p>
       <label class="fila check"><input type="checkbox" data-c="flechas"> Mostrar flechas 3D hasta el componente</label>
@@ -439,7 +449,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       const k = g.pasos.indexOf(p);
       if (m === 'sube' && k > 0) [g.pasos[k - 1], g.pasos[k]] = [g.pasos[k], g.pasos[k - 1]];
       else if (m === 'baja' && k < g.pasos.length - 1) [g.pasos[k + 1], g.pasos[k]] = [g.pasos[k], g.pasos[k + 1]];
-      else if (m === 'dup') { const c = { ...JSON.parse(JSON.stringify(p)), id: pasoVacio().id, imagenes: [], videos: [] }; g.pasos.splice(k + 1, 0, c); }
+      else if (m === 'dup') { const c = { ...JSON.parse(JSON.stringify(p)), id: pasoVacio().id, imagenes: [], videos: [], ampliacionId: null }; g.pasos.splice(k + 1, 0, c); }
       else if (m === 'quita') { if (!confirm(`¿Quitar el paso ${k + 1}?`)) return; g.pasos.splice(k, 1); }
       else if (m === 'tramo') { p._tramos.push({ dir: 'adelante', cm: '' }); pintarTramos(); return; }
       else if (m === 'copiar-ruta') {
@@ -490,10 +500,56 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         pintarMedios();
       } catch (ex) { mensaje(ex.message); }
     });
+    const entradaAmpliacion = q('[data-ampliacion]');
+    const quitarAmpliacion = q('[data-quitar-ampliacion]');
+    async function pintarAmpliacion() {
+      const id = p.ampliacionId;
+      const cargando = ampliacionesEnCarga.has(p.id);
+      entradaAmpliacion.disabled = quitarAmpliacion.disabled = cargando;
+      quitarAmpliacion.hidden = !id;
+      q('.seleccionar-ampliacion').textContent = id ? 'Cambiar PDF o vídeo' : 'Elegir PDF o vídeo';
+      const nombre = q('.nombre-ampliacion');
+      nombre.textContent = cargando ? 'Cargando archivo…' : '';
+      if (id && !cargando) {
+        const archivo = await obtenerArchivo(id);
+        if (p.ampliacionId === id && !ampliacionesEnCarga.has(p.id)) nombre.textContent = archivo?.nombre || 'Archivo no disponible';
+      }
+    }
+    entradaAmpliacion.addEventListener('change', async () => {
+      const archivo = entradaAmpliacion.files[0];
+      entradaAmpliacion.value = '';
+      if (!archivo || guardando || ampliacionesEnCarga.has(p.id)) return;
+      ampliacionesEnCarga.add(p.id);
+      pintarAmpliacion();
+      try {
+        const formatos = { pdf: 'application/pdf', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' };
+        const extension = archivo.name.split('.').at(-1).toLowerCase();
+        const mime = archivo.type === 'application/pdf' || archivo.type.startsWith('video/') ? archivo.type
+          : Object.hasOwn(formatos, extension) ? formatos[extension] : null;
+        if (!mime || !archivo.size) throw new Error('Elige un PDF o vídeo que contenga datos.');
+        const fid = await subir(archivo.type === mime ? archivo : new File([archivo], archivo.name, { type: mime }), false);
+        if (!activo || !g.pasos.includes(p)) { archivosNuevos.delete(fid); await borrarArchivos([fid]); return; }
+        p.ampliacionId = fid;
+      } catch (error) { if (activo) mensaje(error.message); }
+      finally {
+        ampliacionesEnCarga.delete(p.id);
+        if (activo && d.isConnected) pintarAmpliacion().catch((error) => mensaje(error.message));
+        else if (activo && g.pasos.includes(p)) pintarPasos();
+      }
+    });
+    quitarAmpliacion.addEventListener('click', () => {
+      if (guardando) return;
+      p.ampliacionId = null;
+      pintarAmpliacion().catch((error) => mensaje(error.message));
+    });
+    pintarAmpliacion().catch((error) => { if (activo) mensaje(error.message); });
     return d;
   }
 
   async function guardar(yProbar) {
+    if (guardando) return;
+    if (ampliacionesEnCarga.size) { mensaje('Espera a que termine de cargar el archivo del paso.'); return; }
+    guardando = true;
     mensaje('');
     try {
       await escrituraAncla;
@@ -510,14 +566,21 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         p.destinoPropio = null;
       }
       const datos = { ...g, pasos: g.pasos.map(({ _tramos, _puntos, _destino, elemento, sinLocalizacion, _destinoAR, diagnostico, sinFlechas, ...resto }) => resto) };
+      const nuevos = [...archivosNuevos];
       const r = await guardarGuia(datos);
       g.id = r.id;
-      guardado = true;
-      archivosNuevos.clear();
+      const usados = new Set(archivosDeGuia(r));
+      nuevos.forEach((fid) => archivosNuevos.delete(fid));
+      borrarArchivos(nuevos.filter((fid) => !usados.has(fid))).catch((error) => console.warn('Archivos de la guía:', error));
+      if (!activo) return;
       mensaje('', `✅ Guía guardada (${ESTADOS_GUIA[r.estado]}).`);
       alGuardar && alGuardar(r.id);
       if (yProbar) probar(r.id);
-    } catch (ex) { mensaje(ex.message); }
+    } catch (ex) { if (activo) mensaje(ex.message); }
+    finally {
+      guardando = false;
+      if (!activo) borrarArchivos([...archivosNuevos]).catch((error) => console.warn('Archivos de la guía:', error));
+    }
   }
 
   return () => {
@@ -526,7 +589,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     calibracionPendiente?.resolver(null);
     calibracionPendiente = null;
     // Archivos subidos en esta edición que no llegaron a guardarse
-    if (!guardado || archivosNuevos.size) borrarArchivos([...archivosNuevos]);
+    if (!guardando) borrarArchivos([...archivosNuevos]).catch((error) => console.warn('Archivos de la guía:', error));
     urls.forEach((u) => u && URL.revokeObjectURL(u));
   };
 }

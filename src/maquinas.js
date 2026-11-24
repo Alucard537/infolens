@@ -334,7 +334,7 @@ export const ESTADOS_GUIA = { borrador: 'Borrador', publicada: 'Publicada', desa
 export const TIPOS_GUIA = { localizacion: 'Localización de componentes', mantenimiento: 'Mantenimiento' };
 
 export function archivosDeGuia(g) {
-  return [g.portadaId, ...(g.pasos || []).flatMap((p) => [...(p.imagenes || []), ...(p.videos || [])])].filter(Boolean);
+  return [g.portadaId, ...(g.pasos || []).flatMap((p) => [...(p.imagenes || []), ...(p.videos || []), p.ampliacionId])].filter(Boolean);
 }
 
 export async function listarGuias(maquinaId, { soloPublicadas = false } = {}) {
@@ -356,7 +356,7 @@ async function siguienteIdGuia() {
 export function pasoVacio() {
   return {
     id: Math.random().toString(36).slice(2, 10),
-    titulo: '', texto: '', imagenes: [], videos: [],
+    titulo: '', texto: '', imagenes: [], videos: [], ampliacionId: null,
     elementoId: null, flechas: true, icono: true, rutaPropia: null, destinoPropio: null,
     advertencia: '', confirmar: false, comprobaciones: [],
   };
@@ -379,26 +379,27 @@ export async function guardarGuia(datos) {
     if (!datos.anclaId) throw new Error('Para publicarla, la guía necesita un ancla QR.');
     if (!(datos.pasos || []).length) throw new Error('Para publicarla, la guía necesita al menos un paso.');
   }
-  const id = datos.id || (await siguienteIdGuia());
-  const anterior = await db.guias.get(id);
-  if (anterior && anterior.maquinaId !== datos.maquinaId) throw new Error('No se puede mover una guía a otra máquina.');
-  const g = {
-    ...(anterior || {}),
-    ...datos,
-    id,
-    nombre: String(datos.nombre).trim(),
-    estado: ESTADOS_GUIA[datos.estado] ? datos.estado : 'borrador',
-    tipo: TIPOS_GUIA[datos.tipo] ? datos.tipo : 'localizacion',
-    creado: anterior?.creado || Date.now(),
-    modificado: Date.now(),
-  };
-  await db.guias.put(g);
-  // Borrar los archivos que ya no usa la guía (fotos o vídeos quitados)
-  if (anterior) {
-    const usados = new Set(archivosDeGuia(g));
-    await borrarArchivos(archivosDeGuia(anterior).filter((f) => !usados.has(f)));
-  }
-  return g;
+  return db.transaction('rw', db.guias, db.archivos, async () => {
+    const id = datos.id || (await siguienteIdGuia());
+    const anterior = await db.guias.get(id);
+    if (anterior && anterior.maquinaId !== datos.maquinaId) throw new Error('No se puede mover una guía a otra máquina.');
+    const g = {
+      ...(anterior || {}),
+      ...datos,
+      id,
+      nombre: String(datos.nombre).trim(),
+      estado: ESTADOS_GUIA[datos.estado] ? datos.estado : 'borrador',
+      tipo: TIPOS_GUIA[datos.tipo] ? datos.tipo : 'localizacion',
+      creado: anterior?.creado || Date.now(),
+      modificado: Date.now(),
+    };
+    await db.guias.put(g);
+    if (anterior) {
+      const usados = new Set(archivosDeGuia(g));
+      await borrarArchivos(archivosDeGuia(anterior).filter((f) => !usados.has(f)));
+    }
+    return g;
+  });
 }
 
 export async function borrarGuia(id) {
@@ -426,6 +427,7 @@ export async function duplicarGuia(id) {
       id: Math.random().toString(36).slice(2, 10),
       imagenes: (await Promise.all((p.imagenes || []).map(copiar))).filter(Boolean),
       videos: (await Promise.all((p.videos || []).map(copiar))).filter(Boolean),
+      ampliacionId: await copiar(p.ampliacionId),
     });
   }
   const { id: _quitar, ...resto } = g;
