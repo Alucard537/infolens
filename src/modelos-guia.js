@@ -1,5 +1,6 @@
 import { db, guardarArchivo, obtenerArchivo } from './db.js';
 import { leerEntradaZip, leerIndiceZip } from './zip.js';
+import { destinoDelPaso } from './ar/guia-recorrido.js';
 
 export const MIME_MODELO_GUIA = 'model/vnd.usdz+zip';
 export const MAX_MODELOS_GUIA = 24;
@@ -48,8 +49,16 @@ export function colocacionValida(m) {
     Number.isFinite(m.escala) && m.escala >= 0.01 && m.escala <= 100;
 }
 
-export function modelosColocados(guia) {
-  return (guia.modelos3d || []).filter((m) => m.anclaId === guia.anclaId && colocacionValida(m)).slice(0, MAX_MODELOS_GUIA);
+export function modelosColocados(guia, localizaciones) {
+  if (!guia.anclaId) return [];
+  const pasos = new Map((guia.pasos || []).map((p) => [p.id, p]));
+  return (guia.modelos3d || []).flatMap((modelo) => {
+    const paso = pasos.get(modelo.pasoId);
+    const colocado = modelo.pasoId
+      ? { ...modelo, anclaId: guia.anclaId, pos: paso && destinoDelPaso(paso, localizaciones)?.pos }
+      : modelo;
+    return colocado.anclaId === guia.anclaId && colocacionValida(colocado) ? [colocado] : [];
+  }).slice(0, MAX_MODELOS_GUIA);
 }
 
 // La app nativa lee el archivo por partes desde el mismo origen que lo guardó en IndexedDB.

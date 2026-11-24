@@ -13,7 +13,6 @@ import { fuentePoseAncla, VIGENCIA_QR_MS, VIGENCIA_ENTORNO_MS, MAX_ENTORNO_SIN_Q
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearEscaneo } from '../ar/escaneo.js';
 import { anclaParaMaquina, mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia, guardarGravedadAncla } from '../maquinas.js';
-import { modelosColocados } from '../modelos-guia.js';
 import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
@@ -448,7 +447,7 @@ export function pantallaEscaner(app, {
 
   // ---------- datos y modos ANCLA / GUÍA ----------
   let verEjes = false; // ejes X/Y/Z del ancla: solo si el administrador los enciende en ⚙
-  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes: () => verEjes && esAdmin() });
+  const capa = crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes: () => verEjes && esAdmin(), avisarModelo: (mensaje) => avisar(mensaje) });
   let guiaActual = null;
   // Escaneo inicial del entorno: hasta que no termina, no se muestran flechas (ver ar/escaneo.js)
   const escaneo = modo !== 'escaner' ? crearEscaneo({
@@ -515,7 +514,6 @@ export function pantallaEscaner(app, {
           capa, panel: $('.nav-panel'), seguidos, guia: guiaActual, maquinaId, abrirDetalle,
           abrirImagen: abrirImagen || (() => {}), alSalir: volver, pasoInicial,
         });
-        capa.prepararModelos(modelosColocados(guiaActual), guiaActual.anclaId, avisar);
       }
     } catch (e) {
       console.warn('Escáner:', e);

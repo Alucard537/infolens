@@ -1,5 +1,6 @@
 import { obtenerArchivo } from '../db.js';
 import { localizacionesDeAncla } from '../maquinas.js';
+import { modelosColocados } from '../modelos-guia.js';
 import { destinoDelPaso, marcasDeGuia, textoTramo } from './guia-recorrido.js';
 import { crearMarcasElementos } from '../ui/marcas-elementos.js';
 
@@ -284,6 +285,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
         localizacionesDeAncla(maquinaId, guia.anclaId).then((locs) => {
           if (!activo) return;
           localizaciones = new Map(locs.map((l) => [l.elementoId, l]));
+          capa.mostrarModelos?.(modelosColocados(guia, localizaciones), guia.anclaId);
           elementos = marcasDeGuia(guia, localizaciones);
           pintarPaso();
         }).catch((error) => {

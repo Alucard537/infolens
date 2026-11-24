@@ -239,6 +239,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .biblioteca-3d { margin-top: 10px; }
 .biblioteca-3d .botones-archivo { align-items: center; }
 .biblioteca-3d select { flex: 1; min-width: 0; }
+.medidas-modelo select { width: 100%; }
 .medidas-modelo fieldset {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px;
   margin: 10px 0; padding: 0; border: 0;

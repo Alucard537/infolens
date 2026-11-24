@@ -5,7 +5,6 @@ import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearModoAncla } from '../ar/modo-navegacion.js';
 import { datosDelVisor, enviarARKit, referenciasDelAncla } from '../ar/visor-nativo.js';
-import { modelosColocados } from '../modelos-guia.js';
 
 const DIRECCIONES_DESTINO = {
   izquierda: ['←', 'Mira a la izquierda'], derecha: ['→', 'Mira a la derecha'],
@@ -110,6 +109,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   });
 
   const capa = {
+    mostrarModelos(modelos) { if (modelos.length) enviar('modelosGuia', { modelos }); },
     mostrar(loc, { conFlechas = true, conIcono = true, nombre, fotos = [] } = {}) {
       const anclaId = loc.anclaId || modulo?.anclaActivaId;
       if (!anclaId) return;
@@ -222,10 +222,6 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         if (destinoPendiente) destinoPendiente.enviado = false;
         sesion = crypto.randomUUID();
         enviar('iniciar', { anclas: referencias, vista: selector.value });
-        if (enGuia) {
-          const modelos = modelosColocados(guia);
-          if (modelos.length) enviar('modelosGuia', { modelos });
-        }
       }
 
       const comun = { capa, panel: $('.nav-panel'), seguidos, abrirDetalle, maquinaId };

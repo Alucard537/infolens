@@ -9,6 +9,7 @@ import {
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
 import { puntosDeTramos, tramosDePuntos, describir, deG, deSimple, simplesDeTramos } from '../coordenadas.js';
+import { destinoDelPaso } from '../ar/guia-recorrido.js';
 import { pintarListaTramos } from '../ui/tramos.js';
 import { leerAjustes } from '../ajustes.js';
 import { datosDelVisor, enviarARKit, referenciasDelAncla, tieneARKitIntegrado } from '../ar/visor-nativo.js';
@@ -211,7 +212,11 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     campo('estado').addEventListener('change', (e) => { g.estado = e.target.value; });
     const modelos = $('.modelos-guia');
     modelos.addEventListener('toggle', () => {
-      if (modelos.open && !editorModelos) editorModelos = montarModelosGuia($('.biblioteca-3d'), g, () => escrituraAncla);
+      if (modelos.open && !editorModelos) editorModelos = montarModelosGuia($('.biblioteca-3d'), g, {
+        antesDeColocar: () => escrituraAncla,
+        destinoPaso: posicionPasoEditado,
+        nombrePaso: (p) => (p.titulo || '').trim() || elementos.find((e) => e.id === p.elementoId)?.nombre,
+      });
     });
     campo('ancla').addEventListener('change', async (e) => {
       g.anclaId = e.target.value || null;
@@ -339,11 +344,25 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     if (err) e.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
+  const tramosLlenos = (p) => p._tramos.filter((t) => String(t.cm ?? '').trim() !== '');
+  const tramoValido = (t) => Object.values(t).every(Number.isFinite);
+
+  function posicionPasoEditado(p) {
+    if (!p) return null;
+    if (!p._tramos) return destinoDelPaso(p, locs)?.pos;
+    const tramos = tramosLlenos(p).map(deSimple);
+    if (!tramos.every(tramoValido)) return null;
+    return destinoDelPaso({
+      ...p, rutaPropia: puntosDeTramos(tramos), destinoPropio: null,
+    }, locs)?.pos;
+  }
+
   function pintarPasos() {
     const cont = app.querySelector('.pasos');
     app.querySelector('.n-pasos').textContent = g.pasos.length;
     cont.innerHTML = '';
     g.pasos.forEach((p, i) => cont.appendChild(tarjetaPaso(p, i)));
+    editorModelos?.actualizar();
   }
 
   function tarjetaPaso(p, i) {
@@ -408,20 +427,20 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     q('[data-c="confirmar"]').checked = !!p.confirmar;
     // Tramos: se editan como { dir, cm } en p._tramos y se pasan a puntos (metros) al guardar
     if (!p._tramos) {
-      const puntos = [...(p.rutaPropia || []), ...(Array.isArray(p.destinoPropio) ? [p.destinoPropio] : [])];
+      const puntos = p.rutaPropia?.length ? p.rutaPropia : Array.isArray(p.destinoPropio) ? [p.destinoPropio] : [];
       p._tramos = simplesDeTramos(tramosDePuntos(puntos));
     }
-    const leerTramos = () => p._tramos.filter((t) => String(t.cm ?? '').trim() !== '').map(deSimple);
+    const leerTramos = () => tramosLlenos(p).map(deSimple);
     const pintarDestino = () => {
       const tr = leerTramos();
-      const ok = tr.every((t) => Object.values(t).every(Number.isFinite));
+      const ok = tr.every(tramoValido);
       const fin = tr.length && ok ? deG(puntosDeTramos(tr).at(-1)) : null;
       q('.destino-tramos').textContent = !tr.length ? ''
         : !ok ? '⚠️ Algún tramo tiene una distancia que no es un número.'
           : `📍 Destino final: ${describir(fin)} desde el QR del ancla.`;
     };
     const pintarTramos = () => {
-      pintarListaTramos(q('.tramos'), p._tramos, () => { pintarDestino(); estadoLoc(); });
+      pintarListaTramos(q('.tramos'), p._tramos, () => { pintarDestino(); estadoLoc(); editorModelos?.actualizar(); });
       pintarDestino();
     };
     const sel = q('[data-c="elementoId"]');
@@ -453,9 +472,14 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       if (c === 'titulo' || c === 'texto' || c === 'advertencia') p[c] = e.target.value;
       if (c === 'comprobaciones') p.comprobaciones = e.target.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
       if (c === 'flechas' || c === 'icono' || c === 'confirmar') p[c] = e.target.checked;
-      if (c === 'titulo') resumen();
+      if (c === 'titulo') { resumen(); editorModelos?.actualizar(); }
     });
-    sel.addEventListener('change', () => { p.elementoId = sel.value || null; if (p.elementoId) delete p.elementoPendiente; estadoLoc(); });
+    sel.addEventListener('change', () => {
+      p.elementoId = sel.value || null;
+      if (p.elementoId) delete p.elementoPendiente;
+      estadoLoc();
+      editorModelos?.actualizar();
+    });
     d.addEventListener('click', (e) => {
       const m = e.target.dataset.m;
       if (!m) return;
@@ -471,6 +495,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         p._tramos = simplesDeTramos(tramosDePuntos([...(l.ruta || []), l.pos]));
         pintarTramos();
         estadoLoc();
+        editorModelos?.actualizar();
         return;
       } else return;
       pintarPasos();
@@ -569,15 +594,15 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       // Pasar los tramos escritos (cm) a puntos en metros: el último es el destino
       for (const [i, p] of g.pasos.entries()) {
         if (!p._tramos) continue;
-        const llenos = p._tramos.filter((t) => String(t.cm ?? '').trim() !== '');
-        const tr = llenos.map((t, k) => {
+        const tr = tramosLlenos(p).map((t, k) => {
           const v = deSimple(t);
-          if (!Object.values(v).every(Number.isFinite)) throw new Error(`Paso ${i + 1}, tramo ${k + 1}: escribe la distancia en cm (un número).`);
+          if (!tramoValido(v)) throw new Error(`Paso ${i + 1}, tramo ${k + 1}: escribe la distancia en cm (un número).`);
           return v;
         });
         p.rutaPropia = tr.length ? puntosDeTramos(tr) : null;
         p.destinoPropio = null;
       }
+      editorModelos?.aplicarPendientes();
       const datos = { ...g, pasos: g.pasos.map(({ _tramos, _puntos, _destino, elemento, sinLocalizacion, _destinoAR, diagnostico, sinFlechas, ...resto }) => resto) };
       const nuevos = [...archivosNuevos];
       const r = await guardarGuia(datos);

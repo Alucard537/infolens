@@ -527,6 +527,7 @@ async function trasladarGuia(id, destino, duplicar) {
     if (!cambiaMaquina && !duplicar) return original;
 
     const copias = new Map();
+    const pasosCopiados = new Map();
     const pasos = [];
     for (const p of original.pasos || []) {
       let paso = { ...p };
@@ -541,6 +542,7 @@ async function trasladarGuia(id, destino, duplicar) {
       }
       if (duplicar) {
         paso.id = pasoVacio().id;
+        pasosCopiados.set(p.id, paso.id);
         paso.imagenes = (await Promise.all((p.imagenes || []).map(copiarArchivo))).filter(Boolean);
         paso.videos = (await Promise.all((p.videos || []).map(copiarArchivo))).filter(Boolean);
         paso.ampliacionId = await copiarArchivo(p.ampliacionId);
@@ -557,6 +559,11 @@ async function trasladarGuia(id, destino, duplicar) {
       guia.nombre = `${original.nombre} (copia)`;
       guia.creado = ahora;
       guia.portadaId = await copiarArchivo(original.portadaId);
+      if (original.modelos3d?.length) guia.modelos3d = original.modelos3d.map((m) => {
+        if (!m.pasoId) return m;
+        const pasoId = pasosCopiados.get(m.pasoId);
+        return pasoId ? { ...m, pasoId } : { ...m, pasoId: null, anclaId: null };
+      });
       await db.guias.add(guia);
     } else await db.guias.put(guia);
     return guia;

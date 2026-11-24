@@ -21,7 +21,7 @@ const TAM_I = 0.1;                 // diámetro de la "i" de destino (m)
 // ======================================================================
 // Capa de recorrido (la usan el modo ANCLA y las GUÍAS)
 // ======================================================================
-export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes = () => false }) {
+export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes = () => false, avisarModelo = () => {} }) {
   let r = null; // recorrido actual
   let elementosVisibles = null;
   const matG = new THREE.Matrix4(), inversa = new THREE.Matrix4();
@@ -94,7 +94,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
     cargados.clear();
   }
 
-  async function prepararModelos(colocaciones, anclaId, avisar) {
+  async function mostrarModelos(colocaciones, anclaId) {
     quitarModelos();
     if (!colocaciones.length) return;
     const turno = turnoModelos;
@@ -119,9 +119,9 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
           instancia.rotation.set(...colocacion.rotacion.map(THREE.MathUtils.degToRad), 'YXZ');
           instancia.scale.setScalar(colocacion.escala);
           modelos.add(instancia);
-        } catch (error) { if (turno === turnoModelos) avisar('No se pudo abrir un modelo 3D de la guía.'); }
+        } catch (error) { if (turno === turnoModelos) avisarModelo('No se pudo abrir un modelo 3D de la guía.'); }
       }
-    } catch (error) { if (turno === turnoModelos) avisar('No se pudo cargar el visor de modelos 3D.'); }
+    } catch (error) { if (turno === turnoModelos) avisarModelo('No se pudo cargar el visor de modelos 3D.'); }
   }
 
   function actualizarModelos(arriba, ahora, ancla) {
@@ -311,7 +311,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
 
   return {
     mostrar, mostrarElementos, ocultar, cambiarVista, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
-    prepararModelos, actualizarModelos, quitarModelos,
+    mostrarModelos, actualizarModelos, quitarModelos,
     set forzarEjes(v) { forzarEjes = !!v; }, get activo() { return !!r; },
   };
 }
