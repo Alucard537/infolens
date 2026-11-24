@@ -259,7 +259,8 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
       r.destino.matrix.makeBasis(lateral, arriba, hacia).scale(escalaI).setPosition(d);
       r.destino.matrixWorldNeedsUpdate = true;
     }
-    return { ...tramo, fuente, fiable: true, destinoVisible: !!r.destino && !!proyectarPunto(d) };
+    const destinoVisible = !!r.destino && !!proyectarPunto(d);
+    return { ...tramo, fuente, fiable: true, destinoVisible, fueraDeCamara: !!r.destino && !destinoVisible };
   }
 
   function etiquetas(g) {

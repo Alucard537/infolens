@@ -37,6 +37,7 @@ private struct DatosRecorrido: Decodable {
     var i: InfoElemento?
     var a: String?
     var l: Double?
+    var medidaFija: Bool?
     var v: String?
     var q: String?
     var flechas: Bool?
@@ -65,15 +66,17 @@ struct AnclaAR: Decodable {
     let id: String
     let ladoCm: Double
     let patron: String?
+    let medidaFija: Bool?
     let cara: SubanclaAR.Cara?
     let orientacion: OrientacionQR?
     let subancla: SubanclaAR?
 
     init(id: String, ladoCm: Double, patron: String?, cara: SubanclaAR.Cara? = nil,
-         orientacion: OrientacionQR? = nil, subancla: SubanclaAR? = nil) {
+         orientacion: OrientacionQR? = nil, subancla: SubanclaAR? = nil, medidaFija: Bool? = nil) {
         self.id = id
         self.ladoCm = ladoCm
         self.patron = patron
+        self.medidaFija = medidaFija
         self.cara = cara
         self.orientacion = orientacion
         self.subancla = subancla
@@ -242,7 +245,8 @@ struct Recorrido {
         guard datos.count <= 100_000,
               let r = try? JSONDecoder().decode(DatosRecorrido.self, from: datos),
               (2...200).contains(r.p.count) else { return nil }
-        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q, cara: r.caraPrincipal, orientacion: r.orientacionPrincipal)
+        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q, cara: r.caraPrincipal,
+                            orientacion: r.orientacionPrincipal, medidaFija: r.medidaFija)
         let pts = r.p.compactMap(punto)
         guard ancla.valida, pts.count == r.p.count else { return nil }
         if let colocacion = r.colocacion {

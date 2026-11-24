@@ -305,14 +305,14 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       if (!detalle || detalle.avisoFijo !== null) return;
       const { info, conIcono, ampliar } = detalle;
       const est = capa.actualizar(arriba, ahora, sa);
-      if (ampliar?.hidden && est?.fiable && (est.llegada || est.destinoVisible)) ampliar.hidden = false;
+      if (ampliar?.hidden && est?.fiable && (est.destinoVisible || (!conIcono && est.llegada))) ampliar.hidden = false;
       let texto = '';
       if (est?.error) texto = est.error;
       else if (est?.pendiente) texto = 'Preparando la marca del elemento…';
       else if (est?.fiable) {
         texto = textoTramo(est);
         if (!conIcono) texto += ' · Icono del elemento desactivado';
-        else if (est.fueraDeCamara) texto += ' · Marca fuera de cámara';
+        else if (est.fueraDeCamara && !est.llegada) texto += ' · Marca fuera de cámara';
       } else if (est) texto = est.esperandoAncla ? 'Apunta al QR del ancla' : 'Guía en pausa. Vuelve a enfocar el QR.';
       info.classList.toggle('aviso-recalibrar', !!(est?.error || est?.fiable === false));
       if (info.textContent !== texto) info.textContent = texto;

@@ -3,8 +3,9 @@
 // un montaje distinto en cada máquina donde se habilita.
 import { db, normalizarId, borrarArchivos, guardarArchivo, siguienteId, CAMPOS_ARCHIVO, pasoSinElemento, quitarReferenciasDelElemento } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
-import { CARAS_MAQUINA, ORIENTACIONES_QR, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
-import { colocacionValida, MAX_MODELOS_GUIA, MIME_MODELO_GUIA } from './modelos-guia.js';
+import { CARAS_MAQUINA, ORIENTACIONES_QR, calibracionSubanclaValida, giroSubanclaValido, ladoPrincipalValido, subanclasDe } from './subanclas.js';
+import { colocacionValida, modelosColocados, MAX_MODELOS_GUIA, MIME_MODELO_GUIA } from './modelos-guia.js';
+import { destinoDelPaso, requiereDestino } from './ar/guia-recorrido.js';
 
 export const ID_GENERAL = 'GENERAL';
 
@@ -154,7 +155,8 @@ export async function duplicarElemento(id, maquinaId) {
 
 // ---------- anclas ----------
 
-const montajeDe = ({ gravedad = null, cara = null, orientacion = null, subanclas = [] } = {}) => ({ gravedad, cara, orientacion, subanclas });
+const montajeDe = ({ gravedad = null, cara = null, orientacion = null, ladoCm = null, subanclas = [] } = {}) =>
+  ({ gravedad, cara, orientacion, ladoCm, subanclas });
 
 function montajesDelAncla(ancla) {
   return ancla?.montajes ?? (ancla?.maquinaId ? { [ancla.maquinaId]: montajeDe(ancla) } : {});
@@ -164,7 +166,8 @@ export const maquinasDelAncla = (ancla) => Object.keys(montajesDelAncla(ancla));
 
 export function anclaParaMaquina(ancla, maquinaId) {
   const montajes = montajesDelAncla(ancla);
-  return maquinaId && Object.hasOwn(montajes, maquinaId) ? { ...ancla, ...montajes[maquinaId], maquinaId } : null;
+  return maquinaId && Object.hasOwn(montajes, maquinaId)
+    ? { ...ancla, ...montajes[maquinaId], ladoCm: montajes[maquinaId]?.ladoCm ?? null, maquinaId } : null;
 }
 
 async function guardarMontajes(ancla, montajes) {
@@ -227,9 +230,10 @@ export async function siguienteIdAncla(maquinaId) {
   return base + n;
 }
 
-function validarConfiguracionAncla({ cara, orientacion }) {
+function validarConfiguracionAncla({ cara, orientacion, ladoCm }) {
   if (cara && !Object.hasOwn(CARAS_MAQUINA, cara)) throw new Error('Elige una cara válida para el QR principal.');
   if (orientacion && !Object.hasOwn(ORIENTACIONES_QR, orientacion)) throw new Error('Elige una colocación válida para el QR principal.');
+  if (ladoCm != null && !ladoPrincipalValido(ladoCm)) throw new Error('El ancho del QR debe estar entre 1 y 200 cm.');
 }
 
 export async function guardarAncla(datos, esNueva) {
@@ -254,13 +258,14 @@ export async function guardarAncla(datos, esNueva) {
     const cambios = { ...montaje,
       gravedad: datos.gravedad === undefined ? montaje?.gravedad : datos.gravedad,
       cara: datos.cara === undefined ? montaje?.cara : datos.cara || null,
-      orientacion: datos.orientacion === undefined ? montaje?.orientacion : datos.orientacion || null };
+      orientacion: datos.orientacion === undefined ? montaje?.orientacion : datos.orientacion || null,
+      ladoCm: datos.ladoCm === undefined ? montaje?.ladoCm : datos.ladoCm };
     return anclaParaMaquina(await guardarMontaje(a, datos.maquinaId, cambios), datos.maquinaId);
   });
 }
 
-export async function guardarConfiguracionAncla(id, maquinaId, { cara, orientacion }) {
-  validarConfiguracionAncla({ cara, orientacion });
+export async function guardarConfiguracionAncla(id, maquinaId, { cara, orientacion, ladoCm }) {
+  validarConfiguracionAncla({ cara, orientacion, ladoCm });
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(id);
     const montaje = anclaParaMaquina(ancla, maquinaId);
@@ -268,6 +273,7 @@ export async function guardarConfiguracionAncla(id, maquinaId, { cara, orientaci
     await guardarMontaje(ancla, maquinaId, { ...montaje,
       ...(cara !== undefined ? { cara: cara || null } : {}),
       ...(orientacion !== undefined ? { orientacion: orientacion || null } : {}),
+      ...(ladoCm !== undefined ? { ladoCm } : {}),
     });
   });
 }
@@ -469,7 +475,7 @@ export function pasoVacio() {
 /** Guarda una guía comprobando que todo (ancla y elementos de los pasos) es de su máquina. */
 export async function guardarGuia(datos) {
   if (!String(datos.nombre || '').trim()) throw new Error('Escribe el nombre de la guía.');
-  return db.transaction('rw', [db.guias, db.archivos, db.maquinas, db.anclas, db.elementos], async () => {
+  return db.transaction('rw', [db.guias, db.archivos, db.maquinas, db.anclas, db.elementos, db.localizaciones], async () => {
     if ((datos.modelos3d?.length ?? 0) > MAX_MODELOS_GUIA) throw new Error(`Esta guía admite hasta ${MAX_MODELOS_GUIA} modelos 3D.`);
     for (const modelo of datos.modelos3d || []) {
       if (!colocacionValida({ ...modelo, anclaId: modelo.anclaId ?? 'pendiente' })) throw new Error('Hay un modelo con una colocación no válida.');
@@ -487,6 +493,12 @@ export async function guardarGuia(datos) {
     if (datos.estado === 'publicada') {
       if (!datos.anclaId) throw new Error('Para publicarla, la guía necesita un ancla QR.');
       if (!(datos.pasos || []).length) throw new Error('Para publicarla, la guía necesita al menos un paso.');
+      const localizaciones = new Map((await localizacionesDeAncla(datos.maquinaId, datos.anclaId)).map((l) => [l.elementoId, l]));
+      const pendiente = datos.pasos.findIndex((p) => requiereDestino(p) && !destinoDelPaso(p, localizaciones));
+      if (pendiente >= 0) throw new Error(`Paso ${pendiente + 1}: asigna un destino en esta máquina para publicar la guía. Puedes guardarla como borrador.`);
+      if (modelosColocados(datos, localizaciones).length !== (datos.modelos3d?.length ?? 0)) {
+        throw new Error('Hay piezas 3D pendientes de colocar. Revisa sus posiciones o guarda la guía como borrador.');
+      }
     }
     const id = datos.id || (await siguienteIdGuia());
     const anterior = await db.guias.get(id);
@@ -562,7 +574,7 @@ async function trasladarGuia(id, destino, duplicar) {
       if (original.modelos3d?.length) guia.modelos3d = original.modelos3d.map((m) => {
         if (!m.pasoId) return m;
         const pasoId = pasosCopiados.get(m.pasoId);
-        return pasoId ? { ...m, pasoId } : { ...m, pasoId: null, anclaId: null };
+        return pasoId ? { ...m, pasoId } : { ...m, anclaId: null };
       });
       await db.guias.add(guia);
     } else await db.guias.put(guia);
@@ -580,7 +592,7 @@ export const moverGuia = (id, maquinaId) => trasladarGuia(id, maquinaId, false);
  * se crea la máquina GENERAL con todos ellos. Las posiciones guardadas con la versión anterior
  * (campo "nav" de los elementos) se convierten en anclas y localizaciones.
  */
-export async function migrarDatosAntiguos() {
+export async function migrarDatosAntiguos({ activar = true } = {}) {
   const [nMaq, nEl] = await Promise.all([db.maquinas.count(), db.elementos.count()]);
   if (nMaq === 0 && nEl > 0) {
     await db.maquinas.put({ id: ID_GENERAL, nombre: 'General', modelo: '', descripcion: 'Creada automáticamente con los elementos que ya existían.', creado: Date.now(), modificado: Date.now() });
@@ -603,7 +615,7 @@ export async function migrarDatosAntiguos() {
     }
     await db.elementos.update(e.id, { nav: undefined });
   }
-  if (!maquinaActivaId()) {
+  if (activar && !maquinaActivaId()) {
     const primera = (await db.maquinas.orderBy('nombre').first());
     if (primera && (await db.maquinas.count()) === 1) establecerMaquinaActiva(primera.id);
   }

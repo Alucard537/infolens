@@ -6,6 +6,9 @@ export const CARAS_MAQUINA = {
 };
 
 export const ORIENTACIONES_QR = { vertical: 'Vertical', horizontal: 'Horizontal' };
+export const ladoPrincipalValido = (cm) => Number.isFinite(cm) && cm >= 1 && cm <= 200;
+export const ladoQRAncla = (ancla, defecto = 10) =>
+  ladoPrincipalValido(ancla?.ladoCm) ? ancla.ladoCm : ladoPrincipalValido(defecto) ? defecto : 10;
 
 // Prefijo distinto del de los elementos y del QR principal.
 export const textoQRSubancla = (id) => `INFOLENS-SUB:${id}`;

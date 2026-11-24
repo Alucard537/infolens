@@ -30,8 +30,7 @@ export function pantallaAdmin(app, { volver, alEntrar, alSalir, destino, recibir
           <p class="error-form" hidden></p><p class="ok-form" hidden></p>
           <button class="boton" type="submit">Cambiar contraseña</button>
         </form>
-        <p class="nota">Después de cambiarla, crea una copia nueva y pásala a los teléfonos de los operarios
-          para que también usen la contraseña nueva.</p>`;
+        <p class="nota">La contraseña de administrador se configura en cada dispositivo.</p>`;
     } else if (hay) {
       html += `
         <h1>🔒 Entrar como administrador</h1>
@@ -40,13 +39,11 @@ export function pantallaAdmin(app, { volver, alEntrar, alSalir, destino, recibir
           <p class="error-form" hidden></p>
           <button class="boton grande" type="submit">Entrar</button>
         </form>
-        <p class="nota">¿Has olvidado la contraseña? No se puede recuperar desde la app. Importa una copia .zip creada
-          en un dispositivo donde sí la recuerdes, o con otra contraseña que conozcas.</p>`;
+        <p class="nota">Si olvidaste la contraseña, puedes seguir consultando el catálogo y recibiendo copias de datos.</p>`;
     } else {
       html += `
         <h1>🔑 Crear contraseña de administrador</h1>
-        <p class="nota">Este dispositivo aún no tiene administrador. Quien cree la contraseña será el administrador.
-          En los teléfonos de los operarios no hace falta: la contraseña llega dentro de tu copia .zip.</p>
+        <p class="nota">Crea la contraseña de este dispositivo si necesitas editar el catálogo.</p>
         <form data-form="crear" novalidate>
           ${campo('nueva', `Contraseña (mínimo ${MIN_LARGO} caracteres)`, 'new-password')}
           ${campo('repetir', 'Repite la contraseña', 'new-password')}

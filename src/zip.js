@@ -41,12 +41,13 @@ export async function crearZip(entradas, alAvanzar = () => {}) {
   const central = [];
   let posicion = 0;
   let tamCentral = 0;
-  if (entradas.length > 65535) throw new Error('Demasiados archivos para una sola copia.');
+  if (entradas.length >= 65535) throw new Error('Demasiados archivos para una sola copia.');
 
   for (let i = 0; i < entradas.length; i++) {
     const { nombre, blob } = entradas[i];
     alAvanzar(i, entradas.length);
     const n = codif.encode(nombre);
+    if (n.length > 65535) throw new Error('Hay un nombre de archivo demasiado largo.');
     const crc = await crc32(blob);
     const tam = blob.size;
     if (tam > LIMITE || posicion > LIMITE) throw new Error('La copia supera los 4 GB.');
@@ -83,7 +84,7 @@ export async function crearZip(entradas, alAvanzar = () => {}) {
     posicion += 30 + n.length + tam;
     tamCentral += 46 + n.length;
   }
-  if (posicion > LIMITE) throw new Error('La copia supera los 4 GB.');
+  if (posicion + tamCentral + 22 > LIMITE) throw new Error('La copia supera los 4 GB.');
 
   const fin = new DataView(new ArrayBuffer(22));
   fin.setUint32(0, 0x06054b50, true);
@@ -95,50 +96,68 @@ export async function crearZip(entradas, alAvanzar = () => {}) {
   return new Blob([...partes, ...central, fin.buffer], { type: 'application/zip' });
 }
 
-/** Lee el índice de un .zip. Devuelve [{ nombre, metodo, tamComprimido, tam, posLocal }]. */
+/** Lee el directorio central necesario para localizar y comprobar cada archivo. */
 export async function leerIndiceZip(archivo) {
   const tamFin = Math.min(archivo.size, 22 + 65535);
   const fin = new DataView(await archivo.slice(archivo.size - tamFin).arrayBuffer());
   let p = -1;
   for (let i = tamFin - 22; i >= 0; i--) {
-    if (fin.getUint32(i, true) === 0x06054b50) { p = i; break; }
+    if (fin.getUint32(i, true) === 0x06054b50 && i + 22 + fin.getUint16(i + 20, true) === tamFin) { p = i; break; }
   }
   if (p < 0) throw new Error('El archivo no es un .zip válido.');
   const total = fin.getUint16(p + 10, true);
   const tamCentral = fin.getUint32(p + 12, true);
   const posCentral = fin.getUint32(p + 16, true);
-  if (posCentral === 0xffffffff || total === 0xffff) throw new Error('Este .zip es demasiado grande (formato ZIP64 no admitido).');
+  if (posCentral === 0xffffffff || tamCentral === 0xffffffff || total === 0xffff) throw new Error('Este .zip es demasiado grande (formato ZIP64 no admitido).');
+  if (tamCentral > 64 * 1024 * 1024 || posCentral + tamCentral > archivo.size - tamFin + p || total * 46 > tamCentral ||
+      fin.getUint32(p + 4, true) !== 0 || fin.getUint16(p + 8, true) !== total) throw new Error('El índice del .zip está dañado.');
 
   const cd = new DataView(await archivo.slice(posCentral, posCentral + tamCentral).arrayBuffer());
   const utf8 = new TextDecoder('utf-8');
   const entradas = [];
   let q = 0;
   for (let i = 0; i < total; i++) {
-    if (cd.getUint32(q, true) !== 0x02014b50) throw new Error('El .zip está dañado.');
+    if (q + 46 > cd.byteLength || cd.getUint32(q, true) !== 0x02014b50) throw new Error('El .zip está dañado.');
+    const flags = cd.getUint16(q + 8, true);
     const metodo = cd.getUint16(q + 10, true);
+    const crc = cd.getUint32(q + 16, true);
     const tamComprimido = cd.getUint32(q + 20, true);
     const tam = cd.getUint32(q + 24, true);
     const lnom = cd.getUint16(q + 28, true);
     const lextra = cd.getUint16(q + 30, true);
     const lcom = cd.getUint16(q + 32, true);
     const posLocal = cd.getUint32(q + 42, true);
+    const siguiente = q + 46 + lnom + lextra + lcom;
+    if (!lnom || siguiente > cd.byteLength || posLocal + 30 > posCentral) throw new Error('El .zip está dañado.');
     const nombre = utf8.decode(new Uint8Array(cd.buffer, cd.byteOffset + q + 46, lnom));
-    if (!nombre.endsWith('/')) entradas.push({ nombre, metodo, tamComprimido, tam, posLocal });
-    q += 46 + lnom + lextra + lcom;
+    if (!nombre.endsWith('/')) entradas.push({ nombre, flags, metodo, crc, tamComprimido, tam, posLocal, posCentral });
+    q = siguiente;
   }
   return entradas;
 }
 
 /** Devuelve el contenido (Blob) de una entrada del zip. */
 export async function leerEntradaZip(archivo, e) {
+  const error = () => new Error(`El archivo «${e.nombre}» está dañado.`);
+  if (e.flags & 1) throw new Error('El .zip contiene un archivo cifrado.');
   const local = new DataView(await archivo.slice(e.posLocal, e.posLocal + 30).arrayBuffer());
-  if (local.getUint32(0, true) !== 0x04034b50) throw new Error('El .zip está dañado.');
+  if (local.byteLength !== 30 || local.getUint32(0, true) !== 0x04034b50 || local.getUint16(8, true) !== e.metodo) throw error();
   const inicio = e.posLocal + 30 + local.getUint16(26, true) + local.getUint16(28, true);
+  if (inicio + e.tamComprimido > e.posCentral) throw error();
   const datos = archivo.slice(inicio, inicio + e.tamComprimido);
-  if (e.metodo === 0) return datos;
+  let contenido = datos;
   if (e.metodo === 8) {
     if (typeof DecompressionStream === 'undefined') throw new Error('Este navegador no puede descomprimir este .zip.');
-    return new Response(datos.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
+    let bytes = 0;
+    const verificarTamano = new TransformStream({ transform(parte, salida) {
+      bytes += parte.byteLength;
+      if (bytes > e.tam) throw error();
+      salida.enqueue(parte);
+    } });
+    contenido = await new Response(datos.stream().pipeThrough(new DecompressionStream('deflate-raw')).pipeThrough(verificarTamano)).blob();
+  } else if (e.metodo !== 0) {
+    throw new Error(`Formato de compresión no admitido en ${e.nombre}.`);
   }
-  throw new Error(`Formato de compresión no admitido en ${e.nombre}.`);
+  if (contenido.size !== e.tam || await crc32(contenido) !== e.crc) throw error();
+  return contenido;
 }

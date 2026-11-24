@@ -37,6 +37,15 @@ const unit = (v) => escala(v, 1 / norm(v));
  * Devuelve { R: [r1, r2, r3] (columnas), t } en coordenadas de cámara (x derecha, y abajo, z hacia delante).
  */
 export function calcularPose(esquinas, f, cx, cy, lado) {
+  if (esquinas?.length !== 4 || !Number.isFinite(f) || f <= 0 || !Number.isFinite(lado) || lado <= 0 ||
+      esquinas.some((p) => p?.length !== 2 || !p.every(Number.isFinite))) return null;
+  const lados = esquinas.map(([x, y], i) => {
+    const [xx, yy] = esquinas[(i + 1) % 4];
+    return [xx - x, yy - y];
+  });
+  const longitudes = lados.map(([x, y]) => Math.hypot(x, y));
+  if (Math.min(...longitudes) < 6 ||
+      lados.some(([x, y], i) => x * lados[(i + 1) % 4][1] - y * lados[(i + 1) % 4][0] <= 0)) return null;
   const h = lado / 2;
   const modelo = [[-h, -h], [h, -h], [h, h], [-h, h]];
   const A = [], b = [];
@@ -49,7 +58,15 @@ export function calcularPose(esquinas, f, cx, cy, lado) {
   }
   const H = resolver(A, b);
   if (!H) return null;
-  return poseDeHomografia(H);
+  const pose = poseDeHomografia(H);
+  if (!pose) return null;
+  // La homografía encaja cualquier cuadrilátero. La pose ortonormal también debe volver a encajar el QR.
+  const tolerancia = Math.max(2.5, longitudes.reduce((a, b) => a + b, 0) * 0.015);
+  for (const [i, [x, y]] of modelo.entries()) {
+    const [X, Y, Z] = suma(pose.t, suma(escala(pose.R[0], x), escala(pose.R[1], y)));
+    if (Z <= 0 || Math.hypot(X * f / Z + cx - esquinas[i][0], Y * f / Z + cy - esquinas[i][1]) > tolerancia) return null;
+  }
+  return pose;
 }
 
 /**
@@ -57,6 +74,7 @@ export function calcularPose(esquinas, f, cx, cy, lado) {
  * (metros) y coordenadas normalizadas de la cámara ((u - cx) / f, (v - cy) / f).
  */
 export function poseDeHomografia(H) {
+  if (!H.every(Number.isFinite)) return null;
   const c1 = [H[0], H[3], H[6]];
   const c2 = [H[1], H[4], H[7]];
   const c3 = [H[2], H[5], 1];
@@ -70,5 +88,5 @@ export function poseDeHomografia(H) {
   const n = unit(cruz(z, medio));
   const x = escala(resta(medio, n), Math.SQRT1_2);
   const y = escala(suma(medio, n), Math.SQRT1_2);
-  return { R: [x, y, z], t };
+  return [...x, ...y, ...z, ...t].every(Number.isFinite) ? { R: [x, y, z], t } : null;
 }

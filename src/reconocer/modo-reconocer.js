@@ -90,7 +90,12 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
     b.innerHTML = '<span class="mini"><img alt=""></span><span class="fila-textos"><span class="fila-nombre"></span><span class="fila-ref"></span></span><span class="rec-pct"></span>';
     b.querySelector('.fila-nombre').textContent = el.nombre;
     b.querySelector('.fila-ref').textContent = `${el.referencia} · ${el.id}`;
-    b.querySelector('.rec-pct').textContent = pct == null ? '' : pct + ' %';
+    const parecido = b.querySelector('.rec-pct');
+    if (pct != null) {
+      parecido.textContent = `${pct} %`;
+      parecido.setAttribute('aria-label', `${pct} % de similitud visual`);
+      parecido.title = 'Similitud visual';
+    }
     const img = b.querySelector('img');
     miniatura(el.id).then((u) => { if (u) img.src = u; else img.remove(); });
     return b;
@@ -191,20 +196,22 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
   function paso() {
     if (!encendido || bloqueado || !estaActivo()) return;
     const ahora = performance.now();
-    ajustarGuia(guia, video);
+    const proporcion = recorteCercano ? 0.56 : undefined;
+    ajustarGuia(guia, video, proporcion);
     if (video.readyState >= 2 && video.videoWidth && video.currentTime !== tiempoVideo) {
       try {
         tiempoVideo = video.currentTime;
         if (ahora - ultimaMuestra > CADA_MS * 4) borrarCoincidencias();
         const muestra = huellaDe(embedder, video, video.videoWidth, video.videoHeight, {
           ...opcionesRecorte,
-          proporcion: recorteCercano ? 0.56 : undefined,
+          proporcion,
           conRecuadro: opcionesRecorte.conRecuadro && !recorteCercano,
         });
         const { motivo, objeto, recuadro } = muestra;
         if (!objeto && !recuadro) {
-          if (++perdidas > 1) borrarCoincidencias();
-          if (opcionesRecorte.segmentador && !racha.n) recorteCercano = !recorteCercano;
+          racha = { id: null, n: 0 };
+          suavizado.clear();
+          if (++perdidas >= 2 && opcionesRecorte.segmentador) { recorteCercano = !recorteCercano; perdidas = 0; }
           pintar([], motivo ? `${motivo}.` : 'No se ve la pieza con claridad.');
         } else {
           const res = comparar(muestra, huellas);
@@ -220,8 +227,9 @@ export function crearReconocimiento({ video, guia, panel, abrirDetalle, estaActi
           if (positivo) {
             perdidas = 0;
             racha = { id: candidato, n: racha.id === candidato ? racha.n + 1 : 1 };
-          } else if (!motivo || ++perdidas > 1) {
+          } else {
             racha = { id: null, n: 0 };
+            perdidas = 0;
             if (opcionesRecorte.segmentador && (res[0]?.parecido ?? 0) < MINIMO) recorteCercano = !recorteCercano;
           }
           if (racha.n >= SEGUIDAS) { bloquear(racha.id); return; }

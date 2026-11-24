@@ -5,6 +5,7 @@ import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearModoAncla } from '../ar/modo-navegacion.js';
 import { datosDelVisor, enviarARKit, referenciasDelAncla } from '../ar/visor-nativo.js';
+import { ladoQRAncla } from '../subanclas.js';
 
 const DIRECCIONES_DESTINO = {
   izquierda: ['←', 'Mira a la izquierda'], derecha: ['→', 'Mira a la derecha'],
@@ -23,6 +24,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   let ultimoErrorLinterna;
   let avisoLinternaId;
   const seguidos = new Map();
+  const anclasPorId = new Map();
   const enGuia = !!guiaId;
   let ajustes = leerAjustes();
   const ladoCm = ajustes.qrCm || 10;
@@ -120,7 +122,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         destinoId: id,
         recorrido: datosDelVisor({
           puntos: [[0, 0, 0], ...(loc.ruta || []), loc.pos],
-          anclaId, ladoCm, vista: selector.value,
+          anclaId, ladoCm: ladoQRAncla(anclasPorId.get(anclaId), ladoCm), vista: selector.value,
           flechas: conFlechas, icono: conIcono, posIcono: loc.posIcono,
         }),
       };
@@ -202,6 +204,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   Promise.all([listarAnclas(maquinaId), enGuia ? obtenerGuia(guiaId) : null, enGuia ? mapaElementos() : null])
     .then(([anclas, guia, elementos]) => {
       if (!activo) return;
+      for (const a of anclas) anclasPorId.set(a.id, a);
       if (enGuia && (!guia || guia.maquinaId !== maquinaId ||
           (guia.estado !== 'publicada' && !esAdmin()) || !guia.pasos?.length)) {
         estado.textContent = 'La guía no está disponible para esta máquina.';

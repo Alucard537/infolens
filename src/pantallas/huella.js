@@ -52,8 +52,8 @@ export function pantallaHuella(app, id, { volver }) {
       <div class="huella-panel">
         <div class="huella-titulo"></div>
         <div class="huella-resumen"></div>
-        <p class="nota huella-ayuda">Centra la pieza y deja visibles sus bordes. Para comparar desde varios ángulos,
-          guarda tomas de frente y de lado con distinta luz.</p>
+        <p class="nota huella-ayuda">Centra la pieza y deja visibles sus bordes. Guarda vistas de frente, de lado y de la
+          cara que la distingue de otras piezas. Cambia el fondo y la luz entre tomas. Prueba luego con un vídeo distinto.</p>
         <div class="barra"><div class="barra-relleno"></div></div>
         <div class="botones-archivo">
           <button class="boton" data-accion="grabar" disabled>⏺ Grabar</button>

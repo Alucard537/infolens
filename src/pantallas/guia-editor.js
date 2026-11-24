@@ -9,11 +9,11 @@ import {
 import { guardarArchivo, borrarArchivos, obtenerArchivo } from '../db.js';
 import { prepararFoto } from '../imagenes.js';
 import { puntosDeTramos, tramosDePuntos, describir, deG, deSimple, simplesDeTramos } from '../coordenadas.js';
-import { destinoDelPaso } from '../ar/guia-recorrido.js';
+import { destinoDelPaso, requiereDestino } from '../ar/guia-recorrido.js';
 import { pintarListaTramos } from '../ui/tramos.js';
 import { leerAjustes } from '../ajustes.js';
 import { datosDelVisor, enviarARKit, referenciasDelAncla, tieneARKitIntegrado } from '../ar/visor-nativo.js';
-import { CARAS_MAQUINA, ORIENTACIONES_QR, giroSubanclaValido, subanclasDe } from '../subanclas.js';
+import { CARAS_MAQUINA, ORIENTACIONES_QR, giroSubanclaValido, ladoPrincipalValido, ladoQRAncla, subanclasDe } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
 import { montarModelosGuia } from './modelos-guia.js';
 
@@ -56,8 +56,9 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
   };
 
   async function cargarLocs() {
-    locs = new Map();
-    if (g.anclaId) for (const l of await localizacionesDeAncla(g.maquinaId, g.anclaId)) locs.set(l.elementoId, l);
+    const { anclaId, maquinaId } = g;
+    const lista = anclaId ? await localizacionesDeAncla(maquinaId, anclaId) : [];
+    if (g.anclaId === anclaId) locs = new Map(lista.map((l) => [l.elementoId, l]));
   }
 
   (async () => {
@@ -95,7 +96,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       <div class="pagina formulario editor-guia">
         <button class="volver">‹ Volver</button>
         <h1>${g.id ? 'Editar guía' : 'Crear guía'}</h1>
-        <p class="det-ref">Máquina: ${maquina.nombre} (${maquina.id})</p>
+        <p class="det-ref"></p>
         <label>Nombre de la guía *<input name="nombre" autocomplete="off"></label>
         <fieldset class="tipo">
           <legend>Tipo</legend>
@@ -109,11 +110,15 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           <p class="nota" id="ayuda-cara-guia">Toma izquierda y derecha mirando el frontal. Para un QR horizontal, elige el lado desde el que la flecha apunta al interior.</p>
           <label>Colocación del QR principal <select name="orientacionAncla" aria-describedby="ayuda-orientacion-guia">${opcionesOrientacion}</select></label>
           <p class="nota" id="ayuda-orientacion-guia">${instruccionesQR} Esta configuración se aplica a las guías que usan este QR en esta máquina.</p>
+          <label>Ancho impreso del QR principal (cm)
+            <input name="ladoAncla" type="number" min="1" max="200" step="any" inputmode="decimal" aria-describedby="ayuda-lado-guia">
+          </label>
+          <p class="nota" id="ayuda-lado-guia">Mide el cuadrado del código de borde a borde, sin el margen blanco. Déjalo vacío para usar el tamaño general.</p>
           <p class="nota estado-cara-guia" role="status" hidden></p>
         </div>
         <button type="button" class="boton-mini" data-a="crear-ancla">➕ Crear ancla nueva</button>
         <div class="bloque-archivo form-ancla-guia" hidden>
-          <div class="titulo-archivo">⚓ Nueva ancla de ${maquina.nombre}</div>
+          <div class="titulo-archivo titulo-nueva-ancla"></div>
           <label>Identificador (lo que llevará su QR)<input name="anclaNuevaId" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
           <label>Nombre<input name="anclaNuevaNombre" autocomplete="off" placeholder="Por ejemplo Frontal izquierdo"></label>
           <label>Cara del QR principal <select name="anclaNuevaCara">${opcionesCara}</select></label>
@@ -142,6 +147,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           <select name="estado">${Object.entries(ESTADOS_GUIA).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
         </label>
         <small class="ayuda">Borrador: solo la ve el administrador · Publicada: la ven los usuarios · Desactivada: se conserva pero no se usa.</small>
+        <p class="nota destinos-pendientes" role="status" hidden></p>
 
         <h2>Pasos (<span class="n-pasos"></span>)</h2>
         <div class="pasos"></div>
@@ -155,6 +161,8 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         <button type="button" class="boton secundario" data-a="probar">▶️ Guardar y probar</button>
       </div>`;
     const $ = (s) => app.querySelector(s);
+    $('.det-ref').textContent = `Máquina: ${maquina.nombre} (${maquina.id})`;
+    $('.titulo-nueva-ancla').textContent = `Nueva ancla de ${maquina.nombre}`;
     $('.volver').addEventListener('click', volver);
     const campo = (n) => app.querySelector(`[name="${n}"]`);
     campo('nombre').value = g.nombre;
@@ -168,18 +176,21 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     campo('ancla').value = g.anclaId || '';
     const cara = campo('caraAncla');
     const orientacion = campo('orientacionAncla');
+    const lado = campo('ladoAncla');
     const estadoCara = $('.estado-cara-guia');
     function pintarConfiguracion() {
       const ancla = anclas.find((a) => a.id === g.anclaId);
       $('.cara-ancla-guia').hidden = !ancla;
       cara.value = Object.hasOwn(CARAS_MAQUINA, ancla?.cara) ? ancla.cara : '';
       orientacion.value = Object.hasOwn(ORIENTACIONES_QR, ancla?.orientacion) ? ancla.orientacion : '';
+      lado.value = ladoPrincipalValido(ancla?.ladoCm) ? ancla.ladoCm : '';
+      lado.placeholder = `${ladoQRAncla(null, leerAjustes().qrCm)} cm`;
       estadoCara.hidden = true;
     }
     async function guardarConfiguracion(campo, valor, confirmacion) {
       const ancla = anclas.find((a) => a.id === g.anclaId);
       if (!ancla || escrituraAncla) return;
-      cara.disabled = orientacion.disabled = true;
+      cara.disabled = orientacion.disabled = lado.disabled = true;
       estadoCara.textContent = 'Guardando la configuración del QR…';
       estadoCara.hidden = false;
       escrituraAncla = guardarConfiguracionAncla(ancla.id, g.maquinaId, { [campo]: valor });
@@ -199,11 +210,13 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         }
       } finally {
         escrituraAncla = null;
-        cara.disabled = orientacion.disabled = false;
+        cara.disabled = orientacion.disabled = lado.disabled = false;
       }
     }
     cara.addEventListener('change', () => guardarConfiguracion('cara', cara.value, 'Cara del QR guardada.'));
     orientacion.addEventListener('change', () => guardarConfiguracion('orientacion', orientacion.value, 'Colocación del QR guardada.'));
+    lado.addEventListener('change', () => guardarConfiguracion('ladoCm',
+      lado.value === '' && !lado.validity.badInput ? null : lado.valueAsNumber, 'Medida del QR guardada para esta máquina.'));
     pintarConfiguracion();
     campo('estado').value = g.estado;
     campo('nombre').addEventListener('input', (e) => { g.nombre = e.target.value; });
@@ -310,7 +323,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       if (!actual) return;
       const { a, s } = actual;
       const recorrido = datosDelVisor({
-        anclaId: a.id, ladoCm: leerAjustes().qrCm || 10, puntos: [[0, 0, 0], s.pos],
+        anclaId: a.id, ladoCm: ladoQRAncla(a, leerAjustes().qrCm), medidaFija: ladoPrincipalValido(a.ladoCm), puntos: [[0, 0, 0], s.pos],
         info: { nombre: s.nombre, referencia: CARAS_MAQUINA[s.cara], descripcion: describir(deG(s.pos)) },
         caraPrincipal: Object.hasOwn(CARAS_MAQUINA, a.cara) ? a.cara : undefined,
         orientacionPrincipal: a.orientacion,
@@ -357,12 +370,21 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     }, locs)?.pos;
   }
 
+  function actualizarDestinosPendientes() {
+    const estado = app.querySelector('.destinos-pendientes');
+    const pendientes = g.pasos.flatMap((p, i) =>
+      requiereDestino(p) && (!g.anclaId || !posicionPasoEditado(p)) ? [i + 1] : []);
+    estado.hidden = !pendientes.length;
+    estado.textContent = pendientes.length ? `Falta un destino en esta máquina para ${pendientes.length === 1 ? 'el paso' : 'los pasos'} ${pendientes.join(', ')}.` : '';
+  }
+
   function pintarPasos() {
     const cont = app.querySelector('.pasos');
     app.querySelector('.n-pasos').textContent = g.pasos.length;
     cont.innerHTML = '';
     g.pasos.forEach((p, i) => cont.appendChild(tarjetaPaso(p, i)));
     editorModelos?.actualizar();
+    actualizarDestinosPendientes();
   }
 
   function tarjetaPaso(p, i) {
@@ -440,7 +462,12 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           : `📍 Destino final: ${describir(fin)} desde el QR del ancla.`;
     };
     const pintarTramos = () => {
-      pintarListaTramos(q('.tramos'), p._tramos, () => { pintarDestino(); estadoLoc(); editorModelos?.actualizar(); });
+      pintarListaTramos(q('.tramos'), p._tramos, () => {
+        pintarDestino();
+        estadoLoc();
+        editorModelos?.actualizar();
+        actualizarDestinosPendientes();
+      });
       pintarDestino();
     };
     const sel = q('[data-c="elementoId"]');
@@ -461,7 +488,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       t.textContent = conTramos ? '🧭 Se usarán los tramos de este paso (abajo).'
         : !g.anclaId ? 'Elige el ancla de la guía para usar las coordenadas del componente.'
           : locs.has(p.elementoId) ? '✅ Tiene localización respecto al ancla de la guía: se usa (o escribe tramos abajo).'
-            : '⚠️ No está localizado respecto al ancla de la guía: escribe abajo los tramos del recorrido.';
+            : '⚠️ Sin destino en esta máquina. Escribe los tramos de este paso o localiza el componente respecto al QR de la guía.';
       if (p.flechas === false) t.textContent += ' ⚠️ "Mostrar flechas 3D" está DESACTIVADO: márcalo para que se vea el camino.';
     };
     pintarTramos();
@@ -472,6 +499,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       if (c === 'titulo' || c === 'texto' || c === 'advertencia') p[c] = e.target.value;
       if (c === 'comprobaciones') p.comprobaciones = e.target.value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
       if (c === 'flechas' || c === 'icono' || c === 'confirmar') p[c] = e.target.checked;
+      if (c === 'flechas' || c === 'icono') { estadoLoc(); actualizarDestinosPendientes(); }
       if (c === 'titulo') { resumen(); editorModelos?.actualizar(); }
     });
     sel.addEventListener('change', () => {
@@ -479,6 +507,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       if (p.elementoId) delete p.elementoPendiente;
       estadoLoc();
       editorModelos?.actualizar();
+      actualizarDestinosPendientes();
     });
     d.addEventListener('click', (e) => {
       const m = e.target.dataset.m;
@@ -496,6 +525,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         pintarTramos();
         estadoLoc();
         editorModelos?.actualizar();
+        actualizarDestinosPendientes();
         return;
       } else return;
       pintarPasos();

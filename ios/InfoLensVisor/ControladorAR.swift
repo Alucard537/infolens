@@ -213,7 +213,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) { config.sceneReconstruction = .mesh }
         config.detectionImages = referencias
         config.maximumNumberOfTrackedImages = activas.contains { $0.subancla != nil } ? 2 : 1
-        config.automaticImageScaleEstimationEnabled = true
+        config.automaticImageScaleEstimationEnabled = !activas.allSatisfy { $0.medidaFija == true }
         let id = sesionId
         if referencias.count == 1, let referencia = referencias.first {
             referencia.validate { [weak self] error in

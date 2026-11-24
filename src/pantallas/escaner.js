@@ -20,6 +20,7 @@ import { calcularPose } from '../ar/pose.js';
 import { OneEuro } from '../ar/one-euro.js';
 import { crearIcono, crearLuces } from '../ar/icono.js';
 import { crearSensorVertical, pedirPermisoSensor, faltaPermiso } from '../ar/vertical.js';
+import { ladoQRAncla } from '../subanclas.js';
 
 const TIEMPO_OCULTAR_MS = 1000;   // si no se ve el QR durante 1 s, se oculta el icono
 const MAX_LADO_CAPTURA = 1920;    // resolución máxima que se pasa al lector de QR
@@ -353,7 +354,6 @@ export function pantallaEscaner(app, {
   function procesarDeteccion(qrs, k, tiempo) {
     if (!elementos || !anclas) return; // la base de datos aún no ha cargado (tarda milisegundos)
     const g = geometria();
-    const lado = ajustes.qrCm / 100;
     for (const qr of qrs) {
       if (!qr.texto.startsWith(QR_PREFIX)) continue; // QR que no son nuestros: se ignoran
       const id = qr.texto.slice(QR_PREFIX.length).trim();
@@ -366,15 +366,16 @@ export function pantallaEscaner(app, {
         s.filtros[i * 2].filter(x / k, tiempo),
         s.filtros[i * 2 + 1].filter(y / k, tiempo),
       ]);
-      const pose = calcularPose(esq, g.f, g.cx, g.cy, lado);
+      const pose = calcularPose(esq, g.f, g.cx, g.cy, ladoQRAncla(s.ancla, ajustes.qrCm) / 100);
       if (!pose) continue;
       ponerPose(s, pose);
       s.esquinas = esq;
       s.visto = performance.now();
       // Ancla activa: su pose enseña al seguimiento con el entorno dónde está el plano del QR
-      if (entorno && s.tipo === 'ancla-activa') {
+      if (s.tipo === 'ancla-activa') {
         s.vistoQR = tiempo;
         s.porEntorno = false;
+        if (!entorno) continue;
         const preferida = modulo?.anclaActivaId;
         if (preferida ? preferida !== id : idAnclaEntorno && idAnclaEntorno !== id && seguidos.get(idAnclaEntorno)?.visible) continue;
         if (idAnclaEntorno !== id) reiniciarEntorno(id);

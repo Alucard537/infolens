@@ -2,20 +2,31 @@ export const VIGENCIA_QR_MS = 650;
 export const VIGENCIA_ENTORNO_MS = 500;
 export const MAX_ENTORNO_SIN_QR_MS = 12000;
 
+export const puntoDeGuiaValido = (p) =>
+  Array.isArray(p) && p.length === 3 && p.every((n) => Number.isFinite(n) && Math.abs(n) < 1000);
+
+export function requiereDestino(paso) {
+  return (paso.flechas !== false || paso.icono !== false) &&
+    Boolean(paso.elementoId || paso.elementoPendiente || paso.rutaPropia?.length || paso.destinoPropio);
+}
+
 /** Destino del paso por tramos propios, posición antigua o localización del elemento. */
 export function destinoDelPaso(paso, localizaciones) {
   const puntos = paso.rutaPropia;
-  if (Array.isArray(puntos) && puntos.length) return { pos: puntos.at(-1), ruta: puntos.slice(0, -1) };
-  if (Array.isArray(paso.destinoPropio)) return { pos: paso.destinoPropio, ruta: [] };
-  return localizaciones.get(paso.elementoId) || null;
+  if (Array.isArray(puntos) && puntos.length) {
+    return puntos.every(puntoDeGuiaValido) ? { pos: puntos.at(-1), ruta: puntos.slice(0, -1) } : null;
+  }
+  if (paso.destinoPropio != null) return puntoDeGuiaValido(paso.destinoPropio) ? { pos: paso.destinoPropio, ruta: [] } : null;
+  const loc = localizaciones.get(paso.elementoId);
+  if (!puntoDeGuiaValido(loc?.pos) || (loc.ruta != null && (!Array.isArray(loc.ruta) || !loc.ruta.every(puntoDeGuiaValido)))) return null;
+  return loc;
 }
 
 export function marcasDeGuia(guia, localizaciones) {
   const vistas = new Set();
   return guia.pasos.flatMap((paso, id) => {
     const destino = destinoDelPaso(paso, localizaciones);
-    const pos = [destino?.posIcono, destino?.pos].find((punto) =>
-      Array.isArray(punto) && punto.length === 3 && punto.every((n) => Number.isFinite(n) && Math.abs(n) < 1000));
+    const pos = [destino?.posIcono, destino?.pos].find(puntoDeGuiaValido);
     if (!pos) return [];
     const elemento = guia.elementos.get(paso.elementoId);
     const nombre = elemento?.nombre || String(paso.titulo ?? '').trim() || `Paso ${id + 1}`;
@@ -56,7 +67,7 @@ export function progresoRecorrido(puntos, posicion, indice) {
   }
 }
 
-export function textoTramo({ llegada, indice, total, distancia }) {
-  if (llegada) return 'Destino en esta zona';
+export function textoTramo({ llegada, indice, total, distancia, fueraDeCamara }) {
+  if (llegada) return fueraDeCamara ? 'Zona del destino · encuadra el componente' : 'Destino en esta zona';
   return `Tramo ${indice} de ${total} · ${distancia.toFixed(1).replace('.', ',')} m`;
 }

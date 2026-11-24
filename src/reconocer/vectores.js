@@ -224,9 +224,10 @@ export function comparar({ objeto, recuadro }, guardadas) {
       if (s > mejor) { apoyo = mejor; mejor = s; }
       else if (s > apoyo) apoyo = s;
     }
+    if (mejor < 0) continue;
     const diferencia = Math.min(0.15, mejor - apoyo);
     res.push({ elementoId: h.elementoId, parecido: Math.max(0, mejor - 0.2 * diferencia),
-      automatico: !!recorte || !hayPiezasAisladas });
+      automatico: (!!recorte || !hayPiezasAisladas) && apoyo >= PARECIDO_SEGURO - 2 * VENTAJA_SEGURA });
   }
   return res.sort((a, b) => b.parecido - a.parecido);
 }

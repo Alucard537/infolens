@@ -27,6 +27,9 @@ db.version(3).stores({
   localizaciones: 'id, maquinaId, anclaId, elementoId',
   guias: 'id, maquinaId, estado',
 });
+db.version(4).stores({
+  archivosDeRestauracion: '[lote+id], lote, caduca',
+});
 
 const nuevoIdArchivo = () =>
   (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));

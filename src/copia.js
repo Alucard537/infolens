@@ -4,13 +4,18 @@ import { APP_NAME } from './config.js';
 import { db, CAMPOS_ARCHIVO } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { crearZip, leerIndiceZip, leerEntradaZip } from './zip.js';
-import { serializarHuella, deserializarHuella } from './reconocer/vectores.js';
-import { claveParaCopia, aplicarClaveDeCopia } from './permisos.js';
-import { archivosDeGuia, migrarDatosAntiguos } from './maquinas.js';
+import { serializarHuella, deserializarHuella, MAX_IMAGENES } from './reconocer/vectores.js';
+import { anclaParaMaquina, archivosDeGuia, maquinaActivaId, migrarDatosAntiguos } from './maquinas.js';
 import { MIME_MODELO_GUIA } from './modelos-guia.js';
 
 const FORMATO = 'infolens-copia';
 const JSON_COPIA = 'infolens.json';
+const MB = 1024 * 1024;
+const MAX_ARCHIVO = 256 * MB;
+const MAX_INDICE = 64 * MB;
+const MAX_COPIA = 4096 * MB - 2;
+const VIDA_TEMPORAL_MS = 24 * 60 * 60 * 1000;
+const TABLAS_COPIA = ['maquinas', 'anclas', 'localizaciones', 'guias'];
 
 const sanear = (n) => String(n || 'archivo').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').slice(0, 120);
 
@@ -23,8 +28,9 @@ export function nombreArchivoCopia() {
 /** Crea el .zip con todo. alAvanzar(texto, fraccion 0-1). */
 export async function exportarCopia(alAvanzar = () => {}) {
   alAvanzar('Leyendo la base de datos…', 0);
-  const elementos = await db.elementos.orderBy('id').toArray();
-  const archivos = await db.archivos.toArray();
+  const tablas = [db.elementos, db.archivos, db.huellas, ...TABLAS_COPIA.map((t) => db[t])];
+  const [elementos, archivos, huellasGuardadas, maquinas, anclas, localizaciones, guias] =
+    await db.transaction('r', tablas, () => Promise.all(tablas.map((tabla) => tabla.toArray())));
   const porId = new Map(archivos.map((a) => [a.id, a]));
 
   // Carpetas legibles: elementos/V-0001 - Nombre/foto.jpg, ficha.pdf, modelo.glb…
@@ -53,9 +59,6 @@ export async function exportarCopia(alAvanzar = () => {}) {
       ruta('imagenId'), ruta('pdfId'), ruta('pdfConexionId'), ruta('modelo3dId')]);
   }
   // Máquinas, anclas, localizaciones y guías (y los archivos de las guías en su propia carpeta)
-  const [maquinas, anclas, localizaciones, guias] = await Promise.all([
-    db.maquinas.toArray(), db.anclas.toArray(), db.localizaciones.toArray(), db.guias.toArray(),
-  ]);
   for (const m of maquinas) if (m.fondoId && porId.has(m.fondoId)) rutaDe.set(m.fondoId, `maquinas/${sanear(m.id)}/fondo.jpg`);
   for (const g of guias) {
     const carpeta = `guias/${sanear(g.maquinaId)} - ${sanear(g.id)} - ${sanear(g.nombre).slice(0, 50).trim()}`;
@@ -63,12 +66,15 @@ export async function exportarCopia(alAvanzar = () => {}) {
       if (porId.has(fid) && !rutaDe.has(fid)) rutaDe.set(fid, `${carpeta}/${String(i + 1).padStart(2, '0')} - ${sanear(porId.get(fid).nombre)}`);
     });
   }
-  const meta = archivos.map((a) => ({
-    id: a.id, nombre: a.nombre, tipoMime: a.tipoMime,
-    ruta: rutaDe.get(a.id) || `archivos/${a.id}/${sanear(a.nombre)}`,
-  }));
+  const rutasUsadas = new Set();
+  const meta = archivos.map((a) => {
+    let ruta = rutaDe.get(a.id);
+    if (!ruta || rutasUsadas.has(ruta)) ruta = `archivos/${encodeURIComponent(a.id)}/${sanear(a.nombre)}`;
+    rutasUsadas.add(ruta);
+    return { id: a.id, nombre: a.nombre, tipoMime: a.tipoMime, ruta };
+  });
   // Huellas para reconocer sin QR: un archivo binario por elemento (vectores y después escalas)
-  const huellas = (await db.huellas.toArray())
+  const huellas = huellasGuardadas
     .filter((h) => carpetaDe.has(h.elementoId))
     .map((h) => ({ elementoId: h.elementoId, ...serializarHuella(h) }));
   const metaHuellas = huellas.map((h) => ({
@@ -80,118 +86,191 @@ export async function exportarCopia(alAvanzar = () => {}) {
     formato: FORMATO, version: 1, app: APP_NAME, fecha: Date.now(),
     elementos, archivos: meta, huellas: metaHuellas, ajustes: { qrCm, fovGrados, posModelo },
     maquinas, anclas, localizaciones, guias,
-    adminClave: claveParaCopia(), // contraseña de administrador cifrada (nunca en texto normal)
   };
   // Lista de elementos para abrir con Excel (separador ";" y BOM para los acentos)
-  const celda = (v) => { const t = String(v ?? ''); return /[;"\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const celda = (v) => {
+    let texto = String(v ?? '');
+    if (/^\s*[=+\-@]|^[\t\r\n]/u.test(texto)) texto = "'" + texto;
+    return /[;"\r\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+  };
   const csv = '﻿' + filasCsv.map((f) => f.map(celda).join(';')).join('\r\n') + '\r\n';
+  const manifiesto = new Blob([JSON.stringify(indice, null, 1)], { type: 'application/json' });
+  if (manifiesto.size > MAX_INDICE) throw new Error('El catálogo es demasiado grande para una sola copia.');
   const entradas = [
-    { nombre: JSON_COPIA, blob: new Blob([JSON.stringify(indice, null, 1)], { type: 'application/json' }) },
+    { nombre: JSON_COPIA, blob: manifiesto },
     { nombre: 'elementos.csv', blob: new Blob([csv], { type: 'text/csv' }) },
     ...[
       ...archivos.map((a, i) => ({ nombre: meta[i].ruta, blob: a.blob })),
       ...huellas.map((h, i) => ({ nombre: metaHuellas[i].ruta, blob: new Blob(h.partes) })),
     ].sort((x, y) => x.nombre.localeCompare(y.nombre)),
   ];
+  if (entradas.some(({ blob }) => blob.size > MAX_ARCHIVO)) {
+    throw new Error('Hay un archivo de más de 256 MB. Reduce su tamaño antes de exportar la copia.');
+  }
   const zip = await crearZip(entradas, (i, n) => alAvanzar(`Preparando archivos ${i} de ${n}…`, n ? i / n : 1));
   guardarAjustes({ ultimaCopia: Date.now() });
   return { zip, elementos: elementos.length, archivos: archivos.length };
 }
 
-/**
- * Importa un .zip de copia.
- * modo 'combinar': añade los elementos nuevos y actualiza los que tienen el mismo ID (no borra nada más).
- * modo 'sustituir': el móvil queda exactamente igual que la copia (se borra lo que no esté en ella).
- */
+function registrosDe(indice, nombre, campoId = 'id') {
+  const filas = indice[nombre];
+  if (filas == null && nombre !== 'elementos') return [];
+  if (!Array.isArray(filas)) throw new Error(`El listado de ${nombre} de la copia es inválido.`);
+  const ids = new Set();
+  for (const fila of filas) {
+    const id = fila?.[campoId];
+    if (typeof id !== 'string' || !id.trim() || ids.has(id)) throw new Error(`Hay un identificador inválido o repetido en ${nombre}.`);
+    ids.add(id);
+  }
+  return filas;
+}
+
+/** Valida y prepara los archivos antes de cambiar el catálogo visible. */
 export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = () => {}) {
   alAvanzar('Leyendo el .zip…', 0);
+  if (modo !== 'combinar' && modo !== 'sustituir') throw new Error('Elige un modo de restauración válido.');
+  if (archivoZip.size > MAX_COPIA) throw new Error('La copia supera los 4 GB. Divídela antes de importarla.');
   const entradas = await leerIndiceZip(archivoZip);
   const porRuta = new Map(entradas.map((e) => [e.nombre, e]));
+  if (porRuta.size !== entradas.length) throw new Error('Hay nombres de archivo repetidos en el .zip.');
+  const total = entradas.reduce((bytes, e) => bytes + e.tam, 0);
+  if (total > MAX_COPIA || entradas.some((e) => e.tam > MAX_ARCHIVO)) throw new Error('El contenido del .zip supera el límite de 4 GB por copia o 256 MB por archivo.');
   const entJson = porRuta.get(JSON_COPIA);
   if (!entJson) throw new Error(`Este .zip no es una copia de ${APP_NAME}.`);
+  if (entJson.tam > MAX_INDICE) throw new Error('El índice de la copia es demasiado grande.');
   let indice;
   try {
     indice = JSON.parse(await (await leerEntradaZip(archivoZip, entJson)).text());
   } catch {
     throw new Error('La copia está dañada (no se puede leer el índice).');
   }
-  if (indice.formato !== FORMATO || !Array.isArray(indice.elementos)) {
+  if (indice?.formato !== FORMATO || (indice.version != null && indice.version !== 1)) {
     throw new Error(`Este .zip no es una copia de ${APP_NAME}.`);
   }
 
-  // 1) Archivos (fotos, PDF, modelos). Se escriben uno a uno para no llenar la memoria.
-  const metas = indice.archivos || [];
-  const importados = new Set();
-  let faltan = 0;
-  for (let i = 0; i < metas.length; i++) {
-    const m = metas[i];
-    alAvanzar(`Importando archivos ${i + 1} de ${metas.length}…`, metas.length ? i / metas.length : 1);
-    const e = porRuta.get(m.ruta);
-    if (!e) { faltan++; continue; }
-    const contenido = await leerEntradaZip(archivoZip, e);
-    // Copiar los bytes de verdad: Safari del iPhone puede guardar mal un "trozo" (slice) de un archivo grande
-    const bytes = await contenido.arrayBuffer();
-    await db.archivos.put({
-      id: m.id, nombre: m.nombre, tipoMime: m.tipoMime,
-      blob: new Blob([bytes], { type: m.tipoMime || 'application/octet-stream' }),
-    });
-    importados.add(m.id);
+  const elementos = registrosDe(indice, 'elementos');
+  const idsCopia = new Set(elementos.map((e) => e.id));
+  const metas = registrosDe(indice, 'archivos');
+  const metaHuellas = registrosDe(indice, 'huellas', 'elementoId');
+  const filas = Object.fromEntries(TABLAS_COPIA.map((t) => [t, registrosDe(indice, t)]));
+  const porArchivo = new Map(metas.map((m) => [m.id, m]));
+  const archivosNecesarios = [
+    ...elementos.flatMap((e) => CAMPOS_ARCHIVO.map((campo) => e[campo])),
+    ...filas.maquinas.map((m) => m.fondoId),
+  ];
+  for (const guia of filas.guias) {
+    if (!Array.isArray(guia.pasos) || guia.pasos.some((p) => !p || typeof p !== 'object' ||
+      ['imagenes', 'videos'].some((campo) => p[campo] != null && !Array.isArray(p[campo]))) ||
+      (guia.modelos3d != null && (!Array.isArray(guia.modelos3d) || guia.modelos3d.some((m) => !m || porArchivo.get(m.archivoId)?.tipoMime !== MIME_MODELO_GUIA)))) {
+      throw new Error(`La guía ${guia.nombre || guia.id} contiene pasos o modelos inválidos.`);
+    }
+    archivosNecesarios.push(...archivosDeGuia(guia));
   }
-
-  // 1b) Huellas para reconocer sin QR
-  for (const h of indice.huellas || []) {
-    const e = porRuta.get(h.ruta);
-    if (!e || !h.dim || !h.n) continue;
-    const buf = await (await leerEntradaZip(archivoZip, e)).arrayBuffer();
-    const huella = deserializarHuella(buf, h, h.elementoId);
-    if (huella) await db.huellas.put(huella); // si está incompleta, se ignora
+  const sinArchivo = archivosNecesarios.find((id) => id && !porArchivo.has(id));
+  if (sinArchivo) throw new Error(`La copia está incompleta. Falta un archivo referenciado (${sinArchivo}).`);
+  for (const meta of [...metas, ...metaHuellas]) {
+    if (typeof meta.ruta !== 'string' || meta.ruta === JSON_COPIA || !porRuta.has(meta.ruta)) {
+      throw new Error(`La copia está incompleta. Falta «${meta.nombre || meta.ruta || meta.elementoId || meta.id}».`);
+    }
   }
+  if (metaHuellas.some((h) => !idsCopia.has(h.elementoId) || !Number.isInteger(h.dim) || h.dim < 1 || h.dim > 4096 ||
+      !Number.isInteger(h.n) || h.n < 1 || h.n > MAX_IMAGENES)) throw new Error('La copia contiene datos de reconocimiento inválidos.');
 
-  // 2) Elementos
-  alAvanzar('Guardando elementos…', 1);
-  const idsCopia = new Set();
-  const tablas = ['maquinas', 'anclas', 'localizaciones', 'guias'];
-  await db.transaction('rw', [db.elementos, db.archivos, db.huellas, ...tablas.map((t) => db[t])], async () => {
-    // Máquinas, anclas, localizaciones y guías
-    for (const t of tablas) {
-      const filas = Array.isArray(indice[t]) ? indice[t].filter((x) => x && x.id) : [];
-      if (filas.length) await db[t].bulkPut(filas);
-      if (modo === 'sustituir' && Array.isArray(indice[t])) {
-        const ids = new Set(filas.map((x) => x.id));
-        await db[t].bulkDelete((await db[t].toCollection().primaryKeys()).filter((id) => !ids.has(id)));
+  const temporal = db.archivosDeRestauracion;
+  const lote = crypto.randomUUID();
+  const totalArchivos = metas.length + metaHuellas.length;
+  const preparar = (i) => alAvanzar(`Verificando archivo ${i + 1} de ${totalArchivos}…`, i / totalArchivos * 0.9);
+  try {
+    await temporal.where('caduca').below(Date.now()).delete();
+    for (const [i, m] of metas.entries()) {
+      preparar(i);
+      const contenido = await leerEntradaZip(archivoZip, porRuta.get(m.ruta));
+      // Materializar el archivo evita errores de Safari al guardar una porción de un Blob grande.
+      const blob = new Blob([await contenido.arrayBuffer()], { type: m.tipoMime || 'application/octet-stream' });
+      const archivo = { id: m.id, nombre: m.nombre, tipoMime: blob.type, blob };
+      await temporal.add({ lote, id: m.id, caduca: Date.now() + VIDA_TEMPORAL_MS, archivo });
+    }
+    for (const [i, h] of metaHuellas.entries()) {
+      preparar(metas.length + i);
+      const contenido = await leerEntradaZip(archivoZip, porRuta.get(h.ruta));
+      const huella = deserializarHuella(await contenido.arrayBuffer(), h, h.elementoId);
+      if (!huella || !huella.escalas.every((x) => Number.isFinite(x) && x > 0)) {
+        throw new Error(`La huella de ${h.elementoId} está dañada.`);
       }
+      await temporal.add({ lote, id: ['huella', h.elementoId], caduca: Date.now() + VIDA_TEMPORAL_MS, huella });
     }
-    for (const el of indice.elementos) {
-      if (!el || !el.id) continue;
-      idsCopia.add(el.id);
-      for (const c of CAMPOS_ARCHIVO) if (el[c] && !importados.has(el[c])) el[c] = null; // archivo que no venía
-      await db.elementos.put(el);
-    }
-    if (modo === 'sustituir') {
-      const sobran = (await db.elementos.toCollection().primaryKeys()).filter((id) => !idsCopia.has(id));
-      await db.elementos.bulkDelete(sobran);
-    }
-    // 3) Borrar archivos que ya no usa ningún elemento ni ninguna guía
-    const usados = new Set();
-    await db.elementos.each((el) => CAMPOS_ARCHIVO.forEach((c) => el[c] && usados.add(el[c])));
-    await db.guias.each((g) => archivosDeGuia(g).forEach((fid) => usados.add(fid)));
-    await db.maquinas.each((m) => { if (m.fondoId) usados.add(m.fondoId); });
-    await db.archivos.filter((a) => a.tipoMime === MIME_MODELO_GUIA).each((a) => usados.add(a.id));
-    const huerfanos = (await db.archivos.toCollection().primaryKeys()).filter((id) => !usados.has(id));
-    await db.archivos.bulkDelete(huerfanos);
-    // ...y huellas de elementos que ya no existen
-    const ids = new Set(await db.elementos.toCollection().primaryKeys());
-    const huellasSobran = (await db.huellas.toCollection().primaryKeys()).filter((id) => !ids.has(id));
-    await db.huellas.bulkDelete(huellasSobran);
-  });
 
-  // El tamaño del QR es el mismo para todos. El campo de visión NO se copia: depende de cada teléfono.
-  if (indice.ajustes && modo === 'sustituir' && indice.ajustes.qrCm) guardarAjustes({ qrCm: indice.ajustes.qrCm });
-  // Si la copia trae contraseña de administrador, este teléfono pasa a usar la misma
-  aplicarClaveDeCopia(indice.adminClave);
-  guardarAjustes({ ejemploCreado: true });
-  await migrarDatosAntiguos(); // copias de antes de las máquinas: todo va a la máquina GENERAL
-  return { elementos: idsCopia.size, archivos: importados.size, faltan };
+    alAvanzar('Guardando el catálogo…', 0.95);
+    const sustituir = modo === 'sustituir';
+    const tablas = [db.elementos, db.archivos, db.huellas, temporal, ...TABLAS_COPIA.map((t) => db[t])];
+    const maquinaActiva = await db.transaction('rw', tablas, async () => {
+      if (sustituir) {
+        await db.elementos.clear();
+        await db.huellas.clear();
+      }
+      for (const t of TABLAS_COPIA) {
+        if (sustituir) await db[t].clear();
+        await db[t].bulkPut(filas[t]);
+      }
+      await db.elementos.bulkPut(elementos);
+      for (const { id } of metas) {
+        const registro = await temporal.get([lote, id]);
+        if (!registro) throw new Error('La restauración ha caducado. Vuelve a abrir la copia.');
+        await db.archivos.put(registro.archivo);
+      }
+      // La identidad viene del catálogo entrante. Una huella vieja del mismo ID puede ser de otra pieza.
+      if (!sustituir) await db.huellas.bulkDelete([...idsCopia]);
+      for (const h of metaHuellas) {
+        const registro = await temporal.get([lote, ['huella', h.elementoId]]);
+        if (!registro) throw new Error('La restauración ha caducado. Vuelve a abrir la copia.');
+        await db.huellas.put(registro.huella);
+      }
+
+      await migrarDatosAntiguos({ activar: false });
+      const [maquinas, anclas, componentes] = await Promise.all([
+        db.maquinas.toCollection().primaryKeys(), db.anclas.toArray(), db.elementos.toArray(),
+      ]);
+      const idsMaquina = new Set(maquinas);
+      const anclasPorId = new Map(anclas.map((a) => [a.id, a]));
+      const elementosPorId = new Map(componentes.map((e) => [e.id, e]));
+      const montaje = (anclaId, maquinaId) => anclaParaMaquina(anclasPorId.get(anclaId), maquinaId);
+      for (const e of elementos) {
+        if (e.maquinaId && !idsMaquina.has(e.maquinaId)) throw new Error(`Falta la máquina de ${e.nombre || e.id}.`);
+      }
+      for (const loc of filas.localizaciones) {
+        if (!idsMaquina.has(loc.maquinaId) || !montaje(loc.anclaId, loc.maquinaId) ||
+            elementosPorId.get(loc.elementoId)?.maquinaId !== loc.maquinaId) {
+          throw new Error(`La localización ${loc.id} tiene referencias incompletas.`);
+        }
+      }
+      for (const guia of filas.guias) {
+        if (!idsMaquina.has(guia.maquinaId) || (guia.anclaId && !montaje(guia.anclaId, guia.maquinaId)) ||
+            guia.pasos.some((p) => p.elementoId && elementosPorId.get(p.elementoId)?.maquinaId !== guia.maquinaId)) {
+          throw new Error(`La guía ${guia.nombre || guia.id} tiene referencias incompletas.`);
+        }
+      }
+      const usadas = new Set();
+      componentes.forEach((el) => CAMPOS_ARCHIVO.forEach((c) => el[c] && usadas.add(el[c])));
+      await db.guias.each((g) => {
+        archivosDeGuia(g).forEach((id) => usadas.add(id));
+        for (const m of g.modelos3d || []) usadas.add(m.archivoId);
+      });
+      await db.maquinas.each((m) => { if (m.fondoId) usadas.add(m.fondoId); });
+      await db.archivos.filter((a) => a.tipoMime === MIME_MODELO_GUIA && (!sustituir || porArchivo.has(a.id)))
+        .each((a) => usadas.add(a.id));
+      const huerfanos = (await db.archivos.toCollection().primaryKeys()).filter((id) => !usadas.has(id));
+      await db.archivos.bulkDelete(huerfanos);
+      await temporal.where('lote').equals(lote).delete();
+      const anterior = maquinaActivaId();
+      if (anterior && await db.maquinas.get(anterior)) return anterior;
+      return await db.maquinas.count() === 1 ? (await db.maquinas.toCollection().first()).id : null;
+    });
+    const qrCm = Number(indice.ajustes?.qrCm);
+    guardarAjustes({ ejemploCreado: true, maquinaActiva, ...(sustituir && qrCm >= 1 && qrCm <= 100 ? { qrCm } : {}) });
+    return { elementos: idsCopia.size, archivos: metas.length };
+  } finally {
+    await temporal.where('lote').equals(lote).delete().catch((error) => console.warn('Restauración temporal:', error));
+  }
 }
 
 /** Espacio que ocupan los datos de la app (aprox.), en bytes. */

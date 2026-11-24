@@ -52,7 +52,7 @@ export function pantallaLocalizacion(app, elementoId, { volver, previsualizar, p
       b.className = 'bloque-archivo bloque-loc';
       b.noValidate = true;
       b.innerHTML = `
-        <label>Ancla de referencia (de la máquina ${maquina.id})
+        <label>Ancla de referencia de esta máquina
           <select name="ancla"></select>
         </label>
         <div class="titulo-archivo">🧭 Recorrido por tramos desde el QR del ancla</div>

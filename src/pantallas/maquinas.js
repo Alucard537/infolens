@@ -14,7 +14,7 @@ import { esAdmin } from '../permisos.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
 import { elegirGuiaOrigen } from '../ui/trasladar.js';
-import { CARAS_MAQUINA, subanclasDe } from '../subanclas.js';
+import { CARAS_MAQUINA, ladoQRAncla, subanclasDe } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
 
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -306,9 +306,11 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
     const cantidad = maquinasDelAncla(a).length;
     li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${cara} · ${cantidad} ${cantidad === 1 ? 'máquina' : 'máquinas'}`;
     li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
-      const { generarPdfQR } = await import('../qr-pdf.js');
-      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: cantidad === 1 ? `Máquina ${m.id}` : 'QR compartido', ancla: true }], leerAjustes().qrCm);
-      guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
+      try {
+        const { generarPdfQR } = await import('../qr-pdf.js');
+        const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: cantidad === 1 ? `Máquina ${m.id}` : 'QR compartido', ancla: true }], ladoQRAncla(a, leerAjustes().qrCm));
+        await guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
+      } catch (error) { alert(error.message); }
     });
     li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));
     li.querySelector('[data-a="asignar-maquinas"]').addEventListener('click', () => formularioUso(a.id));

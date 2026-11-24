@@ -56,12 +56,12 @@ export function recortarCentro(fuente, ancho, alto, fotoCompleta = false, propor
 }
 
 /** Coloca el recuadro guía en pantalla justo sobre la zona que se recorta del vídeo. */
-export function ajustarGuia(guia, video) {
+export function ajustarGuia(guia, video, proporcion = PROPORCION_RECORTE) {
   const vw = video.videoWidth, vh = video.videoHeight;
   if (!vw || !vh) { guia.hidden = true; return; }
   const W = window.innerWidth, H = window.innerHeight;
   const s = Math.max(W / vw, H / vh);   // el vídeo se ve recortado para llenar la pantalla
-  const lado = Math.min(vw, vh) * PROPORCION_RECORTE * s;
+  const lado = Math.min(vw, vh) * proporcion * s;
   Object.assign(guia.style, {
     width: lado + 'px', height: lado + 'px', left: (W - lado) / 2 + 'px', top: (H - lado) / 2 + 'px',
   });
