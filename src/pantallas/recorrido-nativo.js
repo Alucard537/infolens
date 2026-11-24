@@ -5,6 +5,7 @@ import { esAdmin } from '../permisos.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearModoAncla } from '../ar/modo-navegacion.js';
 import { datosDelVisor, enviarARKit, referenciasDelAncla } from '../ar/visor-nativo.js';
+import { modelosColocados } from '../modelos-guia.js';
 
 const DIRECCIONES_DESTINO = {
   izquierda: ['←', 'Mira a la izquierda'], derecha: ['→', 'Mira a la derecha'],
@@ -184,6 +185,14 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     modulo?.actualizar(0, null, performance.now());
   }
   window.addEventListener('infolens:arkit', recibir);
+  const errorModelos = ({ detail }) => {
+    if (!activo || detail?.sesion !== sesion || !avisoLinterna) return;
+    clearTimeout(avisoLinternaId);
+    avisoLinterna.textContent = detail.mensaje;
+    avisoLinterna.hidden = false;
+    avisoLinternaId = setTimeout(() => { avisoLinterna.hidden = true; }, 5000);
+  };
+  window.addEventListener('infolens:modelos-error', errorModelos);
   const observarPanel = new ResizeObserver(() => {
     ficha.proyectar(mirada.destinoId, mirada.fiable ? mirada.destino : null);
     pintarIndicador();
@@ -213,6 +222,10 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
         if (destinoPendiente) destinoPendiente.enviado = false;
         sesion = crypto.randomUUID();
         enviar('iniciar', { anclas: referencias, vista: selector.value });
+        if (enGuia) {
+          const modelos = modelosColocados(guia);
+          if (modelos.length) enviar('modelosGuia', { modelos });
+        }
       }
 
       const comun = { capa, panel: $('.nav-panel'), seguidos, abrirDetalle, maquinaId };
@@ -240,6 +253,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     observarPanel.disconnect();
     clearTimeout(avisoLinternaId);
     window.removeEventListener('infolens:arkit', recibir);
+    window.removeEventListener('infolens:modelos-error', errorModelos);
     modulo?.detener();
     ficha.limpiar();
     enviar('cerrar');

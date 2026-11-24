@@ -49,7 +49,7 @@
   position: relative;
   min-height: 179px; margin-bottom: 17px;
   border-color: #5a8881;
-  background-image: linear-gradient(90deg, #122125 2%, #122125ed 22%, #12212536 59%, #1221250d), url('/iconos/maquina-relieve.webp');
+  background-image: linear-gradient(90deg, #122125 2%, #122125ed 22%, #12212536 59%, #1221250d), var(--imagen-maquina, url('/iconos/maquina-relieve.webp'));
   box-shadow: inset 0 1px 0 #d7f8f64d, inset 0 0 0 3px #a6f1d816, var(--sombra-base);
 }
 :root[data-estilo="relieve"] .maquina-activa::after {

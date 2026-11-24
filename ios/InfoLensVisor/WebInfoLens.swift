@@ -1,16 +1,25 @@
 import SwiftUI
 import WebKit
+import Combine
+import RealityKit
 
 @MainActor
 final class AplicacionInfoLens: ObservableObject {
     @Published private(set) var controlador: ControladorAR?
     @Published private(set) var pruebaAbierta = false
     @Published var error: String?
+    @Published private(set) var modeloEnEdicion: ModeloGuiaAR?
+    @Published private(set) var modeloListo = false
+    @Published private(set) var avisoModelo: String?
 
     private var servidor: ServidorWeb?
     private weak var web: WKWebView?
     private var sesion: String?
     private var solicitudCalibracion: String?
+    private var solicitudModelo: String?
+    private let archivosModelos = ArchivosModelosAR()
+    private var descargaModelos: Task<Void, Never>?
+    private var cargaModelos: [AnyCancellable] = []
 
     func cargar(en web: WKWebView) {
         self.web = web
@@ -33,10 +42,17 @@ final class AplicacionInfoLens: ObservableObject {
     }
 
     func cerrar() {
+        descargaModelos?.cancel()
+        descargaModelos = nil
+        cargaModelos.removeAll()
         controlador?.detener()
         controlador = nil
         sesion = nil
         solicitudCalibracion = nil
+        solicitudModelo = nil
+        modeloEnEdicion = nil
+        modeloListo = false
+        avisoModelo = nil
         pruebaAbierta = false
     }
 
@@ -77,6 +93,22 @@ final class AplicacionInfoLens: ObservableObject {
             pruebaAbierta = true
             return
         }
+        if accion == "colocarModelo" {
+            guard let solicitud = mensaje["solicitud"] as? String, UUID(uuidString: solicitud) != nil else { return }
+            guard let anclas = leerAnclas(mensaje["anclas"]), let modelo: ModeloGuiaAR = leerModeloMensaje(mensaje["modelo"]), modelo.valido,
+                  anclas.contains(where: { $0.id == modelo.anclaId && $0.subancla == nil }) else {
+                enviarColocacion(solicitud, pose: NSNull(), error: "El modelo o su ancla no son válidos.")
+                return
+            }
+            cerrar()
+            let ar = ControladorAR(anclas: anclas, soloLinea: false)
+            controlador = ar
+            solicitudModelo = solicitud
+            modeloEnEdicion = modelo
+            pruebaAbierta = true
+            cargarModelos([modelo], en: ar)
+            return
+        }
         guard let id = mensaje["sesion"] as? String, (1...80).contains(id.count) else { return }
         if accion == "iniciar" {
             guard let anclas = leerAnclas(mensaje["anclas"]) else { return }
@@ -90,6 +122,10 @@ final class AplicacionInfoLens: ObservableObject {
         }
         guard id == sesion else { return }
         switch accion {
+        case "modelosGuia":
+            if let ar = controlador, let modelos: [ModeloGuiaAR] = leerModeloMensaje(mensaje["modelos"]), modelos.count <= 24 {
+                cargarModelos(modelos.filter { $0.valido && ar.admiteModelo($0) }, en: ar)
+            }
         case "recorrido":
             let destinoId = mensaje["destinoId"] as? Int
             if let recorrido = leerRecorrido(mensaje["recorrido"]) {
@@ -113,6 +149,80 @@ final class AplicacionInfoLens: ObservableObject {
         case "cerrar": cerrar()
         default: break
         }
+    }
+
+    private func leerModeloMensaje<T: Decodable>(_ objeto: Any?) -> T? {
+        guard let objeto, JSONSerialization.isValidJSONObject(objeto),
+              let datos = try? JSONSerialization.data(withJSONObject: objeto), datos.count <= 24000 else { return nil }
+        return try? JSONDecoder().decode(T.self, from: datos)
+    }
+
+    private func avisoCargaModelo(_ error: Error) {
+        let mensaje = "No se pudo cargar el modelo 3D. Revisa el archivo en la biblioteca."
+        if solicitudModelo != nil { avisoModelo = mensaje }
+        else if let sesion {
+            web?.callAsyncJavaScript("window.dispatchEvent(new CustomEvent('infolens:modelos-error', {detail: {sesion, mensaje}}));",
+                arguments: ["sesion": sesion, "mensaje": mensaje], in: nil, in: .page, completionHandler: nil)
+        }
+    }
+
+    private func cargarModelos(_ modelos: [ModeloGuiaAR], en ar: ControladorAR) {
+        descargaModelos?.cancel()
+        cargaModelos.removeAll()
+        guard let web else { return }
+        descargaModelos = Task { [weak self, weak ar] in
+            for modelo in modelos {
+                guard let self, let ar, self.controlador === ar, !Task.isCancelled else { return }
+                do {
+                    let url = try await self.archivosModelos.archivo(modelo.archivoId, web: web)
+                    try Task.checkCancellation()
+                    guard self.controlador === ar else { return }
+                    let carga = Entity.loadAsync(contentsOf: url).receive(on: DispatchQueue.main).sink { [weak self, weak ar] fin in
+                        guard case .failure(let error) = fin, let self, let ar, self.controlador === ar else { return }
+                        self.avisoCargaModelo(error)
+                    } receiveValue: { [weak self, weak ar] entidad in
+                        guard let self, let ar, self.controlador === ar else { return }
+                        ar.mostrarModelo(entidad, modelo: self.modeloEnEdicion ?? modelo)
+                        if self.modeloEnEdicion != nil { self.modeloListo = true }
+                    }
+                    self.cargaModelos.append(carga)
+                } catch is CancellationError { return }
+                catch { if self.controlador === ar { self.avisoCargaModelo(error) } }
+            }
+        }
+    }
+
+    func ajustarModelo(_ modelo: ModeloGuiaAR) {
+        guard modelo.id == modeloEnEdicion?.id, modelo.valido else { return }
+        avisoModelo = nil
+        modeloEnEdicion = modelo
+        controlador?.ajustarModelo(modelo)
+    }
+
+    func marcarModelo() {
+        guard var modelo = modeloEnEdicion, let punto = controlador?.puntoModeloEnLaMira() else {
+            avisoModelo = "Apunta a una superficie visible y vuelve a marcar. También puedes ajustar la posición con Mover."
+            return
+        }
+        modelo.pos = punto
+        ajustarModelo(modelo)
+    }
+
+    func terminarModelo(guardar: Bool) {
+        guard let solicitud = solicitudModelo else { return }
+        let pose: Any
+        if guardar {
+            guard let m = modeloEnEdicion, modeloListo, controlador?.modeloPuedeColocarse == true else { return }
+            pose = ["pos": m.pos, "rotacion": m.rotacion, "escala": m.escala]
+        } else { pose = NSNull() }
+        cerrar()
+        enviarColocacion(solicitud, pose: pose)
+    }
+
+    private func enviarColocacion(_ solicitud: String, pose: Any, error: String? = nil) {
+        web?.callAsyncJavaScript("window.dispatchEvent(new CustomEvent('infolens:modelo-colocado', {detail: {solicitud, pose, error}}));",
+            arguments: ["solicitud": solicitud, "pose": pose, "error": error as Any? ?? NSNull()],
+            in: nil, in: .page, completionHandler: nil)
     }
 
     private func leerAnclas(_ objeto: Any?) -> [AnclaAR]? {

@@ -18,7 +18,9 @@ struct InfoLensApp: App {
                     .opacity(aplicacion.pruebaAbierta ? 0 : 1)
                     .allowsHitTesting(!aplicacion.pruebaAbierta)
                 if aplicacion.pruebaAbierta, let controlador = aplicacion.controlador {
-                    if controlador.subanclaParaCalibrar != nil {
+                    if aplicacion.modeloEnEdicion != nil {
+                        PanelColocacionModelo(aplicacion: aplicacion, controlador: controlador)
+                    } else if controlador.subanclaParaCalibrar != nil {
                         PanelCalibracion(controlador: controlador, terminar: aplicacion.terminarCalibracion)
                     } else {
                         NombreFlotantePrueba(controlador: controlador).ignoresSafeArea().allowsHitTesting(false)

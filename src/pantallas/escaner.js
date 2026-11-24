@@ -13,6 +13,7 @@ import { fuentePoseAncla, VIGENCIA_QR_MS, VIGENCIA_ENTORNO_MS, MAX_ENTORNO_SIN_Q
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearEscaneo } from '../ar/escaneo.js';
 import { anclaParaMaquina, mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia, guardarGravedadAncla } from '../maquinas.js';
+import { modelosColocados } from '../modelos-guia.js';
 import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
@@ -514,6 +515,7 @@ export function pantallaEscaner(app, {
           capa, panel: $('.nav-panel'), seguidos, guia: guiaActual, maquinaId, abrirDetalle,
           abrirImagen: abrirImagen || (() => {}), alSalir: volver, pasoInicial,
         });
+        capa.prepararModelos(modelosColocados(guiaActual), guiaActual.anclaId, avisar);
       }
     } catch (e) {
       console.warn('Escáner:', e);

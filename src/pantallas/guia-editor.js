@@ -14,6 +14,7 @@ import { leerAjustes } from '../ajustes.js';
 import { datosDelVisor, enviarARKit, referenciasDelAncla, tieneARKitIntegrado } from '../ar/visor-nativo.js';
 import { CARAS_MAQUINA, ORIENTACIONES_QR, giroSubanclaValido, subanclasDe } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
+import { montarModelosGuia } from './modelos-guia.js';
 
 const cm = (m) => String(Math.round(m * 1000) / 10).replace('.', ',');
 // Lee un número aunque se escriba "X=-130", "-130 cm" o con coma decimal ("1,5")
@@ -29,6 +30,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
   let anclas = [], elementos = [], locs = new Map();
   let escrituraAncla = null;
   let calibracionPendiente = null;
+  let editorModelos;
   const archivosNuevos = new Set(); // subidos en esta edición (se borran si no se guarda)
   let guardando = false;
   const ampliacionesEnCarga = new Set();
@@ -128,6 +130,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           <summary>Colocar subanclas</summary>
           <div class="opciones-colocacion"></div>
         </details>
+        <details class="bloque-archivo modelos-guia"><summary>Modelos 3D de la guía</summary><div class="biblioteca-3d"></div></details>
         <div class="bloque-archivo">
           <div class="titulo-archivo">🖼️ Imagen de portada</div>
           <img class="vista-foto portada" alt="" hidden>
@@ -206,10 +209,15 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     campo('descripcion').addEventListener('input', (e) => { g.descripcion = e.target.value; });
     app.querySelectorAll('[name="tipo"]').forEach((r) => r.addEventListener('change', () => { g.tipo = r.value; }));
     campo('estado').addEventListener('change', (e) => { g.estado = e.target.value; });
+    const modelos = $('.modelos-guia');
+    modelos.addEventListener('toggle', () => {
+      if (modelos.open && !editorModelos) editorModelos = montarModelosGuia($('.biblioteca-3d'), g, () => escrituraAncla);
+    });
     campo('ancla').addEventListener('change', async (e) => {
       g.anclaId = e.target.value || null;
       pintarConfiguracion();
       pintarColocacion();
+      editorModelos?.actualizar();
       await cargarLocs();
       pintarPasos();
     });
@@ -238,6 +246,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
         formAncla.hidden = true;
         $('.aviso-sin-anclas')?.remove();
         pintarColocacion();
+        editorModelos?.actualizar();
         await cargarLocs();
         pintarPasos();
       } catch (ex) { er.hidden = false; er.textContent = ex.message; }
@@ -589,6 +598,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
 
   return () => {
     activo = false;
+    editorModelos?.cerrar();
     window.removeEventListener('infolens:calibracion', recibirMedicion);
     calibracionPendiente?.resolver(null);
     calibracionPendiente = null;

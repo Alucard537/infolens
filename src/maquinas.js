@@ -4,6 +4,7 @@
 import { db, normalizarId, borrarArchivos, guardarArchivo, siguienteId, CAMPOS_ARCHIVO, pasoSinElemento, quitarReferenciasDelElemento } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { CARAS_MAQUINA, ORIENTACIONES_QR, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
+import { colocacionValida, MAX_MODELOS_GUIA, MIME_MODELO_GUIA } from './modelos-guia.js';
 
 export const ID_GENERAL = 'GENERAL';
 
@@ -33,11 +34,11 @@ export async function obtenerMaquina(id) {
   return id ? (await db.maquinas.get(id)) || null : null;
 }
 
-export async function guardarMaquina(datos, esNueva) {
+export async function guardarMaquina(datos, esNueva, fondo) {
   const id = normalizarId(datos.id);
   if (!id) throw new Error('Escribe un identificador para la máquina.');
   if (!String(datos.nombre || '').trim()) throw new Error('Escribe el nombre de la máquina.');
-  return db.transaction('rw', db.maquinas, async () => {
+  return db.transaction('rw', db.maquinas, db.archivos, async () => {
     const anterior = await db.maquinas.get(id);
     if (esNueva && anterior) throw new Error(`Ya existe una máquina con el identificador ${id}.`);
     if (!esNueva && !anterior) throw new Error('Esa máquina ya no existe.');
@@ -51,7 +52,9 @@ export async function guardarMaquina(datos, esNueva) {
       creado: anterior?.creado || ahora,
       modificado: ahora,
     };
+    if (fondo !== undefined) m.fondoId = fondo ? await guardarArchivo(fondo, 'fondo-maquina.jpg') : null;
     await db.maquinas.put(m);
+    if (fondo !== undefined && anterior?.fondoId) await borrarArchivos([anterior.fondoId]);
     return m;
   });
 }
@@ -69,6 +72,7 @@ export async function dependenciasMaquina(id) {
 /** Borra los datos de la máquina y conserva los montajes de las anclas que se usan en otras. */
 export async function borrarMaquina(id) {
   await db.transaction('rw', [db.maquinas, db.elementos, db.anclas, db.localizaciones, db.guias, db.archivos], async () => {
+    const maquina = await db.maquinas.get(id);
     const guias = await db.guias.where('maquinaId').equals(id).toArray();
     await db.elementos.where('maquinaId').equals(id).modify({ maquinaId: null });
     await db.localizaciones.where('maquinaId').equals(id).delete();
@@ -80,7 +84,7 @@ export async function borrarMaquina(id) {
       else await db.anclas.delete(ancla.id);
     }
     await db.guias.where('maquinaId').equals(id).delete();
-    await borrarArchivos(guias.flatMap(archivosDeGuia));
+    await borrarArchivos([maquina?.fondoId, ...guias.flatMap(archivosDeGuia)]);
     await db.maquinas.delete(id);
   });
   if (maquinaActivaId() === id) establecerMaquinaActiva(null);
@@ -466,6 +470,11 @@ export function pasoVacio() {
 export async function guardarGuia(datos) {
   if (!String(datos.nombre || '').trim()) throw new Error('Escribe el nombre de la guía.');
   return db.transaction('rw', [db.guias, db.archivos, db.maquinas, db.anclas, db.elementos], async () => {
+    if ((datos.modelos3d?.length ?? 0) > MAX_MODELOS_GUIA) throw new Error(`Esta guía admite hasta ${MAX_MODELOS_GUIA} modelos 3D.`);
+    for (const modelo of datos.modelos3d || []) {
+      if (!colocacionValida({ ...modelo, anclaId: modelo.anclaId ?? 'pendiente' })) throw new Error('Hay un modelo con una colocación no válida.');
+      if ((await db.archivos.get(modelo.archivoId))?.tipoMime !== MIME_MODELO_GUIA) throw new Error('Falta un modelo en la biblioteca 3D.');
+    }
     if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('La guía tiene que pertenecer a una máquina que exista.');
     if (datos.anclaId) {
       if (!await obtenerAncla(datos.anclaId, datos.maquinaId)) throw new Error('El ancla elegida no está asignada a la máquina de la guía.');

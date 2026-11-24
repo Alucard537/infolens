@@ -64,6 +64,72 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
   }
   escena.add(ejes);
   const matEjes = new THREE.Matrix4();
+  const modelos = new THREE.Group();
+  modelos.matrixAutoUpdate = false;
+  modelos.visible = false;
+  let anclaDeModelos = null;
+  let turnoModelos = 0;
+  const cargados = new Map();
+  escena.add(modelos);
+
+  function liberarModelo(modelo) {
+    const materiales = new Set(), texturas = new Set(), geometrias = new Set();
+    modelo.traverse((o) => {
+      if (!o.isMesh) return;
+      geometrias.add(o.geometry);
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        materiales.add(m);
+        for (const valor of Object.values(m)) if (valor?.isTexture) texturas.add(valor);
+      }
+    });
+    for (const recurso of [...geometrias, ...materiales, ...texturas]) recurso.dispose();
+  }
+
+  function quitarModelos() {
+    turnoModelos++;
+    anclaDeModelos = null;
+    modelos.visible = false;
+    modelos.clear();
+    for (const recurso of cargados.values()) liberarModelo(recurso);
+    cargados.clear();
+  }
+
+  async function prepararModelos(colocaciones, anclaId, avisar) {
+    quitarModelos();
+    if (!colocaciones.length) return;
+    const turno = turnoModelos;
+    anclaDeModelos = anclaId;
+    try {
+      const { USDLoader } = await import('three/addons/loaders/USDLoader.js');
+      const lector = new USDLoader();
+      for (const colocacion of colocaciones) {
+        if (turno !== turnoModelos) return;
+        try {
+          let objeto = cargados.get(colocacion.archivoId);
+          if (!objeto) {
+            const a = await obtenerArchivo(colocacion.archivoId);
+            if (!a) throw new Error('Falta el archivo USDZ.');
+            objeto = lector.parse(await a.blob.arrayBuffer());
+            if (turno !== turnoModelos) { liberarModelo(objeto); return; }
+            cargados.set(colocacion.archivoId, objeto);
+          }
+          const instancia = new THREE.Group();
+          instancia.add(objeto.clone());
+          instancia.position.fromArray(colocacion.pos);
+          instancia.rotation.set(...colocacion.rotacion.map(THREE.MathUtils.degToRad), 'YXZ');
+          instancia.scale.setScalar(colocacion.escala);
+          modelos.add(instancia);
+        } catch (error) { if (turno === turnoModelos) avisar('No se pudo abrir un modelo 3D de la guía.'); }
+      }
+    } catch (error) { if (turno === turnoModelos) avisar('No se pudo cargar el visor de modelos 3D.'); }
+  }
+
+  function actualizarModelos(arriba, ahora, ancla) {
+    modelos.visible = !!(modelos.children.length && ancla?.id === anclaDeModelos && fuentePoseAncla(ancla, ahora));
+    if (!modelos.visible) return;
+    marcoQR(ancla.pos, ancla.rot, arriba, modelos.matrix, gravedadDe(ancla));
+    modelos.matrixWorldNeedsUpdate = true;
+  }
 
   /** Cada fotograma (aunque no haya recorrido): coloca los ejes sobre el QR del ancla si se ve. */
   // "Arriba" medido en el escaneo inicial, en coordenadas del QR del ancla (fijo)
@@ -245,6 +311,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
 
   return {
     mostrar, mostrarElementos, ocultar, cambiarVista, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
+    prepararModelos, actualizarModelos, quitarModelos,
     set forzarEjes(v) { forzarEjes = !!v; }, get activo() { return !!r; },
   };
 }

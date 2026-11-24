@@ -277,6 +277,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     actualizar(_dt, arriba, ahora) {
       if (terminada) return;
       const sa = seguidos.get(guia.anclaId);
+      capa.actualizarModelos?.(arriba, ahora, sa);
       capa.actualizarEjes(arriba, resumenElementos ? null : sa);
       if (!iniciada && sa?.visible && sa.tipo === 'ancla-activa') {
         iniciada = true;
@@ -319,6 +320,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     tocado(raycaster) { return capa.tocado(raycaster); },
     detener() {
       activo = false;
+      capa.quitarModelos?.();
       limpiarMedios();
       capa.ocultar();
       rotulos.cerrar();

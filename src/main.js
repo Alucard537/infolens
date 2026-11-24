@@ -4,7 +4,7 @@ import './relieve.css';
 import { registerSW } from 'virtual:pwa-register';
 import { APP_NAME } from './config.js';
 import { cargarAjustes, guardarAjustes } from './ajustes.js';
-import { contarElementos } from './db.js';
+import { contarElementos, obtenerArchivo } from './db.js';
 import { crearEjemploSiHaceFalta } from './datos-prueba.js';
 import { pantallaDetalle } from './pantallas/detalle.js';
 import { pantallaLista } from './pantallas/lista.js';
@@ -25,8 +25,10 @@ import { pantallaGuiaEditor } from './pantallas/guia-editor.js';
 import { pantallaGuiaLidar } from './pantallas/guia-lidar.js';
 import { pantallaArRecorrido } from './pantallas/ar-recorrido.js';
 import { pantallaDiagnosticoAR } from './pantallas/diagnostico-ar.js';
+import { parteModeloNativo } from './modelos-guia.js';
 
 document.title = APP_NAME;
+if (tieneARKitIntegrado()) window.infolensParteModelo = parteModeloNativo;
 
 // Guardar la app en el móvil para que funcione sin internet (en desarrollo no hace nada)
 if (!tieneARKitIntegrado()) {
@@ -64,9 +66,10 @@ const irConCamara = (ruta) => {
   ir(ruta);
 };
 
-async function pantallaInicio() {
+async function pantallaInicio(miTurno) {
   const admin = esAdmin();
   const maquina = await maquinaActiva();
+  if (miTurno !== turno) return;
   const modulos = [
     ['maquinas', 'Máquinas', 'maquina'], ['guias', 'Guías', 'guia'],
     ['escaner', 'Escáner', 'escaner'], ['elementos', 'Elementos', 'elementos'],
@@ -138,12 +141,21 @@ async function pantallaInicio() {
   });
   app.querySelector('.maquina-nombre').textContent = maquina ? maquina.nombre : 'Elige una en Máquinas';
   if (maquina) app.querySelector('.maquina-codigo').textContent = maquina.id;
+  const tarjeta = app.querySelector('.maquina-activa');
+  let urlFondo;
+  if (maquina?.fondoId) obtenerArchivo(maquina.fondoId).then((archivo) => {
+    if (archivo && tarjeta.isConnected) {
+      urlFondo = URL.createObjectURL(archivo.blob);
+      tarjeta.style.setProperty('--imagen-maquina', `url("${urlFondo}")`);
+    }
+  }).catch((e) => console.warn('Fondo de la máquina:', e));
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
     if (b.hasAttribute('data-camara')) irConCamara(b.dataset.ir); else ir(b.dataset.ir);
   }));
   if (maquina) elementosDeMaquina(maquina.id).then((l) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = l.length; });
   else contarElementos().then(() => {});
   cargarEscaner(); // ir cargando el escáner en segundo plano
+  return () => { if (urlFondo) URL.revokeObjectURL(urlFondo); };
 }
 
 async function mostrar() {
@@ -330,7 +342,9 @@ async function mostrar() {
       volver,
     });
   } else {
-    await pantallaInicio();
+    const quitar = await pantallaInicio(miTurno);
+    if (miTurno === turno) limpiar = quitar;
+    else quitar?.();
   }
 }
 

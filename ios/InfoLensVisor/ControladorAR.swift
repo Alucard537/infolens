@@ -59,6 +59,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     let subanclaParaCalibrar: AnclaAR?
     private let marcoQR = Entity()
     private let marcoRuta = Entity()
+    private let marcoModelos = Entity()
+    private var modelosMostrados: [String: Entity] = [:]
     private var marcaQR: Entity?
     private let marcaTramo = Contenido.bola(0.035, Contenido.oro)
     private var origen: AnchorEntity?
@@ -117,6 +119,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         vista.session.delegateQueue = .main
         vista.session.delegate = self
         marcoQR.addChild(marcoRuta)
+        marcoRuta.addChild(marcoModelos)
         arrancar()
     }
 
@@ -242,6 +245,36 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         enMarcha = false
         sesionId = UUID()
         vista.session.pause()
+    }
+
+    var modeloPuedeColocarse: Bool { enMarcha && !interrumpida && anclaFijada != nil && marcoQR.isEnabled }
+
+    func admiteModelo(_ modelo: ModeloGuiaAR) -> Bool {
+        anclas[modelo.anclaId].map { $0.subancla == nil } == true
+    }
+
+    func mostrarModelo(_ entidad: Entity, modelo: ModeloGuiaAR) {
+        guard admiteModelo(modelo) else { return }
+        modelosMostrados[modelo.id]?.removeFromParent()
+        let colocacion = Entity()
+        colocacion.addChild(entidad)
+        colocacion.transform = modelo.transformacion
+        marcoModelos.addChild(colocacion)
+        modelosMostrados[modelo.id] = colocacion
+    }
+
+    func ajustarModelo(_ modelo: ModeloGuiaAR) {
+        modelosMostrados[modelo.id]?.transform = modelo.transformacion
+    }
+
+    func puntoModeloEnLaMira() -> [Float]? {
+        guard modeloPuedeColocarse, !vista.bounds.isEmpty else { return nil }
+        let centro = CGPoint(x: vista.bounds.midX, y: vista.bounds.midY)
+        let resultado = vista.raycast(from: centro, allowing: .existingPlaneGeometry, alignment: .any).first ??
+            vista.raycast(from: centro, allowing: .estimatedPlane, alignment: .any).first
+        guard let t = resultado?.worldTransform.columns.3 else { return nil }
+        let pos = marcoRuta.convert(position: [t.x, t.y, t.z], from: nil)
+        return [pos.x, pos.y, pos.z].map { ($0 * 1000).rounded() / 1000 }
     }
 
     func cambiarLinterna(encendida: Bool) {

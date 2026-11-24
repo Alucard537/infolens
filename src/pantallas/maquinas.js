@@ -8,7 +8,8 @@ import {
   listarAnclas, guardarAncla, borrarAncla, dependenciasAncla, siguienteIdAncla, listarGuias, localizacionesDeElemento,
   anclaParaMaquina, maquinasDelAncla, guardarMaquinasAncla, mapaAnclas, obtenerAncla,
 } from '../maquinas.js';
-import { listarElementos } from '../db.js';
+import { listarElementos, obtenerArchivo } from '../db.js';
+import { prepararFoto } from '../imagenes.js';
 import { esAdmin } from '../permisos.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
@@ -64,6 +65,7 @@ export function pantallaMaquinas(app, { volver, gestionar, nueva, alElegir, avis
 export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
   const esNueva = !id;
   let activo = true;
+  let fondo, urlFondo, seleccionFondo = 0;
   app.innerHTML = `
     <div class="pagina formulario">
       <button class="volver">‹ Volver</button>
@@ -75,6 +77,14 @@ export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
         <label>Nombre *<input name="nombre" required autocomplete="off" placeholder="Por ejemplo CL8 línea 2"></label>
         <label>Modelo<input name="modelo" autocomplete="off"></label>
         <label>Descripción<textarea name="descripcion" rows="3"></textarea></label>
+        <div class="bloque-archivo">
+          <div class="titulo-archivo">Fondo de la tarjeta de inicio</div>
+          <img class="vista-foto fondo-previo" alt="Vista previa del fondo de la máquina" hidden>
+          <div class="botones-archivo">
+            <label class="boton secundario">Elegir imagen<input class="entrada-oculta" type="file" accept="image/*" name="fondo"></label>
+            <button class="boton secundario" type="button" data-a="quitar-fondo" hidden>Usar fondo predeterminado</button>
+          </div>
+        </div>
         <p class="error-form" hidden></p>
         <button class="boton grande" type="submit">💾 Guardar</button>
         ${esNueva ? '' : '<button type="button" class="boton peligro" data-accion="borrar">🗑️ Eliminar máquina</button>'}
@@ -82,23 +92,53 @@ export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
     </div>`;
   const form = app.querySelector('form');
   const err = (m) => { const e = form.querySelector('.error-form'); e.hidden = !m; e.textContent = m || ''; };
+  const previo = form.querySelector('.fondo-previo');
+  const quitarFondo = form.querySelector('[data-a="quitar-fondo"]');
+  const guardar = form.querySelector('[type="submit"]');
+  function verFondo(blob) {
+    if (urlFondo) URL.revokeObjectURL(urlFondo);
+    urlFondo = blob ? URL.createObjectURL(blob) : null;
+    if (urlFondo) previo.src = urlFondo;
+    else previo.removeAttribute('src');
+    previo.hidden = quitarFondo.hidden = !urlFondo;
+  }
+  form.elements.fondo.onchange = async () => {
+    const f = form.elements.fondo.files[0];
+    form.elements.fondo.value = '';
+    if (!f) return;
+    const seleccion = ++seleccionFondo;
+    guardar.disabled = true;
+    err('');
+    try {
+      const { imagen } = await prepararFoto(f);
+      if (activo && seleccion === seleccionFondo) { fondo = imagen; verFondo(imagen); }
+    } catch (e) { if (activo && seleccion === seleccionFondo) err(e.message); }
+    finally { if (seleccion === seleccionFondo) guardar.disabled = false; }
+  };
+  quitarFondo.onclick = () => { seleccionFondo++; fondo = null; verFondo(null); guardar.disabled = false; };
   app.querySelector('.volver').addEventListener('click', volver);
   if (!esNueva) {
-    obtenerMaquina(id).then((m) => {
+    obtenerMaquina(id).then(async (m) => {
       if (!m || !activo) return;
       form.elements.id.value = m.id; form.elements.id.readOnly = true;
       form.elements.nombre.value = m.nombre; form.elements.modelo.value = m.modelo || '';
       form.elements.descripcion.value = m.descripcion || '';
+      if (m.fondoId) {
+        const archivo = await obtenerArchivo(m.fondoId);
+        if (activo && !seleccionFondo && archivo) verFondo(archivo.blob);
+      }
     });
   }
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (guardar.disabled) return;
+    guardar.disabled = true;
     err('');
     try {
       const f = form.elements;
-      const m = await guardarMaquina({ id: f.id.value, nombre: f.nombre.value, modelo: f.modelo.value, descripcion: f.descripcion.value }, esNueva);
+      const m = await guardarMaquina({ id: f.id.value, nombre: f.nombre.value, modelo: f.modelo.value, descripcion: f.descripcion.value }, esNueva, fondo);
       alGuardar(m.id);
-    } catch (ex) { err(ex.message); }
+    } catch (ex) { err(ex.message); guardar.disabled = false; }
   });
   app.querySelector('[data-accion="borrar"]')?.addEventListener('click', async () => {
     const d = await dependenciasMaquina(id);
@@ -110,7 +150,7 @@ export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
     await borrarMaquina(id);
     alBorrar();
   });
-  return () => { activo = false; };
+  return () => { activo = false; if (urlFondo) URL.revokeObjectURL(urlFondo); };
 }
 
 // ---------------------------------------------------------------- gestión de una máquina

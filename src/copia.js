@@ -7,6 +7,7 @@ import { crearZip, leerIndiceZip, leerEntradaZip } from './zip.js';
 import { serializarHuella, deserializarHuella } from './reconocer/vectores.js';
 import { claveParaCopia, aplicarClaveDeCopia } from './permisos.js';
 import { archivosDeGuia, migrarDatosAntiguos } from './maquinas.js';
+import { MIME_MODELO_GUIA } from './modelos-guia.js';
 
 const FORMATO = 'infolens-copia';
 const JSON_COPIA = 'infolens.json';
@@ -55,6 +56,7 @@ export async function exportarCopia(alAvanzar = () => {}) {
   const [maquinas, anclas, localizaciones, guias] = await Promise.all([
     db.maquinas.toArray(), db.anclas.toArray(), db.localizaciones.toArray(), db.guias.toArray(),
   ]);
+  for (const m of maquinas) if (m.fondoId && porId.has(m.fondoId)) rutaDe.set(m.fondoId, `maquinas/${sanear(m.id)}/fondo.jpg`);
   for (const g of guias) {
     const carpeta = `guias/${sanear(g.maquinaId)} - ${sanear(g.id)} - ${sanear(g.nombre).slice(0, 50).trim()}`;
     archivosDeGuia(g).forEach((fid, i) => {
@@ -173,6 +175,8 @@ export async function importarCopia(archivoZip, modo = 'combinar', alAvanzar = (
     const usados = new Set();
     await db.elementos.each((el) => CAMPOS_ARCHIVO.forEach((c) => el[c] && usados.add(el[c])));
     await db.guias.each((g) => archivosDeGuia(g).forEach((fid) => usados.add(fid)));
+    await db.maquinas.each((m) => { if (m.fondoId) usados.add(m.fondoId); });
+    await db.archivos.filter((a) => a.tipoMime === MIME_MODELO_GUIA).each((a) => usados.add(a.id));
     const huerfanos = (await db.archivos.toCollection().primaryKeys()).filter((id) => !usados.has(id));
     await db.archivos.bulkDelete(huerfanos);
     // ...y huellas de elementos que ya no existen
