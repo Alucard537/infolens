@@ -6,7 +6,7 @@ import {
 } from '../maquinas.js';
 import { obtenerArchivo } from '../db.js';
 import { esAdmin } from '../permisos.js';
-import { elegirMaquinaDestino } from '../ui/trasladar.js';
+import { elegirGuiaOrigen, elegirMaquinaDestino } from '../ui/trasladar.js';
 
 export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) {
   let activo = true;
@@ -21,7 +21,10 @@ export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) 
         <button class="volver">‹ Volver</button>
         <h1>📘 Guías</h1>
         <p class="det-ref"></p>
-        ${admin ? '<button class="boton" data-a="nueva">➕ Crear guía</button>' : ''}
+        ${admin ? `<div class="botones-archivo">
+          <button class="boton" data-a="nueva">➕ Crear guía</button>
+          ${maquina ? '<button class="boton secundario" data-a="anadir-guia">Añadir guía existente</button>' : ''}
+        </div>` : ''}
         <div class="pestanas">
           <button class="boton-mini" data-f="todas">Todas</button>
           <button class="boton-mini" data-f="localizacion">📍 Localización</button>
@@ -33,6 +36,9 @@ export function pantallaGuias(app, maquinaId, { volver, abrir, editar, nueva }) 
     $('.volver').addEventListener('click', volver);
     $('.det-ref').textContent = `Máquina: ${maquina ? maquina.nombre : maquinaId}`;
     $('[data-a="nueva"]')?.addEventListener('click', () => nueva(maquinaId));
+    $('[data-a="anadir-guia"]')?.addEventListener('click', () => elegirGuiaOrigen($('.pagina'), maquina, {
+      alGuardar: (g) => editar(g.id, g.maquinaId),
+    }));
     app.querySelectorAll('[data-f]').forEach((b) => {
       b.classList.toggle('activo', b.dataset.f === filtro);
       b.addEventListener('click', () => { filtro = b.dataset.f; pintar(); });

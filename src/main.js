@@ -47,6 +47,7 @@ const ir = (ruta) => { location.hash = ruta; };
 const sustituir = (ruta) => { location.replace(ruta); }; // sin dejar la pantalla actual en el "atrás"
 const volver = () => (history.length > 1 ? history.back() : ir('#/'));
 const enc = encodeURIComponent;
+const editarGuia = (id, maquina) => ir('#/guia-editar/' + enc(id) + (maquina ? '?maquina=' + enc(maquina) : ''));
 const abrirImagen = async (u, t) => (await import('./ui/visor.js')).abrirImagen(u, t);
 
 // El escáner (con three.js) se carga solo cuando se usa, para que la app arranque más rápido
@@ -120,7 +121,8 @@ async function mostrar() {
   }
   // Pantallas que necesitan una máquina activa (si no la hay, se pide elegirla antes)
   const CON_MAQUINA = ['escaner', 'ancla', 'guias', 'guia', 'guia-ejecutar', 'guia-lidar', 'elementos', 'anclas'];
-  if (CON_MAQUINA.includes(pantalla) && !(await maquinaActiva())) {
+  const administraGuias = pantalla === 'guias' && esAdmin() && params.has('maquina');
+  if (CON_MAQUINA.includes(pantalla) && !administraGuias && !(await maquinaActiva())) {
     if (miTurno !== turno) return;
     location.replace('#/maquinas?falta=1&ir=' + encodeURIComponent(location.hash));
     return;
@@ -190,6 +192,7 @@ async function mostrar() {
       nuevoElemento: (m) => ir('#/nuevo?maquina=' + enc(m)),
       localizaciones: (e) => ir('#/localizacion/' + enc(e)),
       guias: (m) => ir('#/guias?maquina=' + enc(m)),
+      editarGuia,
     });
   } else if (pantalla === 'anclas') {
     limpiar = pantallaAnclas(app, maquinaActivaId(), { volver, cambiarMaquina: () => ir('#/maquinas?ir=' + enc('#/anclas')) });
@@ -207,7 +210,7 @@ async function mostrar() {
       // Volver a un sitio fijo (no "atrás"): si se vino desde la gestión de una máquina, a ella; si no, al inicio
       volver: () => ir(params.get('maquina') ? '#/maquina/' + enc(params.get('maquina')) : '#/'),
       abrir: (g) => ir('#/guia/' + enc(g)),
-      editar: (g, maquina) => ir('#/guia-editar/' + enc(g) + (maquina ? '?maquina=' + enc(maquina) : '')),
+      editar: editarGuia,
       nueva: (m) => ir('#/guia-nueva?maquina=' + enc(m)),
     });
   } else if (pantalla === 'guia' && id) {
@@ -215,7 +218,7 @@ async function mostrar() {
       volver: () => ir('#/guias'),
       empezar: (g) => irConCamara('#/guia-ejecutar/' + enc(g)),
       verPasos: (g) => ir('#/guia-lidar/' + enc(g)),
-      editar: (g) => ir('#/guia-editar/' + enc(g)),
+      editar: editarGuia,
     });
   } else if (pantalla === 'guia-lidar' && id) {
     limpiar = pantallaGuiaLidar(app, id, {
@@ -223,7 +226,7 @@ async function mostrar() {
       volver: () => ir('#/guias'),
       abrirDetalle: (i) => ir('#/detalle/' + enc(i)),
       abrirImagen,
-      editar: (g) => ir('#/guia-editar/' + enc(g)),
+      editar: editarGuia,
       conCamara: (g, paso) => irConCamara('#/guia-ejecutar/' + enc(g) + '?paso=' + paso),
     });
   } else if (pantalla === 'guia-nueva' || (pantalla === 'guia-editar' && id)) {

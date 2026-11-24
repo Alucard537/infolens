@@ -430,6 +430,7 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .traslado-maquina::backdrop { background: rgba(7, 14, 20, 0.72); }
 .traslado-maquina h2 { margin: 0 0 8px; }
 .traslado-nombre { margin: 0 0 16px; font-weight: 700; overflow-wrap: anywhere; }
+.traslado-maquina label + label { display: block; margin-top: 12px; }
 .traslado-maquina select {
   display: block; width: 100%; min-height: 44px; margin-top: 5px; padding: 0 10px;
   border: 1px solid #516775; border-radius: 10px; background: #0b141b; color: var(--texto); font: inherit;

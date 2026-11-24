@@ -11,6 +11,7 @@ import { listarElementos } from '../db.js';
 import { esAdmin } from '../permisos.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
+import { elegirGuiaOrigen } from '../ui/trasladar.js';
 import { CARAS_MAQUINA } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
 
@@ -111,13 +112,14 @@ export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
 }
 
 // ---------------------------------------------------------------- gestión de una máquina
-export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento, nuevoElemento, localizaciones, guias, alCambiar }) {
+export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento, nuevoElemento, localizaciones, guias, editarGuia, alCambiar }) {
   let activo = true;
   const pintar = async () => {
     const [m, elementos, anclas, listaGuias] = await Promise.all([obtenerMaquina(id), elementosDeMaquina(id), listarAnclas(id), listarGuias(id)]);
     if (!activo) return;
     if (!m) { app.innerHTML = '<div class="pagina"><button class="volver">‹ Volver</button><p>La máquina no existe.</p></div>'; app.querySelector('.volver').addEventListener('click', volver); return; }
     const nLoc = new Map(await Promise.all(elementos.map(async (e) => [e.id, (await localizacionesDeElemento(e.id)).length])));
+    if (!activo) return;
     const activa = maquinaActivaId() === id;
     app.innerHTML = `
       <div class="pagina">
@@ -129,6 +131,12 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
           <button class="boton ${activa ? 'secundario' : ''}" data-a="activar" ${activa ? 'disabled' : ''}>${activa ? '✅ Es la máquina activa' : 'Seleccionar como activa'}</button>
         </div>
 
+        <h2>📘 Guías (${listaGuias.length})</h2>
+        <div class="botones-archivo">
+          <button class="boton" data-a="anadir-guia">Añadir guía existente</button>
+          <button class="boton secundario" data-a="guias">Gestionar guías</button>
+        </div>
+
         <h2>🧩 Elementos asociados (${elementos.length})</h2>
         <div class="botones-archivo">
           <button class="boton" data-a="crear">➕ Crear elemento aquí</button>
@@ -138,9 +146,6 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
         <ul class="lista lista-elementos-maquina"></ul>
 
         <div class="seccion-anclas"></div>
-
-        <h2>📘 Guías (${listaGuias.length})</h2>
-        <button class="boton secundario" data-a="guias">Gestionar las guías de esta máquina</button>
       </div>`;
     const $ = (s) => app.querySelector(s);
     $('h1').textContent = m.nombre;
@@ -150,6 +155,9 @@ export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento
     $('[data-a="activar"]').addEventListener('click', () => { establecerMaquinaActiva(id); alCambiar && alCambiar(); pintar(); });
     $('[data-a="crear"]').addEventListener('click', () => nuevoElemento(id));
     $('[data-a="guias"]').addEventListener('click', () => guias(id));
+    $('[data-a="anadir-guia"]').addEventListener('click', () => elegirGuiaOrigen($('.pagina'), m, {
+      alGuardar: (g) => editarGuia(g.id, g.maquinaId),
+    }));
 
     // Elementos asociados
     const ul = $('.lista-elementos-maquina');
