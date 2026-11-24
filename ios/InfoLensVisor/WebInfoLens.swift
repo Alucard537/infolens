@@ -107,6 +107,8 @@ final class AplicacionInfoLens: ObservableObject {
             }
         case "ocultar": controlador?.cambiarRecorrido(nil)
         case "vista": controlador?.soloLinea = mensaje["vista"] as? String == "linea"
+        case "linterna":
+            if let encendida = mensaje["encendida"] as? Bool { controlador?.cambiarLinterna(encendida: encendida) }
         case "buscar": controlador?.buscarQR()
         case "cerrar": cerrar()
         default: break

@@ -85,12 +85,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .esc-estado[hidden] { visibility: hidden; display: block; }
 .recorrido-arkit .esc-estado { font-size: 14px; }
-.vista-arkit {
+.controles-arkit {
   position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 65px); right: 12px;
+  display: flex; align-items: center; justify-content: flex-end; gap: 7px; z-index: 2;
+}
+.vista-arkit {
   display: flex; align-items: center; gap: 6px; padding: 4px 7px 4px 10px; border-radius: 9px;
   background: var(--vidrio); color: var(--texto2); font-size: 13px;
 }
 .vista-arkit select { min-height: 30px; color: #fff; background: var(--superficie); border: 1px solid var(--borde); border-radius: 7px; }
+.esc-btn.linterna-arkit {
+  gap: 5px; width: auto; min-height: 44px; height: auto; padding: 0 11px; border-radius: 11px;
+  font-size: 13px; font-weight: 660;
+}
+.linterna-arkit span { font-size: 17px; }
+.linterna-arkit:disabled { color: var(--texto2); cursor: default; }
+.aviso-linterna {
+  position: absolute; top: calc(100% + 6px); right: 0; width: max-content; max-width: min(230px, 82vw);
+  margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--vidrio);
+  color: #ffe4b8; font-size: 13px; line-height: 1.3; pointer-events: none;
+}
 .rumbo-arkit {
   position: absolute; top: calc(max(12px, env(safe-area-inset-top)) + 72px); left: 16px;
   color: #92efcb; font-size: 26px; pointer-events: none; text-shadow: 0 2px 5px #13212b;

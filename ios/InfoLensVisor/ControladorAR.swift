@@ -1,5 +1,6 @@
 // La ruta es hija del QR. ARKit conserva su última posición en el mundo mientras el QR no se ve.
 import ARKit
+import AVFoundation
 import Combine
 import RealityKit
 import SwiftUI
@@ -37,6 +38,9 @@ struct EstadoAR: Encodable, Equatable {
     let errorDestino: String?
     let direccionDestino: DireccionDestino?
     let elementos: [ElementoVisible]?
+    let linternaDisponible: Bool
+    let linternaEncendida: Bool
+    let errorLinterna: String?
 }
 
 final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
@@ -82,6 +86,14 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var direccionDestino: DireccionDestino?
     private var elementosGuia: ElementosDeGuia?
     private var elementosEnPantalla: [EstadoAR.ElementoVisible]?
+    private lazy var dispositivoLinterna: AVCaptureDevice? = {
+        if let dispositivo = ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera, dispositivo.hasTorch {
+            return dispositivo
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    }()
+    private var linternaSolicitada = false
+    private var errorLinterna: String?
 
     init(recorrido: Recorrido) {
         self.anclas = [recorrido.anclaId: recorrido.ancla]
@@ -138,18 +150,22 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         emitirEstado()
     }
 
-    func emitirEstado() {
+    func emitirEstado(forzar: Bool = false) {
         guard let alCambiarEstado else { return }
+        let linternaDisponible = enMarcha && !interrumpida && dispositivoLinterna?.hasTorch == true
         let actual = EstadoAR(anclaId: anclaFijada, fiable: enMarcha && marcoQR.isEnabled, mensaje: estado,
                              tramo: ultimoTramo, rumbo: rumboGrados, destino: destinoEnPantalla, destinoId: destinoId,
-                             errorDestino: errorDestino, direccionDestino: direccionDestino, elementos: elementosEnPantalla)
-        guard actual != estadoEnviado else { return }
+                             errorDestino: errorDestino, direccionDestino: direccionDestino, elementos: elementosEnPantalla,
+                             linternaDisponible: linternaDisponible, linternaEncendida: linternaDisponible && dispositivoLinterna?.isTorchActive == true,
+                             errorLinterna: errorLinterna)
+        guard forzar || actual != estadoEnviado else { return }
         estadoEnviado = actual
         alCambiarEstado(actual)
     }
 
     private func arrancar() {
         defer { emitirEstado() }
+        apagarLinterna()
         if let origen { vista.scene.removeAnchor(origen) }
         marcoQR.removeFromParent()
         origen = nil
@@ -222,9 +238,47 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     func detener() {
+        apagarLinterna()
         enMarcha = false
         sesionId = UUID()
         vista.session.pause()
+    }
+
+    func cambiarLinterna(encendida: Bool) {
+        defer { emitirEstado(forzar: true) }
+        guard enMarcha, !interrumpida, let dispositivo = dispositivoLinterna, dispositivo.hasTorch else {
+            errorLinterna = "La linterna no está disponible."
+            return
+        }
+        let modo: AVCaptureDevice.TorchMode = encendida ? .on : .off
+        guard (!encendida || dispositivo.isTorchAvailable), dispositivo.isTorchModeSupported(modo) else {
+            errorLinterna = "La cámara no puede cambiar la linterna ahora."
+            return
+        }
+        do {
+            try configurarLinterna(dispositivo, modo: modo)
+            linternaSolicitada = encendida
+            errorLinterna = nil
+        } catch {
+            errorLinterna = "La cámara no pudo cambiar la linterna."
+        }
+    }
+
+    private func configurarLinterna(_ dispositivo: AVCaptureDevice, modo: AVCaptureDevice.TorchMode) throws {
+        try dispositivo.lockForConfiguration()
+        defer { dispositivo.unlockForConfiguration() }
+        dispositivo.torchMode = modo
+    }
+
+    private func apagarLinterna() {
+        errorLinterna = nil
+        guard linternaSolicitada, let dispositivo = dispositivoLinterna, dispositivo.isTorchModeSupported(.off) else { return }
+        do {
+            try configurarLinterna(dispositivo, modo: .off)
+            linternaSolicitada = false
+        } catch {
+            // Al liberar la cámara, iOS apaga su linterna.
+        }
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
@@ -317,6 +371,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
 
     func sessionWasInterrupted(_ session: ARSession) {
         interrumpida = true
+        apagarLinterna()
         dejarDeVerReferencias()
         pausarGuia()
         mostrarEstado("Guía en pausa. Esperando a que vuelva la cámara.")
@@ -331,6 +386,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     func sessionShouldAttemptRelocalization(_ session: ARSession) -> Bool { true }
 
     func session(_ session: ARSession, didFailWithError error: Error) {
+        apagarLinterna()
         enMarcha = false
         pausarGuia()
         mostrarEstado("❌ AR: \(error.localizedDescription)")

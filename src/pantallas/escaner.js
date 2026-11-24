@@ -55,7 +55,7 @@ export function pantallaEscaner(app, {
         ${modo === 'escaner' ? '<button class="esc-btn" data-accion="reconocer" aria-label="Reconocer sin QR">🔍</button>' : ''}
         ${modo === 'ancla' && esAdmin() ? '<button class="esc-btn" data-accion="posicionar" aria-label="Posicionar componentes">📍</button>' : ''}
         ${modo !== 'escaner' ? '<button class="esc-btn" data-accion="reescanear" aria-label="Volver a escanear el entorno">🛰️</button>' : ''}
-        <button class="esc-btn" data-accion="linterna" aria-label="Linterna" hidden>🔦</button>
+        <button class="esc-btn" data-accion="linterna" aria-label="Linterna" aria-pressed="false" hidden>🔦</button>
         <button class="esc-btn" data-accion="ajustes" aria-label="Ajustes">⚙</button>
       </div>
       <div class="estado-seguimiento" hidden></div>
@@ -983,18 +983,27 @@ export function pantallaEscaner(app, {
     }
 
     fotogramaQR = fotogramaEntorno = -1;
+    const pista = stream.getVideoTracks()[0];
     video.srcObject = stream;
     try { await video.play(); } catch {}
+    if (!activo || pista !== stream?.getVideoTracks()[0]) return;
     estado.textContent = 'Apunta a un código QR';
 
-    const pista = stream.getVideoTracks()[0];
-    const capacidades = pista.getCapabilities ? pista.getCapabilities() : {};
-    btnLinterna.hidden = !capacidades.torch;
-    linternaOn = false;
-    btnLinterna.classList.remove('activo');
+    const torch = pista.getCapabilities?.().torch;
+    btnLinterna.hidden = !(torch === true || (Array.isArray(torch) && torch.includes(true) && torch.includes(false)));
+    btnLinterna.disabled = false;
+    pintarLinterna(pista.getSettings().torch === true);
+  }
+
+  function pintarLinterna(encendida) {
+    linternaOn = encendida;
+    btnLinterna.setAttribute('aria-pressed', String(encendida));
+    btnLinterna.classList.toggle('activo', encendida);
   }
 
   function detenerCamara() {
+    btnLinterna.hidden = true;
+    pintarLinterna(false);
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null;
     if (video.srcObject) video.srcObject = null;
@@ -1051,12 +1060,22 @@ export function pantallaEscaner(app, {
       const on = reconocimiento.alternar();
       e.target.closest('[data-accion]').classList.toggle('activo', on);
     }
-    if (accion === 'linterna' && stream) {
-      linternaOn = !linternaOn;
+    if (accion === 'linterna' && stream && !btnLinterna.disabled) {
+      const pista = stream.getVideoTracks()[0];
+      const encender = !linternaOn;
+      const { advanced = [], ...configuracion } = pista.getConstraints?.() || {};
+      const adicionales = advanced.map(({ torch, ...constraint }) => constraint).filter((constraint) => Object.keys(constraint).length);
+      btnLinterna.disabled = true;
       try {
-        await stream.getVideoTracks()[0].applyConstraints({ advanced: [{ torch: linternaOn }] });
-      } catch { linternaOn = false; }
-      btnLinterna.classList.toggle('activo', linternaOn);
+        await pista.applyConstraints({ ...configuracion, advanced: [...adicionales, { torch: encender }] });
+        if (pista !== stream?.getVideoTracks()[0]) return;
+        // Algunas versiones de Safari devuelven el ajuste anterior justo después del cambio.
+        pintarLinterna(encender);
+      } catch {
+        if (pista === stream?.getVideoTracks()[0]) avisar('La cámara no pudo cambiar la linterna.');
+      } finally {
+        if (pista === stream?.getVideoTracks()[0]) btnLinterna.disabled = false;
+      }
     }
   });
   panel.addEventListener('click', (e) => {

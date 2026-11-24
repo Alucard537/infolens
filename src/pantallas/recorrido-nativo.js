@@ -20,6 +20,8 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   let destinoId = 0;
   let destinoPendiente = null;
   let mirada = {};
+  let ultimoErrorLinterna;
+  let avisoLinternaId;
   const seguidos = new Map();
   const enGuia = !!guiaId;
   let ajustes = leerAjustes();
@@ -38,9 +40,13 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
       <div class="ficha-flotante" aria-hidden="true" hidden><img alt="" hidden><strong></strong></div>
       <div class="nav-panel" hidden></div>
       <div class="pos-panel" hidden></div>
-      <label class="vista-arkit">Recorrido
-        <select aria-label="Estilo del recorrido"><option value="flechas">Flechas</option><option value="linea">Línea</option></select>
-      </label>
+      <div class="controles-arkit">
+        <label class="vista-arkit">Recorrido
+          <select aria-label="Estilo del recorrido"><option value="flechas">Flechas</option><option value="linea">Línea</option></select>
+        </label>
+        ${enGuia ? `<button type="button" class="esc-btn linterna-arkit" data-r="linterna" aria-pressed="false" disabled><span aria-hidden="true">🔦</span> Linterna</button>
+        <p class="aviso-linterna" role="status" hidden></p>` : ''}
+      </div>
     </div>`;
   document.documentElement.classList.add('modo-arkit');
   const $ = (selector) => app.querySelector(selector);
@@ -51,6 +57,8 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   const panelNavegacion = $('.nav-panel');
   const controlVista = $('.vista-arkit');
   const selector = controlVista.querySelector('select');
+  const linterna = $('[data-r="linterna"]');
+  const avisoLinterna = $('.aviso-linterna');
   const ficha = crearFichaFlotante(escena, $('.ficha-flotante'), panelNavegacion);
   selector.value = ajustes.lidarVista === 'linea' ? 'linea' : 'flechas';
   function enviar(accion, datos = {}) {
@@ -88,6 +96,13 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   $('[data-r="salir"]').addEventListener('click', volver);
   $('[data-r="buscar"]').addEventListener('click', () => enviar('buscar'));
   $('[data-r="posicionar"]')?.addEventListener('click', posicionar);
+  linterna?.addEventListener('click', () => {
+    if (linterna.disabled) return;
+    linterna.disabled = true;
+    ultimoErrorLinterna = undefined;
+    avisoLinterna.hidden = true;
+    enviar('linterna', { encendida: !mirada.linternaEncendida });
+  });
   selector.addEventListener('change', () => {
     ajustes = guardarAjustes({ lidarVista: selector.value });
     enviar('vista', { vista: selector.value });
@@ -143,6 +158,18 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     const { sesion: id, estado: datos } = evento.detail || {};
     if (!activo || id !== sesion || !datos) return;
     mirada = datos;
+    if (linterna) {
+      linterna.disabled = datos.linternaDisponible !== true;
+      linterna.setAttribute('aria-pressed', String(datos.linternaEncendida === true));
+      linterna.classList.toggle('activo', datos.linternaEncendida === true);
+      if (datos.errorLinterna !== ultimoErrorLinterna) {
+        ultimoErrorLinterna = datos.errorLinterna;
+        clearTimeout(avisoLinternaId);
+        avisoLinterna.textContent = ultimoErrorLinterna || '';
+        avisoLinterna.hidden = !ultimoErrorLinterna;
+        if (ultimoErrorLinterna) avisoLinternaId = setTimeout(() => { avisoLinterna.hidden = true; }, 4000);
+      }
+    }
     if (destinoPendiente && (!datos.fiable || datos.anclaId !== destinoPendiente.anclaId) && datos.destinoId !== destinoPendiente.datos.destinoId) {
       destinoPendiente.enviado = false;
     }
@@ -211,6 +238,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   return () => {
     activo = false;
     observarPanel.disconnect();
+    clearTimeout(avisoLinternaId);
     window.removeEventListener('infolens:arkit', recibir);
     modulo?.detener();
     ficha.limpiar();
@@ -242,7 +270,8 @@ function crearFichaFlotante(raiz, tarjeta, controles) {
     const W = raiz.clientWidth, H = raiz.clientHeight;
     const x = punto.x * W, y = punto.y * H;
     const ancho = tarjeta.offsetWidth, alto = tarjeta.offsetHeight;
-    const limiteArriba = raiz.querySelector('.vista-arkit').offsetTop + 42;
+    const barra = raiz.querySelector('.controles-arkit');
+    const limiteArriba = barra.offsetTop + barra.offsetHeight + 4;
     const limiteAbajo = (controles.hidden ? H : controles.offsetTop) - alto - 10;
     if (limiteAbajo < limiteArriba) { tarjeta.hidden = true; return; }
     const aDerecha = x + 18 + ancho <= W - 10 || (x - 18 - ancho < 10 && x < W / 2);

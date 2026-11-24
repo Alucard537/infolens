@@ -2,8 +2,9 @@
 export const APP_NAME = 'InfoLens';
 export const QR_PREFIX = 'INFOLENS:';
 
-// Valores por defecto (se pueden cambiar en la app, botón ⚙ del escáner)
+// Valores por defecto de la interfaz y del escáner
 export const DEFAULTS = {
+  estiloInterfaz: 'relieve',
   qrCm: 10,        // lado del QR impreso (solo la zona negra, sin el margen blanco)
   fovGrados: 65,   // campo de visión del lado largo del vídeo de la cámara principal
   camaraId: '',    // cámara elegida ('' = automática)

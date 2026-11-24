@@ -1,8 +1,9 @@
 // Punto de entrada: decide qué pantalla mostrar según la dirección (#/...).
 import './style.css';
+import './relieve.css';
 import { registerSW } from 'virtual:pwa-register';
 import { APP_NAME } from './config.js';
-import { cargarAjustes } from './ajustes.js';
+import { cargarAjustes, guardarAjustes } from './ajustes.js';
 import { contarElementos } from './db.js';
 import { crearEjemploSiHaceFalta } from './datos-prueba.js';
 import { pantallaDetalle } from './pantallas/detalle.js';
@@ -90,6 +91,13 @@ async function pantallaInicio() {
         </button>
       </header>
       <div class="inicio-modulos">
+        <fieldset class="selector-estilo">
+          <legend>Estilo visual</legend>
+          <div class="opciones-estilo">
+            <label><input type="radio" name="estilo" value="original"><span>Original</span></label>
+            <label><input type="radio" name="estilo" value="relieve"><span>Relieve 3D</span></label>
+          </div>
+        </fieldset>
         <section class="maquina-activa ${maquina ? '' : 'sin-maquina'}" aria-labelledby="rotulo-maquina-activa">
           <span class="maquina-estado" id="rotulo-maquina-activa">Máquina activa</span>
           <div class="nombre-maquina">
@@ -121,6 +129,13 @@ async function pantallaInicio() {
       </section>` : ''}
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
+  const estilo = app.querySelector('.selector-estilo');
+  const actual = document.documentElement.dataset.estilo;
+  estilo.querySelector(`input[value="${actual}"]`).checked = true;
+  estilo.addEventListener('change', ({ target }) => {
+    document.documentElement.dataset.estilo = target.value;
+    guardarAjustes({ estiloInterfaz: target.value });
+  });
   app.querySelector('.maquina-nombre').textContent = maquina ? maquina.nombre : 'Elige una en Máquinas';
   if (maquina) app.querySelector('.maquina-codigo').textContent = maquina.id;
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
@@ -321,7 +336,8 @@ async function mostrar() {
 
 // Arranque: cargar ajustes, el ejemplo y pasar los datos antiguos al sistema de máquinas
 (async () => {
-  await cargarAjustes();
+  const { estiloInterfaz } = await cargarAjustes();
+  document.documentElement.dataset.estilo = estiloInterfaz === 'original' ? 'original' : 'relieve';
   await crearEjemploSiHaceFalta();
   try { await migrarDatosAntiguos(); } catch (e) { console.warn('Migración:', e); }
   window.addEventListener('hashchange', mostrar);

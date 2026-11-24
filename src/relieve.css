@@ -1,0 +1,112 @@
+.selector-estilo {
+  display: flex; align-items: center; justify-content: flex-end; gap: 9px;
+  min-inline-size: 0; margin: 0 0 12px; padding: 0; border: 0;
+}
+.selector-estilo legend {
+  float: left; align-self: center; margin: 0 10px 0 0; padding: 0;
+  color: var(--texto2); font-size: 12px; font-weight: 600;
+}
+.opciones-estilo {
+  display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px;
+  border: 1px solid var(--borde); border-radius: 12px; background: var(--campo);
+}
+.opciones-estilo label { position: relative; cursor: pointer; }
+.opciones-estilo input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.opciones-estilo span {
+  display: flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 10px;
+  border-radius: 8px; color: var(--texto2); font-size: 12px; font-weight: 650; white-space: nowrap;
+}
+.opciones-estilo input:checked + span { color: var(--azul); background: var(--superficie); }
+.opciones-estilo input:focus-visible + span { outline: 2px solid var(--azul); outline-offset: -2px; }
+
+:root[data-estilo="relieve"] {
+  --azul: #a6f1d8;
+  --fondo: #0b1417;
+  --tarjeta: #17262c;
+  --superficie: #233940;
+  --borde: #3c565d;
+  --campo: #101d21;
+  --texto2: #b3c9c9;
+  --vidrio: rgba(18, 30, 35, 0.96);
+  --bisel: inset 0 1px 0 #d7f8f62b, inset 0 -1px 0 #0005;
+  --sombra-base: 0 4px 0 #0a1013, 0 10px 22px #05090a91;
+  --cara-relieve: linear-gradient(153deg, #2b424b, #1b2d34 47%, #14252a);
+  --cara-menta: linear-gradient(146deg, #cdfbed, #9aefd1 50%, #67c9a8);
+}
+
+:root[data-estilo="relieve"]:not(.modo-arkit) body:not(.modo-escaner) {
+  background: radial-gradient(ellipse at 24% -16%, #284742 0%, #14282d 34%, var(--fondo) 68%) fixed;
+}
+:root[data-estilo="relieve"] .inicio-logo {
+  background: var(--cara-menta);
+  box-shadow: inset 0 1px 0 #fffbcf, 0 3px 0 #397c68, 0 6px 14px #030a0a8a;
+}
+:root[data-estilo="relieve"] .usuario { box-shadow: var(--bisel), 0 3px 9px #03090a70; }
+:root[data-estilo="relieve"] .opciones-estilo { box-shadow: inset 0 2px 7px #050a0cbb; }
+:root[data-estilo="relieve"] .opciones-estilo input:checked + span { background: var(--cara-relieve); box-shadow: var(--bisel); }
+
+:root[data-estilo="relieve"] .maquina-activa {
+  position: relative;
+  min-height: 179px; margin-bottom: 17px;
+  border-color: #5a8881;
+  background-image: linear-gradient(90deg, #122125 2%, #122125ed 22%, #12212536 59%, #1221250d), url('/iconos/maquina-relieve.webp');
+  box-shadow: inset 0 1px 0 #d7f8f64d, inset 0 0 0 3px #a6f1d816, var(--sombra-base);
+}
+:root[data-estilo="relieve"] .maquina-activa::after {
+  content: ''; position: absolute; top: 12px; right: 12px; width: 20px; height: 20px;
+  border-top: 1px solid #a6f1d8bd; border-right: 1px solid #a6f1d8bd; border-radius: 0 4px 0 0;
+  pointer-events: none;
+}
+:root[data-estilo="relieve"] .maquina-codigo { box-shadow: inset 0 1px 3px #030a0bba; }
+:root[data-estilo="relieve"] :is(.boton, .boton-mini, .esc-btn):not(:disabled) {
+  background-image: linear-gradient(152deg, #f0fff222, #ffffff06 48%, #031a101f);
+  box-shadow: var(--bisel), 0 3px 0 #081215, 0 6px 10px #03090a8c;
+}
+:root[data-estilo="relieve"] .botones-principales { row-gap: 15px; }
+:root[data-estilo="relieve"] .boton.inicio-acceso {
+  border-color: #46616a;
+  background: var(--cara-relieve);
+  box-shadow: var(--bisel), var(--sombra-base);
+}
+:root[data-estilo="relieve"] .boton.acceso-escaner {
+  border-color: #a3f1d7;
+  background: var(--cara-menta);
+  box-shadow: inset 0 1px 0 #effff7, inset 0 -1px 0 #54aa8c, 0 4px 0 #377762, 0 12px 22px #0008;
+}
+:root[data-estilo="relieve"] .acceso-dibujo,
+:root[data-estilo="relieve"] .gestion-dibujo {
+  background: linear-gradient(145deg, #3d645b, #24413b 70%, #1b3430);
+  box-shadow: var(--bisel), 0 2px 5px #040a0b8c;
+}
+:root[data-estilo="relieve"] .acceso-escaner .acceso-dibujo { background: #142f2c28; box-shadow: inset 0 2px 5px #18443550; }
+:root[data-estilo="relieve"] .inicio-gestiones {
+  display: grid; gap: 8px; padding: 8px;
+  background: linear-gradient(146deg, #192c31, #102024);
+  box-shadow: inset 0 3px 13px #060e10bb, var(--sombra-base);
+}
+:root[data-estilo="relieve"] .boton.inicio-gestion {
+  min-height: 50px; padding: 6px 10px; border: 1px solid #405b63; border-radius: 10px;
+  background: var(--cara-relieve);
+  box-shadow: var(--bisel), 0 3px 0 #081518, 0 6px 9px #050e11aa;
+}
+
+:root[data-estilo="relieve"] :is(.fila-elemento, .tarjeta-info, .traslado-maquina) {
+  background: var(--cara-relieve);
+  box-shadow: var(--bisel), 0 5px 13px #05090a65;
+}
+:root[data-estilo="relieve"] :is(.bloque-archivo, .nav-panel.tarjeta-recorrido, .esc-panel) {
+  box-shadow: var(--bisel), 0 8px 22px #03090bbb;
+}
+@media (min-width: 880px) {
+  :root[data-estilo="relieve"] .maquina-activa { min-height: 218px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-estilo="relieve"] :is(.boton, .boton-mini, .esc-btn) { transition: transform 140ms ease, box-shadow 140ms ease; }
+  :root[data-estilo="relieve"] :is(.boton, .boton-mini, .esc-btn):not(:disabled):active {
+    transform: translateY(3px);
+    box-shadow: var(--bisel), 0 1px 0 #0a1013, 0 3px 9px #0005;
+  }
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  :root[data-estilo="relieve"] :is(.inicio-acceso, .inicio-gestion):hover:not(:active) { transform: perspective(560px) translateY(-2px) rotateX(4deg); }
+}
