@@ -66,36 +66,67 @@ const irConCamara = (ruta) => {
 async function pantallaInicio() {
   const admin = esAdmin();
   const maquina = await maquinaActiva();
+  const modulos = [
+    ['maquinas', 'Máquinas', 'maquina'], ['guias', 'Guías', 'guia'],
+    ['escaner', 'Escáner', 'escaner'], ['elementos', 'Elementos', 'elementos'],
+  ];
+  const gestiones = [
+    ['maquinas', 'Gestión de máquinas', 'maquina'], ['anclas', 'Gestión de anclas', 'ancla'],
+    ['guias', 'Gestión de guías', 'guia'], ['nuevo', 'Añadir elemento', 'nuevo'],
+    ['copia', 'Copia de seguridad', 'copia'], ['importar', 'Importar desde Excel (PC)', 'importar'],
+    ['diagnostico-ar', 'Diagnóstico del AR con LiDAR', 'diagnostico'],
+  ];
+  const icono = (tipo) => `<span class="icono-inicio icono-${tipo}" aria-hidden="true"></span>`;
+  const flecha = icono('ir');
   app.innerHTML = `
-    <div class="pagina">
-      <h1 class="titulo-app"></h1>
-      <button class="usuario ${admin ? 'es-admin' : ''}" data-ir="#/admin">${admin ? '🔑 Administrador' : '👤 Usuario normal'}</button>
-      <p class="maquina-activa ${maquina ? '' : 'sin-maquina'}">
-        MÁQUINA ACTIVA: <b class="nombre-maquina"></b>
-      </p>
-      <div class="botones-principales">
-        <button class="boton grande" data-ir="#/maquinas">🏭 MÁQUINAS</button>
-        <button class="boton grande secundario" data-ir="#/guias">📘 GUÍAS</button>
-        <button class="boton grande" data-ir="#/escaner" data-camara>📷 ESCÁNER</button>
-        <button class="boton grande secundario" data-ir="#/elementos">📋 ELEMENTOS <span class="cuenta"></span></button>
+    <div class="pagina inicio ${admin ? 'inicio-admin' : ''}">
+      <header class="inicio-cabecera">
+        <div class="inicio-marca">
+          <span class="inicio-logo">${icono('escaner')}</span>
+          <h1 class="titulo-app"></h1>
+        </div>
+        <button class="usuario ${admin ? 'es-admin' : ''}" data-ir="#/admin">
+          ${icono('perfil')}${admin ? 'Administrador' : 'Usuario normal'}
+        </button>
+      </header>
+      <div class="inicio-modulos">
+        <section class="maquina-activa ${maquina ? '' : 'sin-maquina'}" aria-labelledby="rotulo-maquina-activa">
+          <span class="maquina-estado" id="rotulo-maquina-activa">Máquina activa</span>
+          <div class="nombre-maquina">
+            <strong class="maquina-nombre"></strong>
+            <span class="maquina-codigo" ${maquina ? '' : 'hidden'}></span>
+          </div>
+        </section>
+        <nav class="botones-principales" aria-label="Módulos de InfoLens">
+          ${modulos.map(([ruta, titulo, simbolo]) => `
+            <button class="boton inicio-acceso ${ruta === 'escaner' ? 'acceso-escaner' : ''}" data-ir="#/${ruta}" ${ruta === 'escaner' ? 'data-camara' : ''}>
+              <span class="acceso-dibujo">${icono(simbolo)}</span>
+              <span class="acceso-titulo">${titulo}${ruta === 'elementos' ? '<span class="cuenta"></span>' : ''}</span>
+              ${flecha}
+            </button>`).join('')}
+        </nav>
       </div>
       ${admin ? `
-      <h2>🔑 Administración</h2>
-      <button class="boton secundario" data-ir="#/maquinas">🏭 Gestión de máquinas</button>
-      <button class="boton secundario" data-ir="#/anclas">⚓ Gestión de anclas</button>
-      <button class="boton secundario" data-ir="#/guias">📘 Gestión de guías</button>
-      <button class="boton secundario" data-ir="#/nuevo">➕ Añadir elemento</button>
-      <button class="boton secundario" data-ir="#/copia">💾 Copia de seguridad</button>
-      <button class="boton secundario" data-ir="#/importar">📊 Importar desde Excel (PC)</button>
-      <button class="boton secundario" data-ir="#/diagnostico-ar">🔬 Diagnóstico del AR con LiDAR</button>
-      <p class="nota">Versión ${__VERSION__}</p>` : ''}
+      <section class="inicio-administracion" aria-labelledby="titulo-administracion">
+        <h2 id="titulo-administracion">Administración</h2>
+        <div class="inicio-gestiones">
+          ${gestiones.map(([ruta, titulo, simbolo]) => `
+            <button class="boton inicio-gestion" data-ir="#/${ruta}">
+              <span class="gestion-dibujo">${icono(simbolo)}</span>
+              <span class="gestion-titulo">${titulo}</span>
+              ${flecha}
+            </button>`).join('')}
+        </div>
+        <p class="nota inicio-version">Versión ${__VERSION__}</p>
+      </section>` : ''}
     </div>`;
   app.querySelector('.titulo-app').textContent = APP_NAME;
-  app.querySelector('.nombre-maquina').textContent = maquina ? `${maquina.nombre} (${maquina.id})` : 'elige una en Máquinas';
+  app.querySelector('.maquina-nombre').textContent = maquina ? maquina.nombre : 'Elige una en Máquinas';
+  if (maquina) app.querySelector('.maquina-codigo').textContent = maquina.id;
   app.querySelectorAll('[data-ir]').forEach((b) => b.addEventListener('click', () => {
     if (b.hasAttribute('data-camara')) irConCamara(b.dataset.ir); else ir(b.dataset.ir);
   }));
-  if (maquina) elementosDeMaquina(maquina.id).then((l) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = `(${l.length})`; });
+  if (maquina) elementosDeMaquina(maquina.id).then((l) => { const c = app.querySelector('.cuenta'); if (c) c.textContent = l.length; });
   else contarElementos().then(() => {});
   cargarEscaner(); // ir cargando el escáner en segundo plano
 }

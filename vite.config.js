@@ -25,8 +25,8 @@ export default defineConfig({
         scope: './',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#0f1b24',
-        theme_color: '#0f1b24',
+        background_color: '#0d1418',
+        theme_color: '#0d1418',
         icons: [
           { src: 'iconos/icono-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'iconos/icono-512.png', sizes: '512x512', type: 'image/png' },
@@ -38,7 +38,7 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         // Guardar TODO en el móvil para que funcione en modo avión
-        globPatterns: ['**/*.{js,mjs,css,html,wasm,svg,png,ico,pdf,webmanifest,bcmap,pfb,ttf,usdz}'],
+        globPatterns: ['**/*.{js,mjs,css,html,wasm,svg,png,webp,ico,pdf,webmanifest,bcmap,pfb,ttf,usdz}'],
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         // El conversor de STEP (7,6 MB) no se descarga al instalar: se guarda la primera vez que se usa
         // Lo mismo con el reconocimiento sin QR (MediaPipe y sus modelos).
