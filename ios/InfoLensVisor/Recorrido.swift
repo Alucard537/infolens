@@ -12,6 +12,26 @@ struct InfoElemento: Codable {
     var descripcion: String?
 }
 
+struct ElementosDeGuia: Decodable {
+    struct Punto: Decodable {
+        let id: Int
+        let pos: [Float]
+
+        var valido: Bool { id >= 0 && pos.count == 3 && pos.allSatisfy { $0.isFinite && abs($0) < 1000 } }
+        var centro: SIMD4<Float> { [pos[0], pos[1], pos[2], 1] }
+    }
+
+    let anclaId: String
+    let puntos: [Punto]
+
+    static func desdeDatos(_ datos: Data) -> ElementosDeGuia? {
+        guard datos.count <= 200_000, let lista = try? JSONDecoder().decode(Self.self, from: datos),
+              !lista.anclaId.isEmpty, !lista.puntos.isEmpty, lista.puntos.allSatisfy(\.valido),
+              Set(lista.puntos.map(\.id)).count == lista.puntos.count else { return nil }
+        return lista
+    }
+}
+
 private struct DatosRecorrido: Decodable {
     var p: [[Double]]
     var i: InfoElemento?

@@ -10,6 +10,22 @@ export function destinoDelPaso(paso, localizaciones) {
   return localizaciones.get(paso.elementoId) || null;
 }
 
+export function marcasDeGuia(guia, localizaciones) {
+  const vistas = new Set();
+  return guia.pasos.flatMap((paso, id) => {
+    const destino = destinoDelPaso(paso, localizaciones);
+    const pos = [destino?.posIcono, destino?.pos].find((punto) =>
+      Array.isArray(punto) && punto.length === 3 && punto.every((n) => Number.isFinite(n) && Math.abs(n) < 1000));
+    if (!pos) return [];
+    const elemento = guia.elementos.get(paso.elementoId);
+    const nombre = elemento?.nombre || String(paso.titulo ?? '').trim() || `Paso ${id + 1}`;
+    const clave = elemento ? `elemento:${elemento.id}` : `punto:${nombre}:${pos.join(',')}`;
+    if (vistas.has(clave)) return [];
+    vistas.add(clave);
+    return [{ id, pos, nombre }];
+  });
+}
+
 export function fuentePoseAncla(ancla, ahora) {
   if (!ancla?.visible || !Number.isFinite(ancla.vistoQR)) return null;
   const sinQR = ahora - ancla.vistoQR;

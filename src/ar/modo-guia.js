@@ -1,6 +1,7 @@
 import { obtenerArchivo } from '../db.js';
 import { localizacionesDeAncla } from '../maquinas.js';
-import { destinoDelPaso, textoTramo } from './guia-recorrido.js';
+import { destinoDelPaso, marcasDeGuia, textoTramo } from './guia-recorrido.js';
+import { crearMarcasElementos } from '../ui/marcas-elementos.js';
 
 export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDetalle, abrirImagen, alSalir, pasoInicial = 0 }) {
   const total = guia.pasos.length;
@@ -10,6 +11,9 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
   let terminada = false;
   let localizaciones = new Map();
   let detalle = null;
+  let resumenElementos = null;
+  let elementos = [];
+  const rotulos = crearMarcasElementos(panel);
   let urls = [];
   let turnoMedios = 0;
   let cerrarAmpliacion = null;
@@ -65,8 +69,12 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     }
   }
 
-  function pintarPaso() {
+  function pintarPaso(informacionHabilitada = false) {
     limpiarMedios();
+    if (resumenElementos) {
+      resumenElementos = null;
+      rotulos.mostrar([]);
+    }
     const p = guia.pasos[paso];
     const e = estadoDe(paso);
     const elemento = guia.elementos.get(p.elementoId);
@@ -75,7 +83,10 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     panel.innerHTML = `
       <div class="guia-cab">
         <div class="guia-contexto"><span class="guia-nombre"></span><span class="guia-paso"></span></div>
-        <button class="boton-mini" data-g="plegar" aria-controls="guia-instrucciones"></button>
+        <div class="guia-acciones-cab">
+          ${elementos.length ? '<button class="boton-mini" type="button" data-g="todos">Ver todos</button>' : ''}
+          <button class="boton-mini" data-g="plegar" aria-controls="guia-instrucciones"></button>
+        </div>
       </div>
       <h2 class="guia-titulo"></h2>
       <p class="guia-referencia"></p>
@@ -99,7 +110,9 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       ? (elemento ? `Falta la posición de este elemento para «${guia.anclaNombre || guia.anclaId}». Añádela en Localizaciones o en los tramos del paso.` : 'Paso de instrucciones')
       : (!mostrarMarcas ? 'Activa las flechas o el icono en la edición de este paso.' : null);
     const ampliar = $('[data-g="ampliar"]');
+    if (ampliar && informacionHabilitada) ampliar.hidden = false;
     detalle = { avisoFijo, conIcono: p.icono !== false, info: $('.guia-ar'), ampliar };
+    $('[data-g="todos"]')?.addEventListener('click', verTodos);
     detalle.info.textContent = avisoFijo ?? 'Preparando la marca del elemento…';
     ampliar?.addEventListener('click', async () => {
       if (cerrarAmpliacion) return;
@@ -230,6 +243,20 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     } else capa.ocultar();
   }
 
+  function verTodos() {
+    const informacionHabilitada = detalle?.ampliar?.hidden === false;
+    limpiarMedios();
+    panel.innerHTML = `<div class="guia-todos">
+      <p class="nota guia-cuenta-elementos"></p>
+      <button class="boton-mini" type="button" data-g="volver-paso">Volver al paso ${paso + 1}</button>
+    </div>`;
+    resumenElementos = panel.querySelector('.guia-cuenta-elementos');
+    resumenElementos.textContent = 'Preparando los elementos…';
+    panel.querySelector('[data-g="volver-paso"]').addEventListener('click', () => pintarPaso(informacionHabilitada));
+    rotulos.mostrar(elementos);
+    capa.mostrarElementos(elementos, guia.anclaId);
+  }
+
   function finalizar() {
     terminada = true;
     limpiarMedios();
@@ -250,22 +277,32 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
     actualizar(_dt, arriba, ahora) {
       if (terminada) return;
       const sa = seguidos.get(guia.anclaId);
-      capa.actualizarEjes(arriba, sa);
+      capa.actualizarEjes(arriba, resumenElementos ? null : sa);
       if (!iniciada && sa?.visible && sa.tipo === 'ancla-activa') {
         iniciada = true;
         localizacionesDeAncla(maquinaId, guia.anclaId).then((locs) => {
           if (!activo) return;
           localizaciones = new Map(locs.map((l) => [l.elementoId, l]));
+          elementos = marcasDeGuia(guia, localizaciones);
           pintarPaso();
         }).catch((error) => {
           if (activo) panel.querySelector('p').textContent = 'No se pudieron cargar las localizaciones.';
           console.warn('Localizaciones de la guía:', error);
         });
       }
+      if (resumenElementos) {
+        const est = capa.actualizar(arriba, ahora, sa);
+        const visibles = est?.fiable ? est.elementos ?? [] : [];
+        const texto = est?.error || (est?.pendiente ? 'Preparando los elementos…' : est?.fiable
+          ? `${visibles.length} de ${elementos.length} en cámara` : 'Vuelve a enfocar el QR del ancla.');
+        if (resumenElementos.textContent !== texto) resumenElementos.textContent = texto;
+        rotulos.proyectar(visibles);
+        return;
+      }
       if (!detalle || detalle.avisoFijo !== null) return;
       const { info, conIcono, ampliar } = detalle;
       const est = capa.actualizar(arriba, ahora, sa);
-      if (ampliar?.hidden && est?.fiable && est.llegada) ampliar.hidden = false;
+      if (ampliar?.hidden && est?.fiable && (est.llegada || est.destinoVisible)) ampliar.hidden = false;
       let texto = '';
       if (est?.error) texto = est.error;
       else if (est?.pendiente) texto = 'Preparando la marca del elemento…';
@@ -284,6 +321,7 @@ export function crearModoGuia({ capa, panel, seguidos, guia, maquinaId, abrirDet
       activo = false;
       limpiarMedios();
       capa.ocultar();
+      rotulos.cerrar();
     },
   };
 }

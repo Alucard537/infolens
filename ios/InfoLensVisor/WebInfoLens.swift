@@ -97,6 +97,14 @@ final class AplicacionInfoLens: ObservableObject {
             } else {
                 controlador?.cambiarRecorrido(nil, destinoId: destinoId, error: "La posición del elemento no es válida. Revisa los tramos o su localización.")
             }
+        case "elementos":
+            let destinoId = mensaje["destinoId"] as? Int
+            if let objeto = mensaje["elementos"], JSONSerialization.isValidJSONObject(objeto),
+               let datos = try? JSONSerialization.data(withJSONObject: objeto), let elementos = ElementosDeGuia.desdeDatos(datos) {
+                controlador?.cambiarRecorrido(nil, elementos: elementos, destinoId: destinoId)
+            } else {
+                controlador?.cambiarRecorrido(nil, destinoId: destinoId, error: "No se pudieron cargar las posiciones de los elementos.")
+            }
         case "ocultar": controlador?.cambiarRecorrido(nil)
         case "vista": controlador?.soloLinea = mensaje["vista"] as? String == "linea"
         case "buscar": controlador?.buscarQR()

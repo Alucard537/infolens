@@ -453,6 +453,24 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .tarjeta-recorrido .guia-nav .secundario { background: #243746; }
 .tarjeta-recorrido .guia-nav .boton:not(.secundario) { background: #92efcb; }
 .guia-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.guia-acciones-cab { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+.guia-acciones-cab [data-g="todos"] { min-height: 36px; color: #aaf2d7; }
+.vista-arkit[hidden] { display: none; }
+.guia-todos { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.guia-cuenta-elementos { margin: 0; }
+.marcas-elementos { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.marca-elemento { position: absolute; top: 0; left: 0; }
+.flecha-elemento {
+  position: absolute; inset: auto auto 0 -9px; width: 18px; height: 22px;
+  background: #9cefd2; filter: drop-shadow(0 2px 2px #0c191f);
+  clip-path: polygon(31% 0, 69% 0, 69% 53%, 100% 53%, 50% 100%, 0 53%, 31% 53%);
+}
+.nombre-elemento {
+  position: absolute; top: 0; left: 0; width: max-content; max-width: min(150px, 45vw);
+  padding: 5px 8px; border: 1px solid #649d94; border-radius: 8px;
+  background: #12262e; color: #fff; font-size: 14px; font-weight: 700; line-height: 1.18;
+  text-align: center; overflow-wrap: anywhere; box-shadow: 0 2px 8px #0008;
+}
 .guia-contexto { display: flex; gap: 4px 9px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
 .guia-contexto .guia-nombre { overflow-wrap: anywhere; }
 .guia-cab [data-g="plegar"] { flex: none; min-height: 36px; }

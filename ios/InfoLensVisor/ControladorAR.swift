@@ -15,6 +15,16 @@ struct EstadoAR: Encodable, Equatable {
     struct PuntoPantalla: Encodable, Equatable {
         let x: Double
         let y: Double
+
+        static func enPantalla(x: Double, y: Double) -> PuntoPantalla? {
+            guard (0.0...1.0).contains(x), (0.0...1.0).contains(y) else { return nil }
+            return .init(x: (x * 1000).rounded() / 1000, y: (y * 1000).rounded() / 1000)
+        }
+    }
+    struct ElementoVisible: Encodable, Equatable {
+        let id: Int
+        let x: Double
+        let y: Double
     }
 
     let anclaId: String?
@@ -26,6 +36,7 @@ struct EstadoAR: Encodable, Equatable {
     let destinoId: Int?
     let errorDestino: String?
     let direccionDestino: DireccionDestino?
+    let elementos: [ElementoVisible]?
 }
 
 final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
@@ -69,6 +80,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private var destinoId: Int?
     private var errorDestino: String?
     private var direccionDestino: DireccionDestino?
+    private var elementosGuia: ElementosDeGuia?
+    private var elementosEnPantalla: [EstadoAR.ElementoVisible]?
 
     init(recorrido: Recorrido) {
         self.anclas = [recorrido.anclaId: recorrido.ancla]
@@ -95,25 +108,31 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         arrancar()
     }
 
-    func cambiarRecorrido(_ nuevo: Recorrido?, destinoId: Int? = nil, error: String? = nil) {
+    func cambiarRecorrido(_ nuevo: Recorrido?, elementos: ElementosDeGuia? = nil, destinoId: Int? = nil, error: String? = nil) {
         let anclaActual = anclaFijada ?? anclaBuscada
-        if let nuevo, anclas[nuevo.anclaId]?.subancla != nil || anclas[nuevo.anclaId] == nil ||
-            (anclaActual != nil && anclaActual != nuevo.anclaId) {
+        let desdeVistaElementos = elementosGuia != nil
+        let anclaSolicitada = nuevo?.anclaId ?? elementos?.anclaId
+        if let anclaSolicitada, anclas[anclaSolicitada]?.subancla != nil || anclas[anclaSolicitada] == nil ||
+            (anclaActual != nil && anclaActual != anclaSolicitada) {
             recorrido = nil
+            elementosGuia = nil
             errorDestino = "La posición del elemento corresponde a otro QR principal."
         } else {
             recorrido = nuevo
+            elementosGuia = elementos
             errorDestino = error
-            if let nuevo, anclaFijada == nil { anclaBuscada = nuevo.anclaId }
+            if let anclaSolicitada, anclaFijada == nil { anclaBuscada = anclaSolicitada }
         }
         self.destinoId = destinoId
         progreso = ProgresoRuta()
-        buscarTramoCercano = usaSubancla
+        buscarTramoCercano = usaSubancla || desdeVistaElementos
         ultimoTramo = nil
         tramoActual = nil
         rumboGrados = nil
         destinoEnPantalla = nil
         direccionDestino = nil
+        elementosEnPantalla = nil
+        if elementosGuia != nil { marcaQR?.isEnabled = false }
         ultimaProyeccion = 0
         rehacer()
         emitirEstado()
@@ -123,7 +142,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         guard let alCambiarEstado else { return }
         let actual = EstadoAR(anclaId: anclaFijada, fiable: enMarcha && marcoQR.isEnabled, mensaje: estado,
                              tramo: ultimoTramo, rumbo: rumboGrados, destino: destinoEnPantalla, destinoId: destinoId,
-                             errorDestino: errorDestino, direccionDestino: direccionDestino)
+                             errorDestino: errorDestino, direccionDestino: direccionDestino, elementos: elementosEnPantalla)
         guard actual != estadoEnviado else { return }
         estadoEnviado = actual
         alCambiarEstado(actual)
@@ -290,7 +309,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             mensaje = "Principal fijado. Enfoca «\(subancla.nombre)»."
         }
         marcoQR.isEnabled = true
-        marcaQR?.isEnabled = principalVisible
+        marcaQR?.isEnabled = principalVisible && elementosGuia == nil
         mostrarEstado(mensaje)
         actualizarVisuales(frame)
         actualizarTramo(frame)
@@ -426,11 +445,25 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     private func actualizarVisuales(_ frame: ARFrame) {
-        guard let recorrido, let contenido else { return }
+        guard elementosGuia != nil || recorrido != nil && contenido != nil else { return }
         let pantalla = vista.bounds.size
         guard pantalla.width > 1, pantalla.height > 1 else { return }
         let mundo = marcoRuta.transformMatrix(relativeTo: nil)
         let inversaCamara = frame.camera.viewMatrix(for: .portrait)
+        if let elementosGuia {
+            guard frame.timestamp - ultimaProyeccion >= 0.04 else { return }
+            ultimaProyeccion = frame.timestamp
+            elementosEnPantalla = elementosGuia.puntos.compactMap { punto in
+                let p = mundo * punto.centro
+                guard (inversaCamara * p).z < -0.05 else { return nil }
+                let proyeccion = frame.camera.projectPoint([p.x, p.y, p.z], orientation: .portrait, viewportSize: pantalla)
+                guard let visible = EstadoAR.PuntoPantalla.enPantalla(x: Double(proyeccion.x / pantalla.width),
+                                                                       y: Double(proyeccion.y / pantalla.height)) else { return nil }
+                return .init(id: punto.id, x: visible.x, y: visible.y)
+            }
+            return
+        }
+        guard let recorrido, let contenido else { return }
         if let colocacion = recorrido.colocacion, let punto = recorrido.puntos.last {
             let camaraLocal = simd_inverse(mundo) * frame.camera.transform.columns.3
             let visible = colocacion.seVe(desde: [camaraLocal.x, camaraLocal.y, camaraLocal.z], punto: punto,
@@ -468,8 +501,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                 let proyectado = frame.camera.projectPoint([p.x, p.y, p.z], orientation: .portrait, viewportSize: pantalla)
                 let x = Double(proyectado.x / pantalla.width)
                 let y = Double(proyectado.y / pantalla.height)
-                if (0.0...1.0).contains(x), (0.0...1.0).contains(y) {
-                    destino = .init(x: (x * 1000).rounded() / 1000, y: (y * 1000).rounded() / 1000)
+                if let visible = EstadoAR.PuntoPantalla.enPantalla(x: x, y: y) {
+                    destino = visible
                 } else {
                     direccion = DireccionDestino.enPantalla(x: x, y: y)
                 }
@@ -498,6 +531,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         marcoQR.isEnabled = false
         ultimoTramo = nil
         direccionDestino = nil
+        elementosEnPantalla = nil
         if destinoEnPantalla != nil { destinoEnPantalla = nil }
         if tramoActual != nil { tramoActual = nil }
         if rumboGrados != nil { rumboGrados = nil }

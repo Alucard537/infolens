@@ -361,7 +361,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
       <label class="boton-mini">➕ Añadir vídeo<input type="file" accept="video/*" class="entrada-oculta" data-e="video"></label>
       <div class="bloque-archivo">
         <div class="titulo-archivo">Información al llegar</div>
-        <p class="nota">El usuario podrá abrir este PDF o vídeo cuando la cámara indique que ha llegado al destino.</p>
+        <p class="nota">El usuario podrá abrir este PDF o vídeo cuando vea la marca del destino en cámara o llegue al final del recorrido.</p>
         <p class="nota nombre-ampliacion" aria-live="polite"></p>
         <div class="acciones-paso">
           <label class="boton-mini"><span class="seleccionar-ampliacion">Elegir PDF o vídeo</span><input type="file" accept=".pdf,application/pdf,video/*,.mp4,.m4v,.mov,.webm" class="entrada-oculta" data-ampliacion></label>

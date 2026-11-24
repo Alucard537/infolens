@@ -23,6 +23,7 @@ const TAM_I = 0.1;                 // diámetro de la "i" de destino (m)
 // ======================================================================
 export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes = () => false }) {
   let r = null; // recorrido actual
+  let elementosVisibles = null;
   const matG = new THREE.Matrix4(), inversa = new THREE.Matrix4();
   const v = new THREE.Vector3(), hacia = new THREE.Vector3(), lateral = new THREE.Vector3();
   const objetivoCam = new THREE.Vector3(), posicionG = new THREE.Vector3();
@@ -82,6 +83,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
 
   function ocultar() {
     indicador.hidden = true;
+    elementosVisibles = null;
     if (!r) return;
     quitarCamino();
     if (r.destino) escena.remove(r.destino);
@@ -132,10 +134,32 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
     }
   }
 
+  function mostrarElementos(marcas, anclaId) {
+    ocultar();
+    elementosVisibles = { anclaId, posiciones: marcas.map(({ id, pos }) => ({ id, punto: new THREE.Vector3(...pos) })) };
+  }
+
+  function proyectarPunto(punto) {
+    if (punto.z >= -0.05) return null;
+    punto.project(camara);
+    if (Math.abs(punto.x) > 1 || Math.abs(punto.y) > 1 || punto.z < -1 || punto.z > 1) return null;
+    return { x: (1 + punto.x) / 2, y: (1 - punto.y) / 2 };
+  }
+
   /** Cada fotograma. seguidoAncla: el QR del ancla (o null). Devuelve el estado del recorrido. */
   function actualizar(arriba, ahora, seguidoAncla) {
-    if (!r) return null;
+    if (!r && !elementosVisibles) return null;
     const fuente = fuentePoseAncla(seguidoAncla, ahora);
+    if (elementosVisibles) {
+      if (!fuente || seguidoAncla.id !== elementosVisibles.anclaId) return { fiable: false };
+      marcoQR(seguidoAncla.pos, seguidoAncla.rot, arriba, matG, gravedadDe(seguidoAncla));
+      const elementos = [];
+      for (const { id, punto } of elementosVisibles.posiciones) {
+        const puntoVisible = proyectarPunto(v.copy(punto).applyMatrix4(matG));
+        if (puntoVisible) elementos.push({ id, ...puntoVisible });
+      }
+      return { fiable: true, elementos };
+    }
     if (!fuente) {
       if (r.flechas) r.flechas.visible = false;
       if (r.destino) r.destino.visible = false;
@@ -169,7 +193,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
       r.destino.matrix.makeBasis(lateral, arriba, hacia).scale(escalaI).setPosition(d);
       r.destino.matrixWorldNeedsUpdate = true;
     }
-    return { ...tramo, fuente, fiable: true };
+    return { ...tramo, fuente, fiable: true, destinoVisible: !!r.destino && !!proyectarPunto(d) };
   }
 
   function etiquetas(g) {
@@ -220,7 +244,7 @@ export function crearCapaRecorrido({ escena, camara, capaEtiquetas, mostrarEjes 
   function reiniciarReferencia() { if (r) { r.visto = false; r.indice = 1; } }
 
   return {
-    mostrar, ocultar, cambiarVista, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
+    mostrar, mostrarElementos, ocultar, cambiarVista, actualizar, actualizarEjes, etiquetas, tocado, reiniciarReferencia, fijarGravedad,
     set forzarEjes(v) { forzarEjes = !!v; }, get activo() { return !!r; },
   };
 }

@@ -94,6 +94,25 @@ struct PruebaCaraPrincipal {
         print("Cara del principal y recuperación de las subanclas verificadas")
         probarRecorridoNivelado()
         try probarColocacionDelQR()
+        probarElementosDeGuia()
+    }
+
+    static func probarElementosDeGuia() {
+        let valido = Data("""
+        {"anclaId":"PRINCIPAL","puntos":[{"id":0,"pos":[1,0.2,-2]},{"id":2,"pos":[-1,0,0]}]}
+        """.utf8)
+        guard let elementos = ElementosDeGuia.desdeDatos(valido) else { preconditionFailure("Faltan las posiciones de los elementos") }
+        precondition(elementos.anclaId == "PRINCIPAL" && elementos.puntos.map(\.id) == [0, 2])
+        precondition(elementos.puntos[0].centro == [1, 0.2, -2, 1])
+        let repetido = Data("""
+        {"anclaId":"PRINCIPAL","puntos":[{"id":1,"pos":[1,0,0]},{"id":1,"pos":[0,0,1]}]}
+        """.utf8)
+        let incompleto = Data("""
+        {"anclaId":"PRINCIPAL","puntos":[{"id":0,"pos":[1,0]}]}
+        """.utf8)
+        precondition(ElementosDeGuia.desdeDatos(repetido) == nil)
+        precondition(ElementosDeGuia.desdeDatos(incompleto) == nil)
+        print("Vista de elementos anclada al QR principal verificada")
     }
 
     static func probarColocacionDelQR() throws {

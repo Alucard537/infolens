@@ -49,7 +49,8 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   const rumbo = $('.rumbo-arkit');
   const indicador = $('.indicacion-destino');
   const panelNavegacion = $('.nav-panel');
-  const selector = $('.vista-arkit select');
+  const controlVista = $('.vista-arkit');
+  const selector = controlVista.querySelector('select');
   const ficha = crearFichaFlotante(escena, $('.ficha-flotante'), panelNavegacion);
   selector.value = ajustes.lidarVista === 'linea' ? 'linea' : 'flechas';
   function enviar(accion, datos = {}) {
@@ -59,7 +60,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
   function enviarDestino() {
     if (!destinoPendiente || destinoPendiente.enviado || !mirada.fiable || mirada.anclaId !== destinoPendiente.anclaId) return;
     destinoPendiente.enviado = true;
-    enviar('recorrido', destinoPendiente.datos);
+    enviar(destinoPendiente.accion, destinoPendiente.datos);
   }
 
   function pintarIndicador() {
@@ -107,18 +108,32 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
           flechas: conFlechas, icono: conIcono, posIcono: loc.posIcono,
         }),
       };
-      destinoPendiente = { anclaId, datos, enviado: false, conIcono, nombre };
+      controlVista.hidden = false;
+      destinoPendiente = { accion: 'recorrido', anclaId, datos, enviado: false, conIcono, nombre };
       pintarIndicador();
       enviarDestino();
     },
-    ocultar() { destinoPendiente = null; ficha.limpiar(); pintarIndicador(); enviar('ocultar'); },
+    mostrarElementos(marcas, anclaId) {
+      const puntos = marcas.map(({ id, pos }) => ({ id, pos }));
+      const datos = { destinoId: ++destinoId, elementos: { anclaId, puntos } };
+      destinoPendiente = { accion: 'elementos', datos, anclaId, enviado: false };
+      controlVista.hidden = true;
+      rumbo.hidden = true;
+      ficha.limpiar();
+      pintarIndicador();
+      enviarDestino();
+    },
+    ocultar() { destinoPendiente = null; controlVista.hidden = false; ficha.limpiar(); pintarIndicador(); enviar('ocultar'); },
     actualizar() {
       const coincide = destinoPendiente && mirada.destinoId === destinoPendiente.datos.destinoId;
       if (coincide && mirada.errorDestino) return { error: mirada.errorDestino };
       if (!mirada.fiable) return { fiable: false, esperandoAncla: !mirada.anclaId };
       if (!destinoPendiente) return null;
+      if (destinoPendiente.accion === 'elementos') return coincide && mirada.elementos
+        ? { fiable: true, elementos: mirada.elementos } : { pendiente: true };
       if (!coincide || !mirada.tramo) return { pendiente: true };
-      return { ...mirada.tramo, fiable: true, fueraDeCamara: destinoPendiente.conIcono && !mirada.destino };
+      return { ...mirada.tramo, fiable: true, destinoVisible: !!mirada.destino,
+        fueraDeCamara: destinoPendiente.conIcono && !mirada.destino };
     },
     actualizarEjes() {},
     reiniciarReferencia() {},
@@ -137,7 +152,7 @@ export function pantallaRecorridoNativo(app, { guiaId, maquinaId, pasoInicial, v
     pintarIndicador();
     if (datos.anclaId) seguidos.set(datos.anclaId, { id: datos.anclaId, tipo: 'ancla-activa', visible: datos.fiable });
     else seguidos.clear();
-    rumbo.hidden = !datos.fiable || !Number.isFinite(datos.rumbo);
+    rumbo.hidden = destinoPendiente?.accion === 'elementos' || !datos.fiable || !Number.isFinite(datos.rumbo);
     if (!rumbo.hidden) rumbo.style.rotate = `${datos.rumbo - 90}deg`;
     modulo?.actualizar(0, null, performance.now());
   }
