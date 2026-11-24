@@ -56,7 +56,7 @@ function mostrarTraslado(pagina, { registro, maquinaDestino, guia, duplicar, alG
     } else if (guia) {
       aviso.textContent = !desdeDestino && seleccion.value === registro.maquinaId
         ? 'La copia se guardará como borrador.'
-        : 'Los elementos vinculados se copiarán a la máquina de destino. La guía quedará en borrador para que asignes el ancla y revises las posiciones.';
+        : 'Los elementos vinculados se copiarán a la máquina de destino. Si el QR está asignado a esa máquina, la guía conservará el ancla. La guía quedará en borrador para que revises las posiciones.';
     } else {
       aviso.textContent = duplicar
         ? 'La copia tendrá su propio QR. Podrás configurar su posición en la máquina elegida.'

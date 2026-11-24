@@ -12,7 +12,7 @@ import { crearCapaRecorrido, crearModoAncla } from '../ar/modo-navegacion.js';
 import { fuentePoseAncla, VIGENCIA_QR_MS, VIGENCIA_ENTORNO_MS, MAX_ENTORNO_SIN_QR_MS } from '../ar/guia-recorrido.js';
 import { crearModoGuia } from '../ar/modo-guia.js';
 import { crearEscaneo } from '../ar/escaneo.js';
-import { mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia, guardarGravedadAncla } from '../maquinas.js';
+import { anclaParaMaquina, mapaAnclas, maquinaActivaId, obtenerMaquina, obtenerGuia, guardarGravedadAncla } from '../maquinas.js';
 import { hayQuickLook, crearEnlaceAR } from '../ar/boton-ar.js';
 import { PROPORCION_RECORTE } from '../reconocer/huella.js';
 import { esAdmin } from '../permisos.js';
@@ -165,8 +165,9 @@ export function pantallaEscaner(app, {
     const an = anclas.get(id) || null;
     if (modo === 'escaner') {
       if (el && el.maquinaId === maquinaId) return { tipo: 'elemento', el };
+      if (an?.maquinaId === maquinaId) return { tipo: 'ancla', an };
       if (el) return { tipo: 'ajeno', el };
-      if (an) return { tipo: an.maquinaId === maquinaId ? 'ancla' : 'ancla-ajena', an };
+      if (an) return { tipo: 'ancla-ajena', an };
       return { tipo: 'desconocido' };
     }
     if (an && an.maquinaId === maquinaId) {
@@ -208,7 +209,7 @@ export function pantallaEscaner(app, {
       elemento: [elemento?.nombre, elemento?.referencia],
       desconocido: ['Elemento no registrado', `ID: ${id}`],
       ajeno: ['Este elemento no pertenece a la máquina seleccionada.', esAdmin() ? `ID: ${id} · máquina: ${elDetectado?.maquinaId || 'ninguna'}` : `ID: ${id}`],
-      ancla: [`⚓ Ancla: ${an?.nombre || id}`, 'Para localizar componentes, entra en ANCLA.'],
+      ancla: [`⚓ Ancla: ${an?.nombre || id}`, 'Abre una guía de la máquina seleccionada para usar este QR.'],
       'ancla-ajena': ['Este ancla no pertenece a la máquina seleccionada.', `⚓ ${id}`],
       'ancla-activa': [`⚓ Ancla: ${an?.nombre || id}`, `Máquina ${maquinaId}`],
       'ancla-otra': [`⚓ ${an?.nombre || id}`, `Esta guía usa el ancla ${guiaActual?.anclaId || ''}`],
@@ -457,7 +458,7 @@ export function pantallaEscaner(app, {
     alMedir: (id, g) => {
       const a = anclas && anclas.get(id);
       if (a) a.gravedad = g;
-      if (esAdmin()) guardarGravedadAncla(id, g).catch(() => {});
+      if (esAdmin()) guardarGravedadAncla(id, maquinaId, g).catch(() => {});
     },
     alReiniciar: () => {
       reiniciarEntorno();
@@ -475,11 +476,11 @@ export function pantallaEscaner(app, {
       if (!maquina) { avisar('No hay ninguna máquina seleccionada.'); elementos = new Map(); anclas = new Map(); return; }
       if (modo === 'guia') {
         // La guía tiene que ser de la máquina activa, estar publicada (salvo para el administrador) y tener ancla de esa máquina
-        const anc = guia && ans.get(guia.anclaId);
+        const anc = guia && anclaParaMaquina(ans.get(guia.anclaId), maquinaId);
         const motivo = !guia ? 'La guía no existe.'
           : guia.maquinaId !== maquinaId ? 'Esta guía no pertenece a la máquina seleccionada.'
             : guia.estado !== 'publicada' && !esAdmin() ? 'Esta guía no está publicada.'
-              : !anc || anc.maquinaId !== maquinaId ? 'La guía no tiene un ancla válida de esta máquina.'
+              : !anc ? 'La guía no tiene un ancla válida de esta máquina.'
                 : !(guia.pasos || []).length ? 'La guía no tiene pasos.' : null;
         if (motivo) {
           const p = $('.nav-panel');
@@ -496,7 +497,8 @@ export function pantallaEscaner(app, {
           elementos: new Map([...els].filter(([, e]) => e.maquinaId === maquinaId)),
         };
       }
-      elementos = els; anclas = ans;
+      elementos = els;
+      anclas = new Map([...ans].map(([id, a]) => [id, anclaParaMaquina(a, maquinaId) ?? { ...a, maquinaId: null }]));
       if (modo === 'ancla') {
         modulo = crearModoAncla({
           capa, panel: $('.nav-panel'), panelPos: $('.pos-panel'), seguidos, abrirDetalle, maquinaId,

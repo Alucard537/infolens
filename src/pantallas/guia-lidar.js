@@ -22,8 +22,8 @@ export function pantallaGuiaLidar(app, id, { pasoInicial = 0, volver, abrirDetal
       : g.maquinaId !== maquinaActivaId() ? 'Esta guía no pertenece a la máquina seleccionada.'
         : g.estado !== 'publicada' && !esAdmin() ? 'Esta guía no está disponible.'
           : !(g.pasos || []).length ? 'La guía no tiene pasos.' : null;
-    const ancla = g && g.anclaId ? await obtenerAncla(g.anclaId) : null;
-    if (problema || !ancla || ancla.maquinaId !== g.maquinaId) {
+    const ancla = g && g.anclaId ? await obtenerAncla(g.anclaId, g.maquinaId) : null;
+    if (problema || !ancla) {
       app.innerHTML = '<div class="pagina"><button class="volver">‹ Volver</button><p class="error-form"></p></div>';
       app.querySelector('.error-form').textContent = problema || 'La guía no tiene un ancla válida de esta máquina.';
       app.querySelector('.volver').addEventListener('click', volver);

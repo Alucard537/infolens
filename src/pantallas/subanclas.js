@@ -39,9 +39,9 @@ export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = 
   const avisar = (mensaje) => { error.textContent = mensaje; error.hidden = !mensaje; };
 
   async function pintar() {
-    const actual = await obtenerAncla(ancla.id);
+    const actual = await obtenerAncla(ancla.id, ancla.maquinaId);
     lista.replaceChildren();
-    if (!actual || actual.maquinaId !== ancla.maquinaId) { avisar('El ancla ya no está disponible.'); return; }
+    if (!actual) { avisar('El ancla ya no está disponible.'); return; }
     if (caraPrincipal) {
       caraPrincipal.textContent = Object.hasOwn(CARAS_MAQUINA, actual.cara)
         ? `QR principal en ${CARAS_MAQUINA[actual.cara].toLowerCase()}.`

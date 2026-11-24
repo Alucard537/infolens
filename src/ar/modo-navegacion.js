@@ -277,7 +277,7 @@ export function crearModoAncla({
   async function activar(id) {
     cargando = true;
     anclaId = id;
-    ancla = await obtenerAncla(id);
+    ancla = await obtenerAncla(id, maquinaId);
     // Si no se sabe cómo está colocado su QR (pared, mesa…), se mide ahora con el sensor
     const sa = seguidos.get(id);
     const medida = gravedadCalibrada(id);
@@ -285,7 +285,7 @@ export function crearModoAncla({
     else if (ancla && !ancla.gravedad && sa && arribaActual) {
       const gL = gravedadEnQR(sa.rot, arribaActual);
       ancla.gravedad = [gL.x, gL.y, gL.z];
-      if (esAdmin()) guardarGravedadAncla(id, ancla.gravedad).catch(() => {});
+      if (esAdmin()) guardarGravedadAncla(id, maquinaId, ancla.gravedad).catch(() => {});
     }
     locs = await localizacionesDeAncla(maquinaId, id); // ya comprueba máquina–ancla–elemento
     cargando = false;
@@ -433,7 +433,7 @@ export function crearModoAncla({
             ruta: previa ? previa.ruta : [], posIcono: previa ? previa.posIcono : null,
           });
           const gL = gravedadEnQR(sa.rot, arriba);
-          await guardarGravedadAncla(sa.id, [gL.x, gL.y, gL.z]);
+          await guardarGravedadAncla(sa.id, maquinaId, [gL.x, gL.y, gL.z]);
           locs = await localizacionesDeAncla(maquinaId, sa.id);
           btn.textContent = '✅ Guardado';
         } catch (e) {

@@ -91,9 +91,9 @@ export function pantallaDiagnosticoAR(app, { volver }) {
   cont.appendChild(marc);
   const selA = marc.querySelector('[data-d="ancla"]');
   (async () => {
-    const [{ mapaAnclas, maquinaActivaId }, { leerAjustes }] = await Promise.all([import('../maquinas.js'), import('../ajustes.js')]);
+    const [{ listarAnclas, mapaAnclas, maquinaActivaId }, { leerAjustes }] = await Promise.all([import('../maquinas.js'), import('../ajustes.js')]);
     const maq = maquinaActivaId();
-    const anclas = [...(await mapaAnclas()).values()].filter((a) => !maq || a.maquinaId === maq);
+    const anclas = maq ? await listarAnclas(maq) : [...(await mapaAnclas()).values()];
     if (!anclas.length) anclas.push({ id: 'PRUEBA', nombre: 'Prueba' });
     for (const a of anclas) { const o = document.createElement('option'); o.value = a.id; o.textContent = `${a.nombre} (${a.id})`; selA.appendChild(o); }
     const lado = leerAjustes().qrCm || 10;
@@ -145,9 +145,9 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     <div class="i"></div><p class="nota i-estado"></p>`;
   cont.appendChild(variantesRaiz);
   (async () => {
-    const [{ mapaAnclas, maquinaActivaId }, { leerAjustes }] = await Promise.all([import('../maquinas.js'), import('../ajustes.js')]);
+    const [{ listarAnclas, mapaAnclas, maquinaActivaId }, { leerAjustes }] = await Promise.all([import('../maquinas.js'), import('../ajustes.js')]);
     const maq = maquinaActivaId();
-    const anclas = [...(await mapaAnclas()).values()].filter((a) => !maq || a.maquinaId === maq);
+    const anclas = maq ? await listarAnclas(maq) : [...(await mapaAnclas()).values()];
     if (!activo) return;
     if (!anclas.some((a) => a.id === 'TEST-1')) anclas.push({ id: 'TEST-1', nombre: 'QR de prueba' });
     const sel = raiz.querySelector('[data-r="ancla"]');

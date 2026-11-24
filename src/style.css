@@ -398,6 +398,14 @@ label.boton { display: flex; align-items: center; justify-content: center; text-
 .fila-maquina.activa { outline: 2px solid var(--azul); }
 .acciones-fila { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .lista-elementos-maquina .fila-textos, .lista-anclas .fila-textos { flex: 1; min-width: 140px; }
+.form-maquinas-ancla select {
+  display: block; width: 100%; min-height: 44px; margin-top: 6px; padding: 0 10px;
+  background: #0b141b; color: var(--texto); border: 1px solid #516775; border-radius: 10px; font: inherit;
+}
+.maquinas-del-ancla { flex-direction: column; }
+.maquinas-del-ancla[hidden] { display: none; }
+.maquinas-del-ancla .opcion { min-height: 44px; background: #10283a; }
+.form-maquinas-ancla input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--azul); }
 .anadir-existentes { background: var(--tarjeta); border-radius: 14px; padding: 12px; margin: 8px 0; }
 .etiqueta.etiqueta-aviso { border-color: #ff9f0a; background: rgba(58, 42, 16, 0.85); }
 .etiqueta.etiqueta-ancla { border-color: #ffd60a; }

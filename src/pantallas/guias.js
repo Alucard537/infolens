@@ -103,9 +103,9 @@ export function pantallaGuiaPortada(app, id, { volver, empezar, editar, verPasos
       app.querySelector('.volver').addEventListener('click', volver);
       return;
     }
-    const ancla = await obtenerAncla(g.anclaId);
+    const ancla = await obtenerAncla(g.anclaId, g.maquinaId);
     if (!activo) return;
-    const puedeEmpezar = ancla?.maquinaId === g.maquinaId && (g.pasos || []).length > 0;
+    const puedeEmpezar = ancla && (g.pasos || []).length > 0;
     app.innerHTML = `
       <div class="pagina">
         <button class="volver">‹ Guías</button>

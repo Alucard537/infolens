@@ -105,7 +105,7 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
           <label>Cara del QR principal <select name="caraAncla" aria-describedby="ayuda-cara-guia">${opcionesCara}</select></label>
           <p class="nota" id="ayuda-cara-guia">Toma izquierda y derecha mirando el frontal. Para un QR horizontal, elige el lado desde el que la flecha apunta al interior.</p>
           <label>Colocación del QR principal <select name="orientacionAncla" aria-describedby="ayuda-orientacion-guia">${opcionesOrientacion}</select></label>
-          <p class="nota" id="ayuda-orientacion-guia">${instruccionesQR} Esta configuración se aplica a las guías que usan el mismo QR.</p>
+          <p class="nota" id="ayuda-orientacion-guia">${instruccionesQR} Esta configuración se aplica a las guías que usan este QR en esta máquina.</p>
           <p class="nota estado-cara-guia" role="status" hidden></p>
         </div>
         <button type="button" class="boton-mini" data-a="crear-ancla">➕ Crear ancla nueva</button>
@@ -285,9 +285,9 @@ export function pantallaGuiaEditor(app, { id, maquinaId: maquinaNueva, volver, a
     }
     async function leerSubancla(id, boton) {
       await escrituraAncla;
-      const a = await obtenerAncla(principal.id);
+      const a = await obtenerAncla(principal.id, g.maquinaId);
       if (!activo || !boton.isConnected || g.anclaId !== principal.id || calibracionPendiente) return null;
-      const s = a?.maquinaId === g.maquinaId && subanclasDe(a).find((item) => item.id === id);
+      const s = a && subanclasDe(a).find((item) => item.id === id);
       if (!s) throw new Error('La subancla ya no está disponible para esta guía.');
       return { a, s };
     }

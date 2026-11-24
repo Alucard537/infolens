@@ -1,7 +1,6 @@
 // Máquinas, anclas, localizaciones y guías.
-// REGLA FUNDAMENTAL: cada máquina es un entorno independiente. Ningún elemento, ancla, coordenada
-// ni guía de una máquina puede usarse con otra. Las comprobaciones se hacen AL GUARDAR y AL
-// CONSULTAR (no solo en pantalla).
+// Cada máquina tiene sus propios elementos, guías y coordenadas. Un QR de ancla puede tener
+// un montaje distinto en cada máquina donde se habilita.
 import { db, normalizarId, borrarArchivos, guardarArchivo, siguienteId, CAMPOS_ARCHIVO, pasoSinElemento, quitarReferenciasDelElemento } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
 import { CARAS_MAQUINA, ORIENTACIONES_QR, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
@@ -60,24 +59,30 @@ export async function guardarMaquina(datos, esNueva) {
 export async function dependenciasMaquina(id) {
   const [elementos, anclas, localizaciones, guias] = await Promise.all([
     db.elementos.where('maquinaId').equals(id).count(),
-    db.anclas.where('maquinaId').equals(id).count(),
+    listarAnclas(id).then((lista) => lista.length),
     db.localizaciones.where('maquinaId').equals(id).count(),
     db.guias.where('maquinaId').equals(id).count(),
   ]);
   return { elementos, anclas, localizaciones, guias };
 }
 
-/** Borra una máquina: sus elementos quedan "sin máquina" (no se borran); sus anclas, localizaciones y guías sí. */
+/** Borra los datos de la máquina y conserva los montajes de las anclas que se usan en otras. */
 export async function borrarMaquina(id) {
-  const guias = await db.guias.where('maquinaId').equals(id).toArray();
-  await db.transaction('rw', [db.maquinas, db.elementos, db.anclas, db.localizaciones, db.guias], async () => {
+  await db.transaction('rw', [db.maquinas, db.elementos, db.anclas, db.localizaciones, db.guias, db.archivos], async () => {
+    const guias = await db.guias.where('maquinaId').equals(id).toArray();
     await db.elementos.where('maquinaId').equals(id).modify({ maquinaId: null });
     await db.localizaciones.where('maquinaId').equals(id).delete();
-    await db.anclas.where('maquinaId').equals(id).delete();
+    for (const ancla of await db.anclas.toArray()) {
+      if (!anclaParaMaquina(ancla, id)) continue;
+      const montajes = { ...montajesDelAncla(ancla) };
+      delete montajes[id];
+      if (Object.keys(montajes).length) await guardarMontajes(ancla, montajes);
+      else await db.anclas.delete(ancla.id);
+    }
     await db.guias.where('maquinaId').equals(id).delete();
+    await borrarArchivos(guias.flatMap(archivosDeGuia));
     await db.maquinas.delete(id);
   });
-  await borrarArchivos(guias.flatMap(archivosDeGuia));
   if (maquinaActivaId() === id) establecerMaquinaActiva(null);
 }
 
@@ -145,13 +150,66 @@ export async function duplicarElemento(id, maquinaId) {
 
 // ---------- anclas ----------
 
-export async function listarAnclas(maquinaId) {
-  if (!maquinaId) return [];
-  return (await db.anclas.where('maquinaId').equals(maquinaId).toArray()).sort((a, b) => a.id.localeCompare(b.id));
+const montajeDe = ({ gravedad = null, cara = null, orientacion = null, subanclas = [] } = {}) => ({ gravedad, cara, orientacion, subanclas });
+
+function montajesDelAncla(ancla) {
+  return ancla?.montajes ?? (ancla?.maquinaId ? { [ancla.maquinaId]: montajeDe(ancla) } : {});
 }
 
-export async function obtenerAncla(id) {
-  return id ? (await db.anclas.get(id)) || null : null;
+export const maquinasDelAncla = (ancla) => Object.keys(montajesDelAncla(ancla));
+
+export function anclaParaMaquina(ancla, maquinaId) {
+  const montajes = montajesDelAncla(ancla);
+  return maquinaId && Object.hasOwn(montajes, maquinaId) ? { ...ancla, ...montajes[maquinaId], maquinaId } : null;
+}
+
+async function guardarMontajes(ancla, montajes) {
+  const maquinaId = Object.hasOwn(montajes, ancla.maquinaId) ? ancla.maquinaId : Object.keys(montajes)[0] ?? null;
+  const actualizado = { ...ancla, ...montajeDe(montajes[maquinaId] ?? ancla), maquinaId, montajes, modificado: Date.now() };
+  await db.anclas.put(actualizado);
+  return actualizado;
+}
+
+function guardarMontaje(ancla, maquinaId, configuracion) {
+  return guardarMontajes(ancla, { ...montajesDelAncla(ancla), [maquinaId]: montajeDe(configuracion) });
+}
+
+export async function guardarMaquinasAncla(id, ids, { desde, copiarSubanclas = false } = {}) {
+  return db.transaction('rw', [db.anclas, db.maquinas, db.localizaciones, db.guias], async () => {
+    const ancla = await obtenerAncla(id);
+    if (!ancla) throw new Error('El ancla ya no existe.');
+    const maquinas = [...new Set(ids)];
+    if ((await db.maquinas.bulkGet(maquinas)).some((m) => !m)) throw new Error('Alguna máquina seleccionada ya no existe.');
+    const actual = montajesDelAncla(ancla);
+    const referencia = actual[desde] ?? ancla;
+    const inicial = montajeDe({ cara: referencia.cara, orientacion: referencia.orientacion,
+      subanclas: copiarSubanclas ? subanclasDe(referencia).map(({ giroQR, ...s }) => s) : [] });
+    if (inicial.subanclas.length) {
+      const nuevosIds = new Set(inicial.subanclas.map((s) => s.id));
+      const otrasAnclas = (await db.anclas.toArray()).filter((a) => a.id !== id);
+      for (const maq of maquinas.filter((m) => !Object.hasOwn(actual, m))) {
+        const repetido = otrasAnclas.some((a) => subanclasDe(anclaParaMaquina(a, maq) ?? {}).some((s) => nuevosIds.has(s.id)));
+        if (repetido) throw new Error(`En ${maq} ya se usa uno de estos QR. Asigna el ancla sin copiar las subanclas.`);
+      }
+    }
+    const montajes = Object.fromEntries(maquinas.map((maq) => [maq, actual[maq] ?? inicial]));
+    for (const maquinaId of Object.keys(actual)) {
+      if (Object.hasOwn(montajes, maquinaId)) continue;
+      await db.localizaciones.where('anclaId').equals(id).and((loc) => loc.maquinaId === maquinaId).delete();
+      await db.guias.where('maquinaId').equals(maquinaId).and((g) => g.anclaId === id).modify({ anclaId: null, estado: 'borrador' });
+    }
+    return guardarMontajes(ancla, montajes);
+  });
+}
+
+export async function listarAnclas(maquinaId) {
+  if (!maquinaId) return [];
+  return (await db.anclas.toArray()).map((a) => anclaParaMaquina(a, maquinaId)).filter(Boolean).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export async function obtenerAncla(id, maquinaId) {
+  const ancla = id ? (await db.anclas.get(id)) || null : null;
+  return maquinaId === undefined ? ancla : anclaParaMaquina(ancla, maquinaId);
 }
 
 export async function mapaAnclas() {
@@ -174,27 +232,26 @@ export async function guardarAncla(datos, esNueva) {
   const id = normalizarId(datos.id);
   if (!id) throw new Error('Escribe el identificador del ancla (es lo que lleva su QR).');
   validarConfiguracionAncla(datos);
-  if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('El ancla tiene que pertenecer a una máquina que exista.');
-  return db.transaction('rw', db.anclas, db.elementos, async () => {
+  return db.transaction('rw', [db.anclas, db.elementos, db.maquinas], async () => {
+    if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('El ancla tiene que pertenecer a una máquina que exista.');
     const anterior = await db.anclas.get(id);
     if (esNueva && anterior) throw new Error(`Ya existe un ancla con el identificador ${id}.`);
-    if (anterior && anterior.maquinaId !== datos.maquinaId) throw new Error(`El ancla ${id} pertenece a otra máquina (${anterior.maquinaId}).`);
+    const montaje = anclaParaMaquina(anterior, datos.maquinaId);
+    if (anterior && !montaje) throw new Error(`El ancla ${id} no está asignada a esta máquina.`);
     // Si su QR coincide con el de un elemento, ese elemento tiene que ser de la misma máquina
     const el = await db.elementos.get(id);
-    if (el && el.maquinaId !== datos.maquinaId) throw new Error(`El QR ${id} ya es de un elemento de otra máquina. Usa otro identificador.`);
+    if (!anterior && el && el.maquinaId !== datos.maquinaId) throw new Error(`El QR ${id} ya es de un elemento de otra máquina. Usa otro identificador.`);
     const a = {
       ...(anterior || {}),
       id,
-      maquinaId: datos.maquinaId,
       nombre: String(datos.nombre || '').trim() || id,
       descripcion: String(datos.descripcion || '').trim(),
-      gravedad: datos.gravedad !== undefined ? datos.gravedad : anterior?.gravedad || null,
-      cara: datos.cara === undefined ? anterior?.cara ?? null : datos.cara || null,
-      orientacion: datos.orientacion === undefined ? anterior?.orientacion ?? null : datos.orientacion || null,
-      modificado: Date.now(),
     };
-    await db.anclas.put(a);
-    return a;
+    const cambios = { ...montaje,
+      gravedad: datos.gravedad === undefined ? montaje?.gravedad : datos.gravedad,
+      cara: datos.cara === undefined ? montaje?.cara : datos.cara || null,
+      orientacion: datos.orientacion === undefined ? montaje?.orientacion : datos.orientacion || null };
+    return anclaParaMaquina(await guardarMontaje(a, datos.maquinaId, cambios), datos.maquinaId);
   });
 }
 
@@ -202,18 +259,22 @@ export async function guardarConfiguracionAncla(id, maquinaId, { cara, orientaci
   validarConfiguracionAncla({ cara, orientacion });
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(id);
-    if (!ancla || ancla.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
-    await db.anclas.update(id, {
+    const montaje = anclaParaMaquina(ancla, maquinaId);
+    if (!montaje) throw new Error('El ancla ya no existe en esta máquina.');
+    await guardarMontaje(ancla, maquinaId, { ...montaje,
       ...(cara !== undefined ? { cara: cara || null } : {}),
       ...(orientacion !== undefined ? { orientacion: orientacion || null } : {}),
-      modificado: Date.now(),
     });
   });
 }
 
 /** Guarda cómo está colocado físicamente el QR del ancla (su "arriba" respecto al QR). */
-export async function guardarGravedadAncla(id, gravedad) {
-  await db.anclas.update(id, { gravedad: gravedad.map((n) => Math.round(n * 1000) / 1000), modificado: Date.now() });
+export async function guardarGravedadAncla(id, maquinaId, gravedad) {
+  return db.transaction('rw', db.anclas, async () => {
+    const ancla = await obtenerAncla(id);
+    const montaje = anclaParaMaquina(ancla, maquinaId);
+    if (montaje) await guardarMontaje(ancla, maquinaId, { ...montaje, gravedad: gravedad.map((n) => Math.round(n * 1000) / 1000) });
+  });
 }
 
 export async function listarSubanclasReutilizables(maquinaId) {
@@ -221,9 +282,12 @@ export async function listarSubanclasReutilizables(maquinaId) {
   const usados = new Set();
   const disponibles = new Map();
   for (const ancla of anclas) {
-    for (const s of subanclasDe(ancla)) {
-      if (ancla.maquinaId === maquinaId) usados.add(s.id);
-      else if (!disponibles.has(s.id)) disponibles.set(s.id, { ...s, maquinaId: ancla.maquinaId });
+    const montajes = Object.entries(montajesDelAncla(ancla));
+    for (const [maq, montaje] of montajes.length ? montajes : [['Sin asignar', ancla]]) {
+      for (const s of subanclasDe(montaje)) {
+        if (maq === maquinaId) usados.add(s.id);
+        else if (!disponibles.has(s.id)) disponibles.set(s.id, { ...s, maquinaId: maq });
+      }
     }
   }
   return [...disponibles.values()].filter((s) => !usados.has(s.id));
@@ -236,8 +300,9 @@ export async function guardarSubancla(anclaId, maquinaId, datos) {
   if (!calibracionSubanclaValida(datos)) throw new Error('Revisa las coordenadas, la cara y el tamaño del QR. El centro debe estar en un punto distinto al QR principal.');
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(anclaId);
-    if (ancla?.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
-    const subanclas = subanclasDe(ancla);
+    const montajeActual = anclaParaMaquina(ancla, maquinaId);
+    if (!montajeActual) throw new Error('El ancla ya no existe en esta máquina.');
+    const subanclas = subanclasDe(montajeActual);
     const indice = id ? subanclas.findIndex((s) => s.id === id) : -1;
     if (id && indice < 0) throw new Error('La subancla ya no existe.');
     if (!id && subanclas.length >= 99) throw new Error('Esta ancla ya tiene el máximo de subanclas.');
@@ -255,7 +320,7 @@ export async function guardarSubancla(anclaId, maquinaId, datos) {
         anterior.pos.every((n, i) => n === pos[i])) subancla.giroQR = anterior.giroQR;
     if (indice < 0) subanclas.push(subancla);
     else subanclas[indice] = subancla;
-    await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
+    await guardarMontaje(ancla, maquinaId, { ...montajeActual, subanclas });
     return subancla;
   });
 }
@@ -263,24 +328,26 @@ export async function guardarSubancla(anclaId, maquinaId, datos) {
 export async function guardarMedicionSubancla(anclaId, maquinaId, referencia, { pos, giroQR }) {
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(anclaId);
-    if (!ancla || ancla.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
-    const subanclas = subanclasDe(ancla);
+    const montaje = anclaParaMaquina(ancla, maquinaId);
+    if (!montaje) throw new Error('El ancla ya no existe en esta máquina.');
+    const subanclas = subanclasDe(montaje);
     const indice = subanclas.findIndex((s) => s.id === referencia.id && s.ladoCm === referencia.ladoCm &&
       (s.orientacion ?? 'vertical') === (referencia.orientacion ?? 'vertical'));
     if (indice < 0) throw new Error('El QR cambió durante la medición. Vuelve a medirlo.');
     const medida = { ...subanclas[indice], pos, giroQR };
     if (!calibracionSubanclaValida(medida) || !giroSubanclaValido(giroQR)) throw new Error('La medición no es válida.');
     subanclas[indice] = medida;
-    await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
+    await guardarMontaje(ancla, maquinaId, { ...montaje, subanclas });
   });
 }
 
 export async function borrarSubancla(anclaId, maquinaId, id) {
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(anclaId);
-    if (ancla?.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
-    const subanclas = subanclasDe(ancla).filter((s) => s.id !== id);
-    await db.anclas.update(anclaId, { subanclas, modificado: Date.now() });
+    const montaje = anclaParaMaquina(ancla, maquinaId);
+    if (!montaje) throw new Error('El ancla ya no existe en esta máquina.');
+    const subanclas = subanclasDe(montaje).filter((s) => s.id !== id);
+    await guardarMontaje(ancla, maquinaId, { ...montaje, subanclas });
   });
 }
 
@@ -311,7 +378,7 @@ export async function problemaCoherencia(maquinaId, anclaId, elementoId) {
   if (!m) return 'La máquina no existe.';
   if (!a) return 'El ancla no existe.';
   if (!e) return 'El elemento no existe.';
-  if (a.maquinaId !== maquinaId) return `El ancla ${anclaId} no pertenece a la máquina ${maquinaId}.`;
+  if (!anclaParaMaquina(a, maquinaId)) return `El ancla ${anclaId} no está asignada a la máquina ${maquinaId}.`;
   if (e.maquinaId !== maquinaId) return `El elemento ${elementoId} no pertenece a la máquina ${maquinaId}.`;
   return null;
 }
@@ -349,8 +416,7 @@ export async function localizacionesDeElemento(elementoId) {
  * Se comprueba la coherencia en la consulta (regla 7): máquina activa = máquina del ancla = máquina del elemento.
  */
 export async function localizacionesDeAncla(maquinaId, anclaId) {
-  const ancla = await db.anclas.get(anclaId);
-  if (!ancla || ancla.maquinaId !== maquinaId) return [];
+  if (!await obtenerAncla(anclaId, maquinaId)) return [];
   const locs = await db.localizaciones.where('anclaId').equals(anclaId).toArray();
   const res = [];
   for (const l of locs) {
@@ -402,8 +468,7 @@ export async function guardarGuia(datos) {
   return db.transaction('rw', [db.guias, db.archivos, db.maquinas, db.anclas, db.elementos], async () => {
     if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('La guía tiene que pertenecer a una máquina que exista.');
     if (datos.anclaId) {
-      const a = await db.anclas.get(datos.anclaId);
-      if (!a || a.maquinaId !== datos.maquinaId) throw new Error('El ancla elegida no pertenece a la máquina de la guía.');
+      if (!await obtenerAncla(datos.anclaId, datos.maquinaId)) throw new Error('El ancla elegida no está asignada a la máquina de la guía.');
     }
     for (const [i, p] of (datos.pasos || []).entries()) {
       if (!p.elementoId) continue;
@@ -476,7 +541,7 @@ async function trasladarGuia(id, destino, duplicar) {
     const ahora = Date.now();
     const guia = {
       ...original, maquinaId, pasos, estado: 'borrador', modificado: ahora,
-      anclaId: cambiaMaquina ? null : original.anclaId,
+      anclaId: (await obtenerAncla(original.anclaId, maquinaId))?.id ?? null,
     };
     if (duplicar) {
       guia.id = await siguienteIdGuia();

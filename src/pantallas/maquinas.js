@@ -6,13 +6,14 @@ import {
   listarMaquinas, obtenerMaquina, guardarMaquina, borrarMaquina, dependenciasMaquina, maquinaActivaId,
   establecerMaquinaActiva, elementosDeMaquina, elementosSinMaquina, asignarElemento, desvincularElemento,
   listarAnclas, guardarAncla, borrarAncla, dependenciasAncla, siguienteIdAncla, listarGuias, localizacionesDeElemento,
+  anclaParaMaquina, maquinasDelAncla, guardarMaquinasAncla, mapaAnclas, obtenerAncla,
 } from '../maquinas.js';
 import { listarElementos } from '../db.js';
 import { esAdmin } from '../permisos.js';
 import { leerAjustes } from '../ajustes.js';
 import { guardarOCompartir } from '../ui/descargar.js';
 import { elegirGuiaOrigen } from '../ui/trasladar.js';
-import { CARAS_MAQUINA } from '../subanclas.js';
+import { CARAS_MAQUINA, subanclasDe } from '../subanclas.js';
 import { montarSubanclas } from './subanclas.js';
 
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -103,7 +104,8 @@ export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
     const d = await dependenciasMaquina(id);
     const texto = `¿Eliminar la máquina ${id}?\n\n`
       + `• ${d.elementos} elementos quedarán SIN máquina (no se borran).\n`
-      + `• Se borrarán ${d.anclas} anclas, ${d.localizaciones} localizaciones y ${d.guias} guías.\n\nNo se puede deshacer.`;
+      + `• Se quitarán ${d.anclas} anclas de esta máquina y se borrarán ${d.localizaciones} localizaciones y ${d.guias} guías.\n`
+      + 'Las anclas asignadas a otras máquinas seguirán disponibles en ellas.\n\nNo se puede deshacer.';
     if (!confirm(texto)) return;
     await borrarMaquina(id);
     alBorrar();
@@ -115,7 +117,7 @@ export function pantallaMaquinaForm(app, id, { volver, alGuardar, alBorrar }) {
 export function pantallaMaquina(app, id, { volver, editarMaquina, editarElemento, nuevoElemento, localizaciones, guias, editarGuia, alCambiar }) {
   let activo = true;
   const pintar = async () => {
-    const [m, elementos, anclas, listaGuias] = await Promise.all([obtenerMaquina(id), elementosDeMaquina(id), listarAnclas(id), listarGuias(id)]);
+    const [m, elementos, listaGuias] = await Promise.all([obtenerMaquina(id), elementosDeMaquina(id), listarGuias(id)]);
     if (!activo) return;
     if (!m) { app.innerHTML = '<div class="pagina"><button class="volver">‹ Volver</button><p>La máquina no existe.</p></div>'; app.querySelector('.volver').addEventListener('click', volver); return; }
     const nLoc = new Map(await Promise.all(elementos.map(async (e) => [e.id, (await localizacionesDeElemento(e.id)).length])));
@@ -232,12 +234,16 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
   const anclas = await listarAnclas(m.id);
   cont.innerHTML = `
     <h2>⚓ Anclas QR (${anclas.length})</h2>
-    <p class="nota">Cada ancla es un QR fijo en la máquina que sirve de referencia (0, 0, 0) para localizar componentes
-      y para las guías. Créala aquí, imprime su QR, pégalo en la máquina y después posiciona los componentes con el botón 📍 de ANCLA.</p>
-    <button class="boton" data-a="nueva-ancla">➕ Nueva ancla</button>
+    <p class="nota">Un mismo QR puede servir en varias máquinas. Cada máquina guarda su propia colocación y calibración.</p>
+    <div class="botones-archivo">
+      <button class="boton" data-a="nueva-ancla">➕ Nueva ancla</button>
+      <button class="boton secundario" data-a="usar-ancla">Usar ancla existente</button>
+    </div>
     <form class="form-ancla bloque-archivo formulario" hidden novalidate></form>
+    <form class="form-maquinas-ancla bloque-archivo formulario" hidden></form>
     <ul class="lista lista-anclas"></ul>`;
   const $ = (q) => cont.querySelector(q);
+  let cargaUso = 0;
   const repintar = () => { montarAnclas(cont, m, { alCambiar }); alCambiar && alCambiar(); };
   const ula = $('.lista-anclas');
   if (!anclas.length) ula.innerHTML = '<li class="nota">Esta máquina todavía no tiene anclas.</li>';
@@ -247,8 +253,9 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
         <span class="fila-textos"><span class="fila-nombre"></span><span class="fila-ref"></span></span>
         <span class="acciones-fila">
           <button class="boton-mini" data-a="qr">🖨️ QR</button>
-          <button class="boton-mini" data-a="ed">✏️</button>
-          <button class="boton-mini" data-a="del">🗑️</button>
+          <button class="boton-mini" data-a="ed" aria-label="Editar ancla">✏️</button>
+          <button class="boton-mini" data-a="asignar-maquinas">Asignar a máquinas</button>
+          <button class="boton-mini" data-a="del" aria-label="Borrar ancla">🗑️</button>
         </span></div>
       <details class="bloque-archivo">
         <summary>Subanclas</summary>
@@ -256,29 +263,117 @@ export async function montarAnclas(cont, m, { alCambiar } = {}) {
       </details>`;
     li.querySelector('.fila-nombre').textContent = `⚓ ${a.nombre}`;
     const cara = Object.hasOwn(CARAS_MAQUINA, a.cara) ? CARAS_MAQUINA[a.cara] : 'Cara sin indicar';
-    li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${cara} · ${a.gravedad ? 'orientación del QR guardada' : 'orientación sin medir (se mide al posicionar)'}`;
+    const cantidad = maquinasDelAncla(a).length;
+    li.querySelector('.fila-ref').textContent = `QR: ${a.id} · ${cara} · ${cantidad} ${cantidad === 1 ? 'máquina' : 'máquinas'}`;
     li.querySelector('[data-a="qr"]').addEventListener('click', async () => {
       const { generarPdfQR } = await import('../qr-pdf.js');
-      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: `Máquina ${m.id}`, ancla: true }], leerAjustes().qrCm);
+      const pdf = generarPdfQR([{ id: a.id, nombre: `ANCLA · ${a.nombre}`, referencia: cantidad === 1 ? `Máquina ${m.id}` : 'QR compartido', ancla: true }], leerAjustes().qrCm);
       guardarOCompartir(pdf, `ANCLA-${a.id}.pdf`, 'application/pdf');
     });
     li.querySelector('[data-a="ed"]').addEventListener('click', () => formularioAncla(a));
+    li.querySelector('[data-a="asignar-maquinas"]').addEventListener('click', () => formularioUso(a.id));
     const subanclas = li.querySelector('details');
     subanclas.addEventListener('toggle', () => {
       if (subanclas.open) montarSubanclas(subanclas.querySelector('.seccion-subanclas'), a);
     });
     li.querySelector('[data-a="del"]').addEventListener('click', async () => {
       const d = await dependenciasAncla(a.id);
-      if (!confirm(`¿Borrar el ancla ${a.id}?\n\nSe borrarán sus subanclas y ${d.localizaciones} localizaciones. ${d.guias} guías quedarán sin ancla (en borrador).`)) return;
+      if (!confirm(`¿Borrar el ancla ${a.id} de todas sus máquinas?\n\nSe borrarán sus subanclas y ${d.localizaciones} localizaciones. ${d.guias} guías quedarán sin ancla (en borrador).`)) return;
       await borrarAncla(a.id);
       repintar();
     });
     ula.appendChild(li);
   }
   $('[data-a="nueva-ancla"]').addEventListener('click', () => formularioAncla(null));
+  $('[data-a="usar-ancla"]').addEventListener('click', () => formularioUso());
+
+  async function formularioUso(id) {
+    const intento = ++cargaUso;
+    const fo = $('.form-maquinas-ancla');
+    $('.form-ancla').hidden = true;
+    fo.hidden = false;
+    fo.innerHTML = '<p class="nota" role="status">Cargando…</p>';
+    try {
+      const [maquinas, registros] = await Promise.all([listarMaquinas(), id ? obtenerAncla(id) : mapaAnclas()]);
+      if (!fo.isConnected || intento !== cargaUso) return;
+      const disponibles = id ? [registros].filter(Boolean)
+        : [...registros.values()].filter((a) => !anclaParaMaquina(a, m.id)).sort((a, b) => a.nombre.localeCompare(b.nombre));
+      fo.innerHTML = `
+        <div class="titulo-archivo">${id ? 'Asignar ancla a máquinas' : 'Usar ancla existente'}</div>
+        ${id ? '<p class="nombre-ancla-uso"></p>' : '<label>QR del ancla <select name="ancla" required></select></label>'}
+        <fieldset class="tipo maquinas-del-ancla" hidden><legend>Máquinas que pueden usar este QR</legend></fieldset>
+        <label class="opcion copiar-subanclas" hidden><input type="checkbox" name="copiar"> Copiar las medidas y los QR de las subanclas al añadir máquinas</label>
+        <p class="nota nota-uso-ancla" role="status"></p>
+        <p class="error-form" role="alert" hidden></p>
+        <div class="botones-archivo">
+          <button class="boton" type="submit" disabled>Guardar asignación</button>
+          <button class="boton secundario" type="button" data-a="cancelar-uso">Cancelar</button>
+        </div>`;
+      const selector = fo.elements.ancla;
+      const grupo = fo.querySelector('fieldset');
+      const boton = fo.querySelector('[type="submit"]');
+      const nota = fo.querySelector('.nota-uso-ancla');
+      const error = fo.querySelector('.error-form');
+      let ancla;
+      function elegir(registro) {
+        ancla = registro;
+        grupo.querySelectorAll('label').forEach((label) => label.remove());
+        grupo.hidden = !ancla;
+        boton.disabled = !ancla;
+        fo.elements.copiar.checked = false;
+        fo.querySelector('.copiar-subanclas').hidden = !ancla || !subanclasDe(anclaParaMaquina(ancla, m.id) ?? ancla).length;
+        if (!ancla) return;
+        const asignadas = maquinasDelAncla(ancla);
+        for (const mq of maquinas) {
+          const label = document.createElement('label');
+          label.className = 'opcion';
+          const casilla = document.createElement('input');
+          casilla.type = 'checkbox';
+          casilla.name = 'maquina';
+          casilla.value = mq.id;
+          casilla.checked = asignadas.includes(mq.id) || (!id && mq.id === m.id);
+          label.append(casilla, document.createTextNode(` ${mq.nombre} (${mq.id})`));
+          grupo.append(label);
+        }
+        nota.textContent = 'Las guías, las posiciones de los elementos y la calibración se guardan por máquina.';
+      }
+      if (selector) {
+        selector.replaceChildren(new Option('Selecciona un ancla', ''), ...disponibles.map((a) => new Option(`${a.nombre} (${a.id})`, a.id)));
+        selector.disabled = !disponibles.length;
+        if (!disponibles.length) nota.textContent = 'No hay otras anclas disponibles.';
+        selector.addEventListener('change', () => elegir(disponibles.find((a) => a.id === selector.value)));
+      } else {
+        fo.querySelector('.nombre-ancla-uso').textContent = disponibles[0] ? `${disponibles[0].nombre} (${id})` : 'El ancla ya no existe.';
+        elegir(disponibles[0]);
+      }
+      fo.querySelector('[data-a="cancelar-uso"]').onclick = () => { cargaUso++; fo.hidden = true; };
+      fo.onsubmit = async (ev) => {
+        ev.preventDefault();
+        if (!ancla || boton.disabled || !esAdmin()) return;
+        const ids = Array.from(grupo.querySelectorAll('input:checked'), (input) => input.value);
+        const quitar = maquinasDelAncla(ancla).filter((mq) => !ids.includes(mq));
+        if (quitar.length && !confirm(`¿Quitar el ancla de ${quitar.join(', ')}? Se quitarán su calibración y sus posiciones en esas máquinas. Las guías que la usaban quedarán en borrador.`)) return;
+        boton.disabled = true;
+        error.hidden = true;
+        try {
+          await guardarMaquinasAncla(ancla.id, ids, { desde: m.id, copiarSubanclas: fo.elements.copiar.checked });
+          repintar();
+        } catch (e) {
+          error.textContent = e.message;
+          error.hidden = false;
+          boton.disabled = false;
+        }
+      };
+      fo.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) {
+      if (intento === cargaUso) fo.querySelector('p').textContent = e.message;
+    }
+  }
 
   async function formularioAncla(a) {
+    cargaUso++;
     const fo = $('.form-ancla');
+    $('.form-maquinas-ancla').hidden = true;
     fo.hidden = false;
     fo.innerHTML = `
       <div class="titulo-archivo">${a ? 'Editar ancla' : 'Nueva ancla'}</div>
