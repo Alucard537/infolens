@@ -17,8 +17,8 @@ targets:
       path: InfoLensVisor/Info.plist
       properties:
         CFBundleDisplayName: InfoLens
-        CFBundleShortVersionString: "0.10.8"
-        CFBundleVersion: "19"
+        CFBundleShortVersionString: "0.10.9"
+        CFBundleVersion: "20"
         NSCameraUsageDescription: "InfoLens usa la cámara para identificar elementos y seguir los recorridos anclados a sus códigos QR."
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
@@ -32,8 +32,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.infolens.visor
-        MARKETING_VERSION: "0.10.8"
-        CURRENT_PROJECT_VERSION: "19"
+        MARKETING_VERSION: "0.10.9"
+        CURRENT_PROJECT_VERSION: "20"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGNING_ALLOWED: "NO"

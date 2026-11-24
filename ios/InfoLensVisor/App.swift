@@ -118,7 +118,7 @@ private struct PanelPrueba: View {
                         Text("\(cara) · \(medidas)").font(.subheadline)
                     }
                     if controlador.destinoEnPantalla != nil {
-                        Text("Pega el QR de \(colocacion.ladoCm.formatted()) cm en el recuadro, con ARRIBA hacia el techo.")
+                        Text("Pega el QR de \(colocacion.ladoCm.formatted()) cm en el recuadro. \(colocacion.montaje.instruccion)")
                             .font(.subheadline)
                     } else if controlador.desdeCaraOpuesta {
                         Text("Sitúate en la cara indicada de la máquina para ver el recuadro.").font(.subheadline)

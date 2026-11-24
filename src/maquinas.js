@@ -4,7 +4,7 @@
 // CONSULTAR (no solo en pantalla).
 import { db, normalizarId, borrarArchivos } from './db.js';
 import { leerAjustes, guardarAjustes } from './ajustes.js';
-import { CARAS_MAQUINA, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
+import { CARAS_MAQUINA, ORIENTACIONES_QR, calibracionSubanclaValida, giroSubanclaValido, subanclasDe } from './subanclas.js';
 
 export const ID_GENERAL = 'GENERAL';
 
@@ -133,14 +133,15 @@ export async function siguienteIdAncla(maquinaId) {
   return base + n;
 }
 
-function validarCaraAncla(cara) {
+function validarConfiguracionAncla({ cara, orientacion }) {
   if (cara && !Object.hasOwn(CARAS_MAQUINA, cara)) throw new Error('Elige una cara válida para el QR principal.');
+  if (orientacion && !Object.hasOwn(ORIENTACIONES_QR, orientacion)) throw new Error('Elige una colocación válida para el QR principal.');
 }
 
 export async function guardarAncla(datos, esNueva) {
   const id = normalizarId(datos.id);
   if (!id) throw new Error('Escribe el identificador del ancla (es lo que lleva su QR).');
-  validarCaraAncla(datos.cara);
+  validarConfiguracionAncla(datos);
   if (!(await db.maquinas.get(datos.maquinaId))) throw new Error('El ancla tiene que pertenecer a una máquina que exista.');
   return db.transaction('rw', db.anclas, db.elementos, async () => {
     const anterior = await db.anclas.get(id);
@@ -157,6 +158,7 @@ export async function guardarAncla(datos, esNueva) {
       descripcion: String(datos.descripcion || '').trim(),
       gravedad: datos.gravedad !== undefined ? datos.gravedad : anterior?.gravedad || null,
       cara: datos.cara === undefined ? anterior?.cara ?? null : datos.cara || null,
+      orientacion: datos.orientacion === undefined ? anterior?.orientacion ?? null : datos.orientacion || null,
       modificado: Date.now(),
     };
     await db.anclas.put(a);
@@ -164,12 +166,16 @@ export async function guardarAncla(datos, esNueva) {
   });
 }
 
-export async function guardarCaraAncla(id, maquinaId, cara) {
-  validarCaraAncla(cara);
+export async function guardarConfiguracionAncla(id, maquinaId, { cara, orientacion }) {
+  validarConfiguracionAncla({ cara, orientacion });
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(id);
     if (!ancla || ancla.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
-    await db.anclas.update(id, { cara: cara || null, modificado: Date.now() });
+    await db.anclas.update(id, {
+      ...(cara !== undefined ? { cara: cara || null } : {}),
+      ...(orientacion !== undefined ? { orientacion: orientacion || null } : {}),
+      modificado: Date.now(),
+    });
   });
 }
 
@@ -192,7 +198,7 @@ export async function listarSubanclasReutilizables(maquinaId) {
 }
 
 export async function guardarSubancla(anclaId, maquinaId, datos) {
-  const { id, reutilizarId, pos, cara, ladoCm } = datos;
+  const { id, reutilizarId, pos, cara, ladoCm, orientacion } = datos;
   const nombre = String(datos.nombre || '').trim();
   if (!nombre || nombre.length > 80) throw new Error('Escribe un nombre de hasta 80 caracteres.');
   if (!calibracionSubanclaValida(datos)) throw new Error('Revisa las coordenadas, la cara y el tamaño del QR. El centro debe estar en un punto distinto al QR principal.');
@@ -208,9 +214,12 @@ export async function guardarSubancla(anclaId, maquinaId, datos) {
       if (id || !original) throw new Error('Este QR ya está asignado en la máquina o ya no está disponible.');
       if (ladoCm !== original.ladoCm) throw new Error('Vuelve a seleccionar el QR. Se actualizó su tamaño guardado.');
     }
-    const subancla = { id: id || reutilizarId || 'S-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12), nombre, pos, cara, ladoCm };
     const anterior = subanclas[indice];
+    const montaje = orientacion ?? anterior?.orientacion;
+    const subancla = { id: id || reutilizarId || 'S-' + crypto.randomUUID().replaceAll('-', '').slice(0, 12), nombre, pos, cara, ladoCm,
+      ...(montaje ? { orientacion: montaje } : {}) };
     if (anterior && giroSubanclaValido(anterior.giroQR) && anterior.cara === cara && anterior.ladoCm === ladoCm &&
+        (anterior.orientacion ?? 'vertical') === (montaje ?? 'vertical') &&
         anterior.pos.every((n, i) => n === pos[i])) subancla.giroQR = anterior.giroQR;
     if (indice < 0) subanclas.push(subancla);
     else subanclas[indice] = subancla;
@@ -219,12 +228,13 @@ export async function guardarSubancla(anclaId, maquinaId, datos) {
   });
 }
 
-export async function guardarMedicionSubancla(anclaId, maquinaId, id, ladoCm, { pos, giroQR }) {
+export async function guardarMedicionSubancla(anclaId, maquinaId, referencia, { pos, giroQR }) {
   return db.transaction('rw', db.anclas, async () => {
     const ancla = await obtenerAncla(anclaId);
     if (!ancla || ancla.maquinaId !== maquinaId) throw new Error('El ancla ya no existe en esta máquina.');
     const subanclas = subanclasDe(ancla);
-    const indice = subanclas.findIndex((s) => s.id === id && s.ladoCm === ladoCm);
+    const indice = subanclas.findIndex((s) => s.id === referencia.id && s.ladoCm === referencia.ladoCm &&
+      (s.orientacion ?? 'vertical') === (referencia.orientacion ?? 'vertical'));
     if (indice < 0) throw new Error('El QR cambió durante la medición. Vuelve a medirlo.');
     const medida = { ...subanclas[indice], pos, giroQR };
     if (!calibracionSubanclaValida(medida) || !giroSubanclaValido(giroQR)) throw new Error('La medición no es válida.');

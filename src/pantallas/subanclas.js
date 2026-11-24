@@ -1,7 +1,7 @@
 import { leerAjustes } from '../ajustes.js';
 import { deG, describir, deSimple, puntosDeTramos, simplesDeTramos } from '../coordenadas.js';
 import { borrarSubancla, guardarSubancla, listarSubanclasReutilizables, obtenerAncla } from '../maquinas.js';
-import { CARAS_MAQUINA, giroSubanclaValido, subanclasDe, textoQRSubancla } from '../subanclas.js';
+import { CARAS_MAQUINA, ORIENTACIONES_QR, giroSubanclaValido, subanclasDe, textoQRSubancla } from '../subanclas.js';
 import { guardarOCompartir } from '../ui/descargar.js';
 import { pintarListaTramos } from '../ui/tramos.js';
 
@@ -21,7 +21,7 @@ function posicionPorTramos(lista) {
 export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = true } = {}) {
   cont.innerHTML = `
     ${mostrarCara ? '<p class="nota cara-principal"></p>' : ''}
-    <p class="nota">Mide desde el centro del QR principal hasta el centro de la nueva marca. Pégala en una cara vertical y plana, con «ARRIBA» hacia el techo.</p>
+    <p class="nota">Mide desde el centro del QR principal hasta el centro de la nueva marca. Pégala plana, con la flecha hacia arriba si es vertical o hacia dentro de la máquina si es horizontal.</p>
     <div class="botones-archivo">
       <button class="boton-mini" type="button" data-s="nueva">Crear QR nuevo</button>
       <button class="boton-mini" type="button" data-s="reutilizar">Asignar un QR existente</button>
@@ -61,7 +61,7 @@ export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = 
           <button class="boton-mini" data-s="borrar">Quitar</button>
         </span>`;
       li.querySelector('.fila-nombre').textContent = s.nombre;
-      li.querySelector('.fila-ref').textContent = `${CARAS_MAQUINA[s.cara]} · ${describir(deG(s.pos))} · QR de ${s.ladoCm} cm${giroSubanclaValido(s.giroQR) ? ' · Calibrada con cámara' : ''}`;
+      li.querySelector('.fila-ref').textContent = `${CARAS_MAQUINA[s.cara]} · ${ORIENTACIONES_QR[s.orientacion ?? 'vertical']} · ${describir(deG(s.pos))} · QR de ${s.ladoCm} cm${giroSubanclaValido(s.giroQR) ? ' · Calibrada con cámara' : ''}`;
       li.querySelector('[data-s="editar"]').onclick = () => { reutilizacion.hidden = true; editar(s); };
       for (const [accion, ejecutar] of [['colocar', colocar], ['calibrar', calibrar]]) {
         const boton = li.querySelector(`[data-s="${accion}"]`);
@@ -79,7 +79,7 @@ export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = 
         try {
           const { generarPdfQR } = await import('../qr-pdf.js');
           const pdf = generarPdfQR([{ id: s.id, nombre: s.nombre, referencia: `${ancla.nombre} · ${CARAS_MAQUINA[s.cara]}`,
-            texto: textoQRSubancla(s.id), subancla: true }], s.ladoCm);
+            texto: textoQRSubancla(s.id), subancla: true, orientacion: s.orientacion }], s.ladoCm);
           await guardarOCompartir(pdf, `SUBANCLA-${s.id}.pdf`, 'application/pdf');
         } catch (e) { avisar(e.message); }
       };
@@ -103,6 +103,10 @@ export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = 
         <option value="">Elige una cara</option>
         ${Object.entries(CARAS_MAQUINA).map(([id, nombre]) => `<option value="${id}">${nombre}</option>`).join('')}
       </select></label>
+      <label>Colocación de la subancla <select name="orientacion">
+        ${Object.entries(ORIENTACIONES_QR).map(([id, nombre]) => `<option value="${id}">${nombre}</option>`).join('')}
+      </select></label>
+      <p class="nota">En horizontal, elige el lado desde el que la flecha apunta al interior de la máquina.</p>
       <p class="nota">Toma las direcciones mirando de frente al QR principal. Mide desde su centro y escribe las distancias en cm.</p>
       <ol class="tramos-subancla"></ol>
       <button class="boton-mini" type="button" data-s="tramo">Añadir tramo</button>
@@ -112,6 +116,7 @@ export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = 
     const campos = formulario.elements;
     campos.nombre.value = s?.nombre || '';
     campos.cara.value = editando ? s.cara : '';
+    campos.orientacion.value = s?.orientacion ?? 'vertical';
     campos.ladoCm.value = s?.ladoCm || leerAjustes().qrCm || 10;
     campos.ladoCm.readOnly = reutilizar;
     const tramos = editando ? simplesDeTramos([deG(s.pos)]) : [{ dir: 'adelante', cm: '' }];
@@ -143,6 +148,7 @@ export function montarSubanclas(cont, ancla, { colocar, calibrar, mostrarCara = 
         await guardarSubancla(ancla.id, ancla.maquinaId, {
           id: editando ? s.id : undefined, reutilizarId: reutilizar ? s.id : undefined,
           nombre: campos.nombre.value, cara: campos.cara.value, ladoCm: campos.ladoCm.valueAsNumber,
+          orientacion: campos.orientacion.value,
           pos: conservarPosicion ? s.pos : posicionPorTramos(tramos),
         });
         formulario.hidden = true;

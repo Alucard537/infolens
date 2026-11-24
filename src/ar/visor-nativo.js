@@ -2,7 +2,7 @@
 // Le pasa el recorrido dentro de la dirección: infolens://ruta?d={p, i, a, l, v, q}
 //   q = los módulos del QR del ancla tal como se imprime ("N:hex"), para que ARKit reconozca EXACTAMENTE ese QR.
 import QRCode from 'qrcode';
-import { CARAS_MAQUINA, giroSubanclaValido, subanclasDe, textoQRSubancla } from '../subanclas.js';
+import { CARAS_MAQUINA, ORIENTACIONES_QR, giroSubanclaValido, subanclasDe, textoQRSubancla } from '../subanclas.js';
 
 export function tieneARKitIntegrado() {
   return typeof window.webkit?.messageHandlers?.infolens?.postMessage === 'function';
@@ -34,11 +34,13 @@ export function modulosQR(texto) {
 export function referenciasDelAncla(ancla, ladoCm, subanclas = subanclasDe(ancla)) {
   return [
     { id: ancla.id, ladoCm, patron: modulosQR('INFOLENS:' + ancla.id),
-      ...(Object.hasOwn(CARAS_MAQUINA, ancla.cara) ? { cara: ancla.cara } : {}) },
+      ...(Object.hasOwn(CARAS_MAQUINA, ancla.cara) ? { cara: ancla.cara } : {}),
+      ...(Object.hasOwn(ORIENTACIONES_QR, ancla.orientacion) ? { orientacion: ancla.orientacion } : {}) },
     ...subanclas.map((s) => {
       const id = textoQRSubancla(s.id);
       return { id, ladoCm: s.ladoCm, patron: modulosQR(id), subancla: {
         anclaId: ancla.id, nombre: s.nombre, pos: s.pos, cara: s.cara,
+        ...(s.orientacion ? { orientacion: s.orientacion } : {}),
         ...(giroSubanclaValido(s.giroQR) ? { giroQR: s.giroQR } : {}),
       } };
     }),
@@ -46,7 +48,7 @@ export function referenciasDelAncla(ancla, ladoCm, subanclas = subanclasDe(ancla
 }
 
 /** puntos: [[x,y,z]…] en metros desde el QR (el primero [0,0,0]). */
-export function datosDelVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas', flechas, icono, posIcono, colocacion, caraPrincipal }) {
+export function datosDelVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas', flechas, icono, posIcono, colocacion, caraPrincipal, orientacionPrincipal }) {
   const redondo = (n) => Math.round(n * 1000) / 1000;
   return {
     p: colocacion ? puntos : puntos.map((q) => q.map(redondo)),
@@ -60,6 +62,7 @@ export function datosDelVisor({ puntos, info, anclaId, ladoCm, vista = 'flechas'
     ...(posIcono ? { posIcono } : {}),
     ...(colocacion ? { colocacion } : {}),
     ...(caraPrincipal ? { caraPrincipal } : {}),
+    ...(Object.hasOwn(ORIENTACIONES_QR, orientacionPrincipal) ? { orientacionPrincipal } : {}),
   };
 }
 

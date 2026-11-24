@@ -88,7 +88,7 @@ export function generarPdfQR(elementos, ladoCm) {
       doc.setFillColor(0, 0, 0);
       doc.triangle(mx - t, arribaQR - 1, mx + t, arribaQR - 1, mx, arribaQR - 1 - t * 1.2, 'F');
       doc.setFont('helvetica', 'bold'); doc.setFontSize(Math.max(6, t * 2.6)); doc.setTextColor(0);
-      doc.text(el.subancla ? 'ARRIBA' : 'ADELANTE', mx + t + 1.5, arribaQR - 1.3);
+      doc.text(el.subancla && el.orientacion !== 'horizontal' ? 'ARRIBA' : 'ADELANTE', mx + t + 1.5, arribaQR - 1.3);
       if (el.ancla) {
         const rx = x + margen + lado + 1, my = y + margen + lado / 2;
         doc.triangle(rx, my - t, rx, my + t, rx + t * 1.2, my, 'F');
@@ -143,7 +143,7 @@ export function generarPdfMarcador(anclas, ladoCm) {
     const t = [
       `${a.referencia || ''}  ·  ID: ${a.id}`,
       `Marcador de ${anchoCm} cm (QR del centro: ${ladoCm} cm). Imprimir al 100 % / tamaño real, sin "ajustar a la página".`,
-      'Pégalo plano y entero (sin tapar el dibujo), con "ADELANTE" hacia donde empiezan los recorridos.',
+      'Pégalo plano. En vertical, "ADELANTE" apunta hacia arriba. En horizontal, apunta hacia dentro de la máquina.',
       'El AR con LiDAR reconoce el dibujo completo: así sabe dónde está el frente, la derecha y el centro.',
     ];
     doc.text(t, A4.ancho / 2, y + w + 8, { align: 'center', lineHeightFactor: 1.5, maxWidth: A4.ancho - 20 });

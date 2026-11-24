@@ -20,7 +20,7 @@ const TEXTO_COLOCACION = {
   pared: 'QR en una pared',
 };
 
-export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar }) {
+export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar, orientacionDe = () => null }) {
   let fase = 'qr';
   let anclaId = null;
   let muestras = [];
@@ -79,6 +79,15 @@ export function crearEscaneo({ panel, seguidos, capa, alMedir, alReiniciar }) {
       const fraccion = Math.min(muestras.length / MUESTRAS, intervalo / TIEMPO_ESTABLE_MS);
       const lleno = fraccion >= 1;
       if (lleno && peor <= DISPERSION_MAX) {
+        const orientacion = orientacionDe(anclaId);
+        if (orientacion === 'vertical' && media.y < 0.94) {
+          progreso(0.95, 'Coloca el QR en vertical, con la flecha hacia arriba.');
+          return false;
+        }
+        if (orientacion === 'horizontal' && Math.abs(media.z) < 0.94) {
+          progreso(0.95, 'Coloca el QR en horizontal, con la flecha hacia dentro de la máquina.');
+          return false;
+        }
         const g = [media.x, media.y, media.z];
         medida = { id: anclaId, g, colocacion: colocacionQR(g) };
         capa.fijarGravedad(anclaId, g);

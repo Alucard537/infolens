@@ -451,6 +451,7 @@ export function pantallaEscaner(app, {
   // Escaneo inicial del entorno: hasta que no termina, no se muestran flechas (ver ar/escaneo.js)
   const escaneo = modo !== 'escaner' ? crearEscaneo({
     panel: $('.escaneo-panel'), seguidos, capa,
+    orientacionDe: (id) => anclas?.get(id)?.orientacion,
     conEntorno: () => ajustes.entorno !== false,
     infoEntorno: () => infoEntorno,
     alMedir: (id, g) => {

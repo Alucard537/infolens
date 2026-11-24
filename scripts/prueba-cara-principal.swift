@@ -93,6 +93,51 @@ struct PruebaCaraPrincipal {
         precondition(corregida.diferenciaAngular(con: base) < 0.5)
         print("Cara del principal y recuperación de las subanclas verificadas")
         probarRecorridoNivelado()
+        try probarColocacionDelQR()
+    }
+
+    static func probarColocacionDelQR() throws {
+        let pared = simd_float4x4(columns: ([1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [0, 0, 0, 1]))
+        let paredInvertida = pared * simd_float4x4(simd_quatf(angle: .pi, axis: [0, 1, 0]))
+        precondition(OrientacionQR.vertical.coincide(con: PoseQR(pared)))
+        precondition(!OrientacionQR.vertical.coincide(con: PoseQR(paredInvertida)))
+        precondition(!OrientacionQR.horizontal.coincide(con: PoseQR(pared)))
+        precondition(!OrientacionQR.vertical.coincide(con: PoseQR(matrix_identity_float4x4)))
+
+        let json = Data("""
+        {"a":"PRINCIPAL","l":10,"p":[[0,0,0],[1,0,-0.8]],"orientacionPrincipal":"horizontal",
+        "colocacion":{"cara":"derecha","ladoCm":10,"orientacion":"horizontal"}}
+        """.utf8)
+        guard let ruta = Recorrido.desdeDatos(json), let colocacion = ruta.colocacion else {
+            preconditionFailure("No se cargó la colocación del QR")
+        }
+        precondition(ruta.ancla.orientacion == .horizontal && colocacion.montaje == .horizontal)
+        precondition(colocacion.seVe(desde: [0, -1, 0], punto: .zero))
+        precondition(!colocacion.seVe(desde: [1, 0, 0], punto: .zero))
+
+        let subancla = try JSONDecoder().decode(SubanclaAR.self, from: Data("""
+        {"anclaId":"PRINCIPAL","nombre":"Subancla superior","pos":[1,0,-0.8],"cara":"derecha","orientacion":"horizontal"}
+        """.utf8))
+        let ejes = subancla.cara.ejesMarca(respectoA: .frontal, montaje: subancla.montaje).columns
+        let centro: SIMD4<Float> = [1, 0, -0.8, 1]
+        let papelSuperior = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0), SIMD4<Float>(ejes.2, 0), centro))
+        var papelInferior = papelSuperior
+        papelInferior.columns.0 = -papelSuperior.columns.0
+        papelInferior.columns.1 = -papelSuperior.columns.1
+
+        for papel in [papelSuperior, papelInferior] {
+            let muestra = PoseQR(papel)
+            precondition(OrientacionQR.horizontal.coincide(con: muestra))
+            guard let marco = muestra.marcoInicialRecorrido(orientacion: .horizontal) else {
+                preconditionFailure("Falta la dirección de la flecha del QR tumbado")
+            }
+            let adelante = marco * SIMD4<Float>(0, 0, -1, 0)
+            precondition(simd_distance(adelante, [-1, 0, 0, 0]) < 0.001)
+            precondition(subancla.poseRecorrido(desde: muestra, respectoA: .frontal).cercana(a: PoseQR(matrix_identity_float4x4)))
+            let medida = MedicionSubancla(principal: matrix_identity_float4x4, subancla: muestra, montaje: .horizontal)
+            precondition(abs((medida?.giroQR ?? 0) - .pi / 2) < 0.001)
+        }
+        print("QR vertical hacia arriba y QR horizontal hacia el interior verificados")
     }
 
     static func probarRecorridoNivelado() {

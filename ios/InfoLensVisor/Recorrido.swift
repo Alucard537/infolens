@@ -24,15 +24,20 @@ private struct DatosRecorrido: Decodable {
     var posIcono: [Double]?
     var colocacion: ColocacionSubancla?
     var caraPrincipal: SubanclaAR.Cara?
+    var orientacionPrincipal: OrientacionQR?
 }
 
 struct ColocacionSubancla: Decodable {
     let cara: SubanclaAR.Cara
     let ladoCm: Double
     var giroQR: Double? = nil
+    var orientacion: OrientacionQR? = nil
+
+    var montaje: OrientacionQR { orientacion ?? .vertical }
 
     func seVe(desde camara: SIMD3<Float>, punto: SIMD3<Float>, respectoA principal: SubanclaAR.Cara? = nil) -> Bool {
-        simd_dot(camara - punto, cara.normal(respectoA: principal, giroQR: giroQR)) > 0.04
+        if montaje == .horizontal { return abs(camara.y - punto.y) > 0.04 }
+        return simd_dot(camara - punto, cara.normal(respectoA: principal, giroQR: giroQR)) > 0.04
     }
 }
 
@@ -41,13 +46,16 @@ struct AnclaAR: Decodable {
     let ladoCm: Double
     let patron: String?
     let cara: SubanclaAR.Cara?
+    let orientacion: OrientacionQR?
     let subancla: SubanclaAR?
 
-    init(id: String, ladoCm: Double, patron: String?, cara: SubanclaAR.Cara? = nil, subancla: SubanclaAR? = nil) {
+    init(id: String, ladoCm: Double, patron: String?, cara: SubanclaAR.Cara? = nil,
+         orientacion: OrientacionQR? = nil, subancla: SubanclaAR? = nil) {
         self.id = id
         self.ladoCm = ladoCm
         self.patron = patron
         self.cara = cara
+        self.orientacion = orientacion
         self.subancla = subancla
     }
 
@@ -83,11 +91,13 @@ struct SubanclaAR: Decodable {
             return [simd_dot(normal, derecha), normal.y, simd_dot(normal, exterior)]
         }
 
-        func ejesMarca(respectoA principal: Cara?, giroQR: Double? = nil) -> simd_float3x3 {
-            // Ejes de la marca en el recorrido: derecha, normal exterior, abajo.
+        func ejesMarca(respectoA principal: Cara?, giroQR: Double? = nil, montaje: OrientacionQR = .vertical) -> simd_float3x3 {
             let exterior = normal(respectoA: principal, giroQR: giroQR)
-            let abajo = SIMD3<Float>(0, -1, 0)
-            return simd_float3x3(columns: (simd_cross(exterior, abajo), exterior, abajo))
+            let arriba = SIMD3<Float>(0, 1, 0)
+            let derecha = simd_cross(arriba, exterior)
+            return montaje == .horizontal
+                ? simd_float3x3(columns: (derecha, arriba, exterior))
+                : simd_float3x3(columns: (derecha, exterior, -arriba))
         }
     }
 
@@ -96,6 +106,9 @@ struct SubanclaAR: Decodable {
     let pos: [Float]
     let cara: Cara
     var giroQR: Double? = nil
+    var orientacion: OrientacionQR? = nil
+
+    var montaje: OrientacionQR { orientacion ?? .vertical }
 
     var valida: Bool {
         !anclaId.isEmpty && anclaId.count <= 120 && !nombre.isEmpty && nombre.count <= 80 &&
@@ -107,6 +120,12 @@ struct SubanclaAR: Decodable {
     func poseRecorrido(desde poseQR: PoseQR, respectoA principal: Cara? = nil) -> PoseQR {
         if let giroQR, let medida = poseRecorrido(desde: poseQR, rumbo: giroQR) {
             return medida
+        }
+        if montaje == .horizontal {
+            let exterior = cara.normal(respectoA: principal)
+            if let horizontal = poseRecorrido(desde: poseQR, rumbo: atan2(Double(exterior.x), Double(exterior.z))) {
+                return horizontal
+            }
         }
         let ejes = cara.ejesMarca(respectoA: principal).columns
         let desdeMarca = simd_float4x4(columns: (SIMD4<Float>(ejes.0, 0), SIMD4<Float>(ejes.1, 0),
@@ -122,7 +141,7 @@ struct SubanclaAR: Decodable {
     }
 
     private func poseRecorrido(desde poseQR: PoseQR, rumbo: Double) -> PoseQR? {
-        guard let marcoQR = poseQR.marcoInicialRecorrido else { return nil }
+        guard let marcoQR = poseQR.marcoInicialRecorrido(orientacion: montaje) else { return nil }
         let giro = simd_quatf(angle: Float(rumbo), axis: SIMD3<Float>(0, 1, 0))
         var desdeMarca = simd_float4x4(giro)
         desdeMarca.columns.3 = centroLocal
@@ -154,8 +173,8 @@ struct MedicionSubancla: Encodable {
     let pos: [Float]
     let giroQR: Double
 
-    init?(principal: simd_float4x4, subancla: PoseQR) {
-        guard let marca = subancla.marcoInicialRecorrido else { return nil }
+    init?(principal: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR = .vertical) {
+        guard let marca = subancla.marcoInicialRecorrido(orientacion: montaje) else { return nil }
         let relativa = simd_inverse(principal) * marca
         let punto = relativa.columns.3
         pos = [punto.x, punto.y, punto.z]
@@ -203,7 +222,7 @@ struct Recorrido {
         guard datos.count <= 100_000,
               let r = try? JSONDecoder().decode(DatosRecorrido.self, from: datos),
               (2...200).contains(r.p.count) else { return nil }
-        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q, cara: r.caraPrincipal)
+        let ancla = AnclaAR(id: r.a ?? "", ladoCm: r.l ?? 10, patron: r.q, cara: r.caraPrincipal, orientacion: r.orientacionPrincipal)
         let pts = r.p.compactMap(punto)
         guard ancla.valida, pts.count == r.p.count else { return nil }
         if let colocacion = r.colocacion {

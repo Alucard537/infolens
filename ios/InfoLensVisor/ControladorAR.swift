@@ -239,7 +239,11 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         if let (imagen, referencia) = visibles.first(where: { $0.1.subancla == nil }),
            subanclaParaCalibrar == nil || origen == nil || subVisible == nil {
             anclajeSubancla.dejarDeVerQR()
-            if let pose = anclaje.observar(PoseQR(imagen.transform), id: imagen.identifier, en: frame.timestamp) {
+            let muestra = PoseQR(imagen.transform)
+            if let orientacion = referencia.orientacion, !orientacion.coincide(con: muestra) {
+                anclaje.dejarDeVerQR()
+                mensaje = orientacion.instruccion
+            } else if let pose = anclaje.observar(muestra, id: imagen.identifier, en: frame.timestamp, orientacion: referencia.orientacion) {
                 aplicarPoseQR(pose, id: referencia.id)
                 let escala = Float(imagen.estimatedScaleFactor)
                 if escala.isFinite, escala > 0 { marcaQR?.scale = SIMD3<Float>(repeating: escala) }
@@ -262,12 +266,13 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             }
             anclaje.dejarDeVerQR()
             let muestra = PoseQR(imagen.transform)
-            if muestra.matriz.columns.2.y > -0.97 {
+            if !subancla.montaje.coincide(con: muestra) {
                 anclajeSubancla.dejarDeVerQR()
-                mensaje = "La subancla debe estar vertical, con ARRIBA hacia el techo."
-            } else if let pose = anclajeSubancla.observar(muestra, id: imagen.identifier, en: frame.timestamp) {
+                mensaje = subancla.montaje.instruccion
+            } else if let pose = anclajeSubancla.observar(muestra, id: imagen.identifier, en: frame.timestamp, orientacion: subancla.montaje) {
                 if subanclaParaCalibrar != nil {
-                    medicionSubancla = MedicionSubancla(principal: marcoRuta.transformMatrix(relativeTo: origen), subancla: pose)
+                    medicionSubancla = MedicionSubancla(principal: marcoRuta.transformMatrix(relativeTo: origen), subancla: pose,
+                                                       montaje: subancla.montaje)
                     mensaje = medicionSubancla == nil ? "Acerca la cámara al QR para medirlo." : "Medición lista. Comprueba y guarda."
                 } else {
                     mensaje = ajustarConSubancla(subancla, observada: pose, id: referencia.id, origen: origen)

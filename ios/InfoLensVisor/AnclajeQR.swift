@@ -1,6 +1,22 @@
 import Foundation
 import simd
 
+enum OrientacionQR: String, Decodable {
+    case vertical, horizontal
+
+    func coincide(con pose: PoseQR) -> Bool {
+        let ejes = pose.matriz.columns
+        return self == .vertical ? ejes.2.y <= -0.94 : abs(ejes.1.y) >= 0.94
+    }
+
+    var instruccion: String {
+        switch self {
+        case .vertical: return "Coloca el QR en vertical, con la flecha hacia arriba."
+        case .horizontal: return "Coloca el QR en horizontal, con la flecha hacia dentro de la máquina."
+        }
+    }
+}
+
 struct PoseQR {
     private static let arribaMundo = SIMD3<Float>(0, 1, 0)
     let posicion: SIMD3<Float>
@@ -43,11 +59,12 @@ struct PoseQR {
                rotacion: simd_slerp(rotacion, otra.rotacion, peso))
     }
 
-    var marcoInicialRecorrido: simd_float4x4? {
+    func marcoInicialRecorrido(orientacion: OrientacionQR? = nil) -> simd_float4x4? {
         let m = matriz
         // El primer encuadre alinea el recorrido con los ejes que se usaron para medirlo.
         let normal = m.columns.1
-        let haciaAtras = abs(normal.y) >= sqrt(Float(0.5)) ? m.columns.2 : normal
+        let tumbado = orientacion.map { $0 == .horizontal } ?? (abs(normal.y) >= sqrt(Float(0.5)))
+        let haciaAtras = tumbado ? m.columns.2 : normal
         let horizontal = Self.enHorizontal(haciaAtras)
         guard simd_length_squared(horizontal) > 0.0001 else { return nil }
         return Self.marcoNivelado(horizontal: horizontal, centro: m.columns.3)
@@ -91,7 +108,7 @@ struct AnclajeQR {
     }
 
     /// Devuelve la pose aceptada. Si el QR se pierde se conserva la última pose en el mundo.
-    mutating func observar(_ muestra: PoseQR, id: UUID, en tiempo: TimeInterval) -> PoseQR? {
+    mutating func observar(_ muestra: PoseQR, id: UUID, en tiempo: TimeInterval, orientacion: OrientacionQR? = nil) -> PoseQR? {
         let continua = tiempo - ultimaVista <= 0.20
         defer { ultimaVista = tiempo }
         if continua, id == idVisible {
@@ -110,7 +127,7 @@ struct AnclajeQR {
         guard estable.cantidad >= 5, tiempo - estable.desde >= 0.25 else { return nil }
 
         if rutaDesdeQR == nil {
-            guard let ruta = estable.media.marcoInicialRecorrido else { return nil }
+            guard let ruta = estable.media.marcoInicialRecorrido(orientacion: orientacion) else { return nil }
             // Esta referencia conserva el rumbo del recorrido respecto al QR al volver a verlo.
             rutaDesdeQR = simd_inverse(estable.media.matriz) * ruta
         }
