@@ -195,6 +195,7 @@ struct SubanclaAR: Decodable {
 struct MedicionSubancla: Encodable {
     let pos: [Float]
     let giroQR: Double
+    var retorno: [Float]? = nil
 
     init?(principal: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR = .vertical) {
         guard let marca = subancla.marcoInicialRecorrido(orientacion: montaje) else { return nil }

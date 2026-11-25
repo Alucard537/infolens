@@ -1,12 +1,12 @@
 // Prueba del QR en el visor nativo y diagnóstico de carga de modelos con Quick Look.
 import { crearEnlaceAR, hayQuickLook } from '../ar/boton-ar.js';
+import { tieneARKitIntegrado } from '../ar/visor-nativo.js';
 import { montarPrecisionARKit } from './precision-arkit.js';
 
 export function pantallaDiagnosticoAR(app, { volver, elegirMaquina }) {
   let activo = true;
   const base = import.meta.env?.BASE_URL ?? './';
   const instalada = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-  const controlada = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   app.innerHTML = `
     <div class="pagina">
       <button class="volver">‹ Inicio</button>
@@ -23,9 +23,9 @@ export function pantallaDiagnosticoAR(app, { volver, elegirMaquina }) {
   app.querySelector('.volver').addEventListener('click', volver);
   const cerrarPrecision = montarPrecisionARKit(app.querySelector('.precision-arkit'), elegirMaquina);
   app.querySelector('.diag-info').innerHTML = `
-    <div>Abierta como: <b>${instalada ? 'app instalada' : 'Safari'}</b></div>
-    <div>Service worker: <b>${controlada ? 'activo' : 'NO activo'}</b></div>
-    <div>AR de Apple disponible: <b>${hayQuickLook() ? 'sí' : 'no'}</b></div>`;
+    <div>Abierta como: <b>${tieneARKitIntegrado() ? 'InfoLens para iPhone' : instalada ? 'app web instalada' : 'navegador'}</b></div>
+    <div>ARKit integrado: <b>${tieneARKitIntegrado() ? 'disponible' : 'no disponible'}</b></div>
+    <div>Quick Look: <b>${hayQuickLook() ? 'disponible' : 'no disponible'}</b></div>`;
   const cont = app.querySelector('.diag');
   const fila = (letra, texto) => {
     const d = document.createElement('div');

@@ -64,12 +64,20 @@ private struct PanelCalibracion: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(diagnostico ? "Medir precisión de ARKit"
                      : "Calibrar \(controlador.subanclaParaCalibrar?.subancla?.nombre ?? "subancla")").font(.headline)
-                if let medida = controlador.medicionSubancla {
+                if controlador.comprobandoRetorno {
+                    Text("Mantén la cámara abierta hasta medir otra vez el centro del QR principal.")
+                } else if let medida = controlador.medicionSubancla {
                     let distancia = Double(medida.pos.reduce(0) { $0 + $1 * $1 }).squareRoot()
                     Text("Distancia entre los centros: \(distancia.formatted(.number.precision(.fractionLength(2)))) m.")
                     Button(diagnostico ? "Ver error" : "Guardar medición") { terminar(true) }.buttonStyle(.borderedProminent)
+                    if diagnostico && !controlador.medicionSimultanea && medida.retorno == nil {
+                        Button("Comprobar el retorno al QR principal") { controlador.iniciarComprobacionRetorno() }
+                            .buttonStyle(.bordered)
+                    }
+                } else if controlador.medicionSimultanea {
+                    Text("Busca una posición desde la que puedas ver los dos QR y mantén el iPhone quieto.")
                 } else {
-                    Text("Enfoca el QR principal y rodea la máquina despacio hasta enfocar esta subancla. Mantén la cámara abierta durante el recorrido.")
+                    Text("Mantén el QR principal encuadrado hasta que quede fijado. Rodea la máquina despacio y mantén la subancla encuadrada para terminar la medición.")
                 }
                 HStack {
                     Button("Repetir") { controlador.buscarQR() }.buttonStyle(.bordered)

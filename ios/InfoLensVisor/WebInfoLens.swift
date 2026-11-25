@@ -131,7 +131,8 @@ final class AplicacionInfoLens: ObservableObject {
             cerrar()
             solicitudCalibracion = solicitud
             diagnosticoPrecision = mensaje["diagnostico"] as? Bool == true
-            controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla)
+            let simultanea = diagnosticoPrecision && (mensaje["medicionSimultanea"] as? Bool == true)
+            controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla, medicionSimultanea: simultanea)
             pruebaAbierta = true
             return
         }

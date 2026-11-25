@@ -95,6 +95,32 @@ struct PruebaCaraPrincipal {
         probarRecorridoNivelado()
         try probarColocacionDelQR()
         probarElementosDeGuia()
+        probarMuestreoDePrecision()
+    }
+
+    static func probarMuestreoDePrecision() {
+        var muestreo = MuestreoPosesQR()
+        let principal = UUID(), secundaria = UUID()
+        func muestra(_ id: UUID, _ x: Float) -> MuestreoPosesQR.Muestra {
+            var matriz = matrix_identity_float4x4
+            matriz.columns.3.x = x
+            return (id, PoseQR(matriz))
+        }
+        var poses: [PoseQR]?
+        for i in 0...14 {
+            let ruido: Float = i.isMultiple(of: 2) ? 0.006 : -0.006
+            poses = muestreo.observar([muestra(principal, 1 + ruido), muestra(secundaria, 2 - ruido)],
+                                     en: 1 + Double(i) * 0.05)
+            if i < 13 { precondition(poses == nil, "No debe confirmar antes de completar la ventana estable") }
+        }
+        precondition(poses?.count == 2)
+        precondition(abs(poses![0].posicion.x - 1) < 0.001)
+        precondition(abs(poses![1].posicion.x - 2) < 0.001)
+        precondition(muestreo.observar([muestra(principal, 1), muestra(secundaria, 2.1)], en: 1.75) == nil)
+        precondition(muestreo.observar([], en: 1.80) == nil)
+        precondition(muestreo.observar([muestra(principal, 1)], en: 1.85) == nil)
+        precondition(muestreo.observar([muestra(principal, 1)], en: 2.1) == nil)
+        print("Lectura media de los QR y reinicio ante saltos verificados")
     }
 
     static func probarElementosDeGuia() {

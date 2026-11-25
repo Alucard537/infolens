@@ -12,6 +12,10 @@ const ejes = [
 ];
 const formato = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
 const cm = (n) => `${formato.format(Math.abs(n))} cm`;
+const desvioTexto = (vector) => {
+  const direcciones = deG(vector);
+  return Object.values(direcciones).some(Boolean) ? describir(direcciones) : '0 cm';
+};
 
 export function montarPrecisionARKit(cont, elegirMaquina) {
   let activo = true;
@@ -32,6 +36,11 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
           <label>Ancho del QR de la subancla (cm)<input name="anchoSubancla" inputmode="decimal" maxlength="16"></label>
         </div>
         <p class="nota">Mide el ancho impreso de cada código, sin el margen blanco.</p>
+        <label>Método de prueba<select name="metodo">
+          <option value="recorrido">Recorrer la máquina</option>
+          <option value="simultanea">Ambos QR a la vez</option>
+        </select></label>
+        <p class="nota precision-ayuda-metodo"></p>
         <h3>Medidas de referencia</h3>
         <p class="nota">Con una cinta métrica, mide del centro del QR principal al centro de la subancla por cada eje.
           Usa los mismos sentidos que en la guía. Deja en blanco los ejes sin desplazamiento.</p>
@@ -55,6 +64,8 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
         <div><dt>Distancia de referencia</dt><dd class="precision-referencia"></dd></div>
         <div><dt>Distancia medida por ARKit</dt><dd class="precision-distancia"></dd></div>
         <div><dt>Desvío por dirección</dt><dd class="precision-desvio"></dd></div>
+        <div class="precision-fila-media"><dt>Desvío medio por dirección</dt><dd class="precision-media"></dd></div>
+        <div class="precision-fila-retorno" hidden><dt>Desplazamiento al volver al QR inicial</dt><dd class="precision-retorno"></dd></div>
       </dl>
       <p class="nota precision-resumen"></p>
     </section>`;
@@ -88,7 +99,9 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     if (!puntoDeGuiaValido(pos) || !pos.some((n) => n !== 0)) {
       throw new Error('Introduce una distancia de referencia distinta de cero, en centímetros y sin signos.');
     }
-    return { a, s, anchoPrincipal, anchoSubancla, pos, clave: JSON.stringify([a.id, s.id, anchoPrincipal, anchoSubancla, pos]) };
+    const metodo = campos.metodo.value;
+    return { a, s, anchoPrincipal, anchoSubancla, pos, metodo,
+      clave: JSON.stringify([a.id, s.id, anchoPrincipal, anchoSubancla, pos, metodo]) };
   }
 
   function pintarPruebas(datos) {
@@ -97,20 +110,30 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     medir.textContent = resultado.hidden ? 'Medir con ARKit' : 'Repetir prueba';
     if (resultado.hidden) return;
     const ultima = medidas.at(-1);
-    const desvio = ultima.map((n, i) => n - datos.pos[i]);
-    const errores = medidas.map((pos) => Math.hypot(...pos.map((n, i) => n - datos.pos[i])) * 100);
+    const desvios = medidas.map(({ pos }) => pos.map((n, i) => n - datos.pos[i]));
+    const errores = desvios.map((pos) => Math.hypot(...pos) * 100);
     const promedio = errores.reduce((total, n) => total + n, 0) / errores.length;
+    const vectorMedio = datos.pos.map((_, i) => desvios.reduce((total, pos) => total + pos[i], 0) / desvios.length);
     $('.precision-error-total').textContent = `Error de posición: ${cm(errores.at(-1))}`;
     $('.precision-referencia').textContent = cm(Math.hypot(...datos.pos) * 100);
-    $('.precision-distancia').textContent = cm(Math.hypot(...ultima) * 100);
-    const direcciones = deG(desvio);
-    $('.precision-desvio').textContent = Object.values(direcciones).some(Boolean) ? describir(direcciones) : '0 cm';
+    $('.precision-distancia').textContent = cm(Math.hypot(...ultima.pos) * 100);
+    $('.precision-desvio').textContent = desvioTexto(desvios.at(-1));
+    $('.precision-fila-media').hidden = medidas.length < 2;
+    $('.precision-media').textContent = desvioTexto(vectorMedio);
+    $('.precision-fila-retorno').hidden = !ultima.retorno;
+    if (ultima.retorno) {
+      const total = cm(Math.hypot(...ultima.retorno) * 100);
+      $('.precision-retorno').textContent = `${total}${total === '0 cm' ? '' : ` · ${desvioTexto(ultima.retorno)}`}`;
+    }
     $('.precision-resumen').textContent =
       `${medidas.length} ${medidas.length === 1 ? 'prueba' : 'pruebas'} · Error medio: ${cm(promedio)} · Mayor error: ${cm(Math.max(...errores))}`;
   }
 
   function cambiarMedidas() {
     errorVisible();
+    $('.precision-ayuda-metodo').textContent = campos.metodo.value === 'simultanea'
+      ? 'Si ambos QR caben en el mismo encuadre, esta prueba mide el desvío sin recorrer la máquina.'
+      : 'Al terminar, puedes volver al QR inicial con la misma sesión para comprobar cuánto se desplazó su posición aparente.';
     let datos;
     try { datos = configuracion(); } catch { /* Se valida al iniciar. */ }
     pintarPruebas(datos);
@@ -169,14 +192,15 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     if (pendiente) return;
     try {
       const datos = configuracion();
-      const { a, s, anchoPrincipal, anchoSubancla } = datos;
+      const { a, s, anchoPrincipal, anchoSubancla, metodo } = datos;
       const anclasDePrueba = referenciasDelAncla({ ...a, ladoCm: anchoPrincipal }, anchoPrincipal, [{ ...s, ladoCm: anchoSubancla }]);
       const solicitud = crypto.randomUUID();
       pendiente = { solicitud, datos };
       formulario.querySelector('fieldset').disabled = true;
       botonMaquina.disabled = true;
       errorVisible();
-      enviarARKit({ accion: 'calibrarSubancla', solicitud, anclas: anclasDePrueba, diagnostico: true });
+      enviarARKit({ accion: 'calibrarSubancla', solicitud, anclas: anclasDePrueba,
+        diagnostico: true, medicionSimultanea: metodo === 'simultanea' });
     } catch (e) {
       desbloquear();
       errorVisible(e.message);
@@ -197,7 +221,8 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     if (detail.medicion == null) return;
     if (!puntoDeGuiaValido(detail.medicion.pos)) { errorVisible('ARKit devolvió una medición inválida. Repite la prueba.'); return; }
     const medidas = pruebas.get(datos.clave) ?? [];
-    medidas.push(detail.medicion.pos);
+    const { pos, retorno } = detail.medicion;
+    medidas.push({ pos, retorno: datos.metodo === 'recorrido' && puntoDeGuiaValido(retorno) ? retorno : null });
     pruebas.set(datos.clave, medidas);
     pintarPruebas(datos);
     resultado.scrollIntoView({ block: 'nearest' });

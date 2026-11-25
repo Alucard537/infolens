@@ -707,6 +707,7 @@ input[type="checkbox"] { width: 26px; height: 26px; flex: none; accent-color: va
   padding: 8px 0; border-bottom: 1px solid var(--borde);
 }
 .precision-resultado dd { margin: 0; font-weight: 600; }
+.precision-resultado dl > div[hidden] { display: none; }
 .lidar-recomendado { font-weight: 700; color: #7CFC9A; margin: 0 0 4px; }
 
 .boton-lidar { background: #34c759; color: #062b12; margin: 6px 0 10px; }

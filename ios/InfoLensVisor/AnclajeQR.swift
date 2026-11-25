@@ -137,3 +137,39 @@ struct AnclajeQR {
         return muestra
     }
 }
+
+/// Promedia una captura breve sin mover la referencia que usan los recorridos en directo.
+struct MuestreoPosesQR {
+    typealias Muestra = (id: UUID, pose: PoseQR)
+    private var primeras: [Muestra] = []
+    private var medias: [PoseQR] = []
+    private var inicio: TimeInterval = 0
+    private var ultimo: TimeInterval = 0
+    private var cantidad = 0
+
+    mutating func observar(_ muestras: [Muestra], en tiempo: TimeInterval) -> [PoseQR]? {
+        guard !muestras.isEmpty else {
+            self = .init()
+            return nil
+        }
+        let continuo = tiempo >= ultimo && tiempo - ultimo <= 0.20
+        let coincide = primeras.count == muestras.count && zip(primeras, muestras).allSatisfy { pareja in
+            pareja.0.id == pareja.1.id && pareja.0.pose.cercana(a: pareja.1.pose, metros: 0.025, grados: 3)
+        }
+        guard continuo, coincide else {
+            primeras = muestras
+            medias = muestras.map { $0.pose }
+            inicio = tiempo
+            ultimo = tiempo
+            cantidad = 1
+            return nil
+        }
+        guard tiempo > ultimo else { return nil }
+        ultimo = tiempo
+        cantidad += 1
+        for i in medias.indices {
+            medias[i] = medias[i].combinada(con: muestras[i].pose, peso: 1 / Float(cantidad))
+        }
+        return cantidad >= 10 && tiempo - inicio >= 0.65 ? medias : nil
+    }
+}
