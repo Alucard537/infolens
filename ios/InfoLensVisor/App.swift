@@ -22,7 +22,8 @@ struct InfoLensApp: App {
                     if aplicacion.modeloEnEdicion != nil {
                         PanelColocacionModelo(aplicacion: aplicacion, controlador: controlador)
                     } else if controlador.subanclaParaCalibrar != nil {
-                        PanelCalibracion(controlador: controlador, terminar: aplicacion.terminarCalibracion)
+                        PanelCalibracion(controlador: controlador, diagnostico: aplicacion.diagnosticoPrecision,
+                                         terminar: aplicacion.terminarCalibracion)
                     } else {
                         NombreFlotantePrueba(controlador: controlador).ignoresSafeArea().allowsHitTesting(false)
                         PanelPrueba(controlador: controlador, cerrar: aplicacion.cerrar)
@@ -50,6 +51,7 @@ struct InfoLensApp: App {
 
 private struct PanelCalibracion: View {
     @ObservedObject var controlador: ControladorAR
+    let diagnostico: Bool
     let terminar: (Bool) -> Void
 
     var body: some View {
@@ -60,11 +62,12 @@ private struct PanelCalibracion: View {
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
-                Text("Calibrar \(controlador.subanclaParaCalibrar?.subancla?.nombre ?? "subancla")").font(.headline)
+                Text(diagnostico ? "Medir precisión de ARKit"
+                     : "Calibrar \(controlador.subanclaParaCalibrar?.subancla?.nombre ?? "subancla")").font(.headline)
                 if let medida = controlador.medicionSubancla {
                     let distancia = Double(medida.pos.reduce(0) { $0 + $1 * $1 }).squareRoot()
                     Text("Distancia entre los centros: \(distancia.formatted(.number.precision(.fractionLength(2)))) m.")
-                    Button("Guardar medición") { terminar(true) }.buttonStyle(.borderedProminent)
+                    Button(diagnostico ? "Ver error" : "Guardar medición") { terminar(true) }.buttonStyle(.borderedProminent)
                 } else {
                     Text("Enfoca el QR principal y rodea la máquina despacio hasta enfocar esta subancla. Mantén la cámara abierta durante el recorrido.")
                 }

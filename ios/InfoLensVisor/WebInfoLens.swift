@@ -13,6 +13,7 @@ final class AplicacionInfoLens: ObservableObject {
         }
     }
     @Published private(set) var pruebaAbierta = false
+    @Published private(set) var diagnosticoPrecision = false
     @Published var error: String?
     @Published private(set) var modeloEnEdicion: ModeloGuiaAR?
     @Published private(set) var modeloListo = false
@@ -80,6 +81,7 @@ final class AplicacionInfoLens: ObservableObject {
         controlador = nil
         sesion = nil
         solicitudCalibracion = nil
+        diagnosticoPrecision = false
         solicitudModelo = nil
         modeloEnEdicion = nil
         modeloListo = false
@@ -102,9 +104,14 @@ final class AplicacionInfoLens: ObservableObject {
             medicion = objeto
         }
         cerrar()
+        enviarMedicion(solicitud, medicion: medicion)
+    }
+
+    private func enviarMedicion(_ solicitud: String, medicion: Any = NSNull(), error: String? = nil) {
         web?.callAsyncJavaScript(
-            "window.dispatchEvent(new CustomEvent('infolens:calibracion', {detail: {solicitud, medicion}}));",
-            arguments: ["solicitud": solicitud, "medicion": medicion], in: nil, in: .page, completionHandler: nil
+            "window.dispatchEvent(new CustomEvent('infolens:calibracion', {detail: {solicitud, medicion, error}}));",
+            arguments: ["solicitud": solicitud, "medicion": medicion, "error": error as Any? ?? NSNull()],
+            in: nil, in: .page, completionHandler: nil
         )
     }
 
@@ -115,13 +122,21 @@ final class AplicacionInfoLens: ObservableObject {
             return
         }
         if accion == "calibrarSubancla" {
-            guard let solicitud = mensaje["solicitud"] as? String, UUID(uuidString: solicitud) != nil,
-                  let anclas = leerAnclas(mensaje["anclas"]), anclas.count == 2,
-                  let subancla = anclas.first(where: { $0.subancla != nil }) else { return }
+            guard let solicitud = mensaje["solicitud"] as? String, UUID(uuidString: solicitud) != nil else { return }
+            guard let anclas = leerAnclas(mensaje["anclas"]), anclas.count == 2,
+                  let subancla = anclas.first(where: { $0.subancla != nil }) else {
+                enviarMedicion(solicitud, error: "No se pudieron preparar los dos QR. Revisa sus medidas y repite la prueba.")
+                return
+            }
             cerrar()
             solicitudCalibracion = solicitud
+            diagnosticoPrecision = mensaje["diagnostico"] as? Bool == true
             controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla)
             pruebaAbierta = true
+            return
+        }
+        if accion == "cancelarCalibracion" {
+            if let solicitud = mensaje["solicitud"] as? String, solicitud == solicitudCalibracion { cerrar() }
             return
         }
         if accion == "colocarModelo" {

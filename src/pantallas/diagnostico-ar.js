@@ -1,7 +1,8 @@
 // Prueba del QR en el visor nativo y diagnóstico de carga de modelos con Quick Look.
 import { crearEnlaceAR, hayQuickLook } from '../ar/boton-ar.js';
+import { montarPrecisionARKit } from './precision-arkit.js';
 
-export function pantallaDiagnosticoAR(app, { volver }) {
+export function pantallaDiagnosticoAR(app, { volver, elegirMaquina }) {
   let activo = true;
   const base = import.meta.env?.BASE_URL ?? './';
   const instalada = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
@@ -10,6 +11,7 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     <div class="pagina">
       <button class="volver">‹ Inicio</button>
       <h1>🔬 Diagnóstico del AR con LiDAR</h1>
+      <section class="precision-arkit"></section>
       <div class="tarjeta-info diag-info"></div>
       <div class="diag-nativo"></div>
       <details>
@@ -19,6 +21,7 @@ export function pantallaDiagnosticoAR(app, { volver }) {
       </details>
     </div>`;
   app.querySelector('.volver').addEventListener('click', volver);
+  const cerrarPrecision = montarPrecisionARKit(app.querySelector('.precision-arkit'), elegirMaquina);
   app.querySelector('.diag-info').innerHTML = `
     <div>Abierta como: <b>${instalada ? 'app instalada' : 'Safari'}</b></div>
     <div>Service worker: <b>${controlada ? 'activo' : 'NO activo'}</b></div>
@@ -193,5 +196,5 @@ export function pantallaDiagnosticoAR(app, { volver }) {
     sel.value = 'TEST-1';
     cambiarAncla();
   })();
-  return () => { activo = false; };
+  return () => { activo = false; cerrarPrecision(); };
 }

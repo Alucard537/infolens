@@ -188,7 +188,10 @@ async function mostrar() {
   if (miTurno !== turno) return;
 
   if (pantalla === 'diagnostico-ar') {
-    limpiar = pantallaDiagnosticoAR(app, { volver: () => ir('#/') });
+    limpiar = pantallaDiagnosticoAR(app, {
+      volver: () => ir('#/'),
+      elegirMaquina: () => ir('#/maquinas?ir=' + enc('#/diagnostico-ar')),
+    });
   } else if (pantalla === 'ar') {
     limpiar = pantallaArRecorrido(app, params.get('d'), { volver: () => ir('#/') });
   } else if (pantalla === 'admin') {
