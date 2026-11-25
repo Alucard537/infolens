@@ -39,6 +39,7 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
         <label>Método de prueba<select name="metodo">
           <option value="recorrido">Recorrer la máquina</option>
           <option value="intermedia">Recorrer con una subancla intermedia</option>
+          <option value="mapa">Mapa temporal del entorno</option>
           <option value="simultanea">Ambos QR a la vez</option>
         </select></label>
         <div class="precision-intermedia" hidden>
@@ -149,6 +150,7 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     const ayudas = {
       simultanea: 'Si ambos QR caben en el mismo encuadre, esta prueba mide el desvío sin recorrer la máquina.',
       recorrido: 'Al terminar, puedes volver al QR inicial con la misma sesión para comprobar cuánto se desplazó su posición aparente.',
+      mapa: 'Escanea la zona desde el QR principal y vuelve a recorrerla con el mapa. Las fotos y el escaneo se borran al salir de la cámara.',
       intermedia: campos.intermedia.options.length
         ? 'Enfoca el QR principal, la subancla intermedia y el QR de comprobación. Verás el error de la misma pasada con y sin la corrección.'
         : 'Calibra con cámara otra subancla de esta máquina para usarla como referencia intermedia.',
@@ -228,7 +230,8 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
       errorVisible();
       enviarARKit({ accion: 'calibrarSubancla', solicitud, anclas: anclasDePrueba,
         diagnostico: true, medicionSimultanea: metodo === 'simultanea',
-        ...(intermedia ? { destinoId: textoQRSubancla(s.id), intermediaId: textoQRSubancla(intermedia.id) } : {}) });
+        ...(intermedia ? { destinoId: textoQRSubancla(s.id), intermediaId: textoQRSubancla(intermedia.id) } : {}),
+        ...(metodo === 'mapa' ? { mapaTemporal: true, referenciaMapa: datos.pos } : {}) });
     } catch (e) {
       desbloquear();
       errorVisible(e.message);

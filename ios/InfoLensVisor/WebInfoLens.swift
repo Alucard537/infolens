@@ -56,6 +56,9 @@ final class AplicacionInfoLens: ObservableObject {
 
     func cambiarFase(_ fase: ScenePhase) {
         escenaActiva = fase == .active
+        if fase == .background, controlador?.mapaTemporal != nil {
+            terminarCalibracion(guardar: false)
+        }
         actualizarBloqueoPantalla()
     }
 
@@ -127,6 +130,7 @@ final class AplicacionInfoLens: ObservableObject {
             let simultanea = diagnostico && (mensaje["medicionSimultanea"] as? Bool == true)
             let intermediaId = mensaje["intermediaId"] as? String
             let destinoId = mensaje["destinoId"] as? String
+            let probarMapa = mensaje["mapaTemporal"] as? Bool == true
             guard let anclas = leerAnclas(mensaje["anclas"]), anclas.count == (intermediaId == nil ? 2 : 3),
                   let subancla = anclas.first(where: { $0.subancla != nil && (destinoId == nil || $0.id == destinoId) }) else {
                 enviarMedicion(solicitud, error: "No se pudieron preparar los QR. Revisa sus medidas y repite la prueba.")
@@ -139,11 +143,22 @@ final class AplicacionInfoLens: ObservableObject {
                     return
                 }
             }
+            var referenciaMapa: SIMD3<Float>?
+            if probarMapa {
+                guard diagnostico, !simultanea, intermediaId == nil,
+                      let punto = mensaje["referenciaMapa"] as? [Double], punto.count == 3,
+                      punto.allSatisfy({ $0.isFinite && abs($0) < 1000 }), punto.contains(where: { $0 != 0 }) else {
+                    enviarMedicion(solicitud, error: "Revisa las medidas de referencia del mapa temporal.")
+                    return
+                }
+                referenciaMapa = SIMD3<Float>(Float(punto[0]), Float(punto[1]), Float(punto[2]))
+            }
             cerrar()
             solicitudCalibracion = solicitud
             diagnosticoPrecision = diagnostico
             controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla,
-                                        medicionSimultanea: simultanea, intermediaParaMedir: intermedia)
+                                        medicionSimultanea: simultanea, intermediaParaMedir: intermedia,
+                                        referenciaMapa: referenciaMapa)
             pruebaAbierta = true
             return
         }

@@ -21,6 +21,8 @@ struct InfoLensApp: App {
                 if aplicacion.pruebaAbierta, let controlador = aplicacion.controlador {
                     if aplicacion.modeloEnEdicion != nil {
                         PanelColocacionModelo(aplicacion: aplicacion, controlador: controlador)
+                    } else if let mapa = controlador.mapaTemporal {
+                        PanelMapaTemporal(controlador: controlador, mapa: mapa, terminar: aplicacion.terminarCalibracion)
                     } else if controlador.subanclaParaCalibrar != nil {
                         PanelCalibracion(controlador: controlador, diagnostico: aplicacion.diagnosticoPrecision,
                                          terminar: aplicacion.terminarCalibracion)
@@ -86,6 +88,66 @@ private struct PanelCalibracion: View {
                     Spacer()
                     Button("Cancelar", role: .cancel) { terminar(false) }.buttonStyle(.bordered)
                 }
+            }
+            .padding(14)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        }
+        .padding(12)
+    }
+}
+
+private struct PanelMapaTemporal: View {
+    @ObservedObject var controlador: ControladorAR
+    @ObservedObject var mapa: MapaTemporalAR
+    let terminar: (Bool) -> Void
+
+    var body: some View {
+        VStack {
+            Text(controlador.estado)
+                .font(.subheadline.weight(.semibold))
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Mapa temporal del entorno").font(.headline)
+                switch mapa.fase {
+                case .buscandoQR:
+                    Text("Enfoca el QR principal para fijar el origen del escaneo.")
+                case .grabando:
+                    Text("Rodea la máquina mostrando esquinas y superficies fijas. Al terminar, vuelve a la zona inicial.")
+                    Text("\(mapa.cantidadFotos) fotos · \(mapa.cantidadPuntos) puntos LiDAR")
+                        .font(.subheadline.monospacedDigit())
+                    Button("Probar con este mapa") { controlador.guardarYProbarMapa() }
+                        .buttonStyle(.borderedProminent).disabled(!mapa.puedeGuardar)
+                case .guardando:
+                    ProgressView("Preparando el mapa…")
+                case .relocalizando:
+                    Text("Busca la misma vista que en una foto del escaneo.")
+                    if let imagen = mapa.fotoGuia {
+                        HStack(alignment: .bottom) {
+                            Image(uiImage: imagen).resizable().scaledToFit().frame(maxHeight: 132)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .accessibilityLabel("Foto del entorno para recuperar el origen")
+                            if mapa.cantidadFotos > 1 {
+                                Button("Ver otra foto") { mapa.avanzarFoto() }.buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                    Button("Reintentar con el mapa") { controlador.volverAProbarMapa() }.buttonStyle(.bordered)
+                case .recorriendo:
+                    Text("Haz el recorrido y pulsa medir al llegar al QR de comprobación.")
+                    Button("Medir en el QR de comprobación") { mapa.comenzarMedicion() }.buttonStyle(.borderedProminent)
+                case .midiendo:
+                    if let medida = controlador.medicionSubancla {
+                        let error = mapa.errorCm(de: medida.pos).formatted(.number.precision(.fractionLength(0...1)))
+                        Text("Error de posición: \(error) cm").font(.headline)
+                        Button("Otra vuelta con el mapa") { controlador.volverAProbarMapa() }.buttonStyle(.borderedProminent)
+                        Button("Ver resultado y salir") { terminar(true) }.buttonStyle(.bordered)
+                    } else {
+                        Text("Mantén el QR de comprobación encuadrado hasta confirmar la medición.")
+                    }
+                }
+                Button("Salir y borrar el mapa", role: .cancel) { terminar(false) }.buttonStyle(.bordered)
             }
             .padding(14)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))

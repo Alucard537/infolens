@@ -62,6 +62,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     let subanclaParaCalibrar: AnclaAR?
     let medicionSimultanea: Bool
     let intermediaParaMedir: AnclaAR?
+    let mapaTemporal: MapaTemporalAR?
     private var muestreoQR = MuestreoPosesQR()
     private var marcoPrincipalMedido: simd_float4x4?
     private var marcoMedicionCorregido: PoseQR?
@@ -114,6 +115,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         self.subanclaParaCalibrar = nil
         self.medicionSimultanea = false
         self.intermediaParaMedir = nil
+        self.mapaTemporal = nil
         self.recorrido = recorrido
         self.soloLinea = recorrido.soloLinea
         super.init()
@@ -121,11 +123,12 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     init(anclas: [AnclaAR], soloLinea: Bool, calibrar: AnclaAR? = nil, medicionSimultanea: Bool = false,
-         intermediaParaMedir: AnclaAR? = nil) {
+         intermediaParaMedir: AnclaAR? = nil, referenciaMapa: SIMD3<Float>? = nil) {
         self.anclas = Dictionary(anclas.filter(\.valida).map { ($0.id, $0) }, uniquingKeysWith: { primera, _ in primera })
         self.subanclaParaCalibrar = calibrar
         self.medicionSimultanea = medicionSimultanea
         self.intermediaParaMedir = intermediaParaMedir
+        self.mapaTemporal = referenciaMapa.map { MapaTemporalAR(distanciaEsperada: $0) }
         self.anclaBuscada = calibrar?.principalId
         self.soloLinea = soloLinea
         super.init()
@@ -183,7 +186,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         alCambiarEstado(actual)
     }
 
-    private func arrancar() {
+    private func arrancar(restaurarMapa: Bool = false) {
         defer { emitirEstado() }
         apagarLinterna()
         if let origen { vista.scene.removeAnchor(origen) }
@@ -227,6 +230,12 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         config.worldAlignment = .gravity
         config.planeDetection = [.horizontal, .vertical]
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) { config.sceneReconstruction = .mesh }
+        if let mapaTemporal {
+            if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+                config.frameSemantics.insert(.sceneDepth)
+            }
+            if restaurarMapa { config.initialWorldMap = mapaTemporal.mapa }
+        }
         config.detectionImages = referencias
         config.maximumNumberOfTrackedImages = intermediaParaMedir != nil ? 3 : (activas.contains { $0.subancla != nil } ? 2 : 1)
         config.automaticImageScaleEstimationEnabled = !activas.allSatisfy { $0.medidaFija == true }
@@ -240,7 +249,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                 }
             }
         }
-        mostrarEstado(buscarMensaje)
+        mostrarEstado(restaurarMapa ? "Vuelve a encuadrar una zona del escaneo." : buscarMensaje)
         enMarcha = true
         vista.session.run(config, options: [.resetTracking, .removeExistingAnchors])
     }
@@ -267,6 +276,33 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         enMarcha = false
         sesionId = UUID()
         vista.session.pause()
+        mapaTemporal?.borrar()
+    }
+
+    func guardarYProbarMapa() {
+        guard let mapaTemporal, mapaTemporal.fase == .grabando, mapaTemporal.puedeGuardar,
+              enMarcha, !interrumpida, let frame = vista.session.currentFrame,
+              case .normal = frame.camera.trackingState, frame.worldMappingStatus == .mapped else { return }
+        mapaTemporal.iniciarGuardado()
+        mostrarEstado("Preparando el mapa temporal…")
+        let solicitud = sesionId
+        vista.session.getCurrentWorldMap { [weak self] mapa, _ in
+            DispatchQueue.main.async {
+                guard let self, self.sesionId == solicitud, self.enMarcha, let temporal = self.mapaTemporal else { return }
+                guard let mapa, temporal.conservar(mapa) else {
+                    temporal.reanudarGrabacion()
+                    self.mostrarEstado("No se pudo preparar el mapa. Enfoca la zona inicial y vuelve a intentarlo.")
+                    return
+                }
+                self.arrancar(restaurarMapa: true)
+            }
+        }
+    }
+
+    func volverAProbarMapa() {
+        guard let mapaTemporal, mapaTemporal.mapa != nil else { return }
+        mapaTemporal.comenzarRelocalizacion()
+        arrancar(restaurarMapa: true)
     }
 
     var modeloPuedeColocarse: Bool { enMarcha && !interrumpida && anclaFijada != nil && marcoQR.isEnabled }
@@ -341,11 +377,12 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         defer { emitirEstado() }
         guard case .normal = frame.camera.trackingState else {
             dejarDeVerReferencias()
+            mapaTemporal?.perderSeguimiento()
             pausarGuia()
             let mensaje: String
             switch frame.camera.trackingState {
             case .limited(.relocalizing):
-                if subanclaParaCalibrar != nil, marcoPrincipalMedido != nil { arrancar(); return }
+                if mapaTemporal == nil, subanclaParaCalibrar != nil, marcoPrincipalMedido != nil { arrancar(); return }
                 mensaje = "Recuperando la posición. Apunta a la zona donde se fijó el QR."
             case .limited(.excessiveMotion): mensaje = "Guía en pausa. Mueve el iPhone más despacio."
             case .limited(.insufficientFeatures): mensaje = "Guía en pausa. Apunta a una zona iluminada con detalles visibles."
@@ -353,6 +390,26 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             }
             mostrarEstado(mensaje)
             return
+        }
+        if let mapaTemporal {
+            switch mapaTemporal.fase {
+            case .grabando:
+                mapaTemporal.registrar(frame)
+                if mapaTemporal.puedeGuardar {
+                    mostrarEstado("Mapa disponible. Completa la vuelta antes de probarlo.")
+                }
+                return
+            case .guardando, .recorriendo: return
+            case .relocalizando:
+                guard let recuperado = mapaTemporal.recuperarOrigen(en: frame) else {
+                    mostrarEstado("Busca una vista conocida para recuperar el QR principal del mapa.")
+                    return
+                }
+                marcoPrincipalMedido = recuperado
+                mostrarEstado("Origen recuperado del mapa.")
+                return
+            case .buscandoQR, .midiendo: break
+            }
         }
         let principal = anclaFijada ?? anclaBuscada
         let visibles: [(ARImageAnchor, AnclaAR)] = frame.anchors.compactMap { anchor in
@@ -471,6 +528,11 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                 mostrarEstado("Medición del retorno lista.")
             } else {
                 marcoPrincipalMedido = marco
+                if let mapaTemporal {
+                    mapaTemporal.comenzar(en: vista.session, marco: marco)
+                    mostrarEstado("QR fijado. Recorre el entorno de la máquina.")
+                    return
+                }
                 mostrarEstado("Principal fijado. Enfoca «\(intermediaParaMedir?.subancla?.nombre ?? subancla.nombre)».")
             }
             return
@@ -501,7 +563,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         }
         guard let secundaria else {
             muestreoQR = .init()
-            let estado = marcoMedicionCorregido == nil ? "Principal fijado." : "Subancla intermedia fijada."
+            let estado = mapaTemporal != nil ? "Origen recuperado del mapa." :
+                (marcoMedicionCorregido == nil ? "Principal fijado." : "Subancla intermedia fijada.")
             mostrarEstado("\(estado) Enfoca «\(subancla.nombre)».")
             return
         }
@@ -529,7 +592,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
 
     func sessionInterruptionEnded(_ session: ARSession) {
         interrumpida = false
-        if subanclaParaCalibrar != nil, medicionSubancla == nil || comprobandoRetorno { arrancar() }
+        if mapaTemporal == nil, subanclaParaCalibrar != nil, medicionSubancla == nil || comprobandoRetorno { arrancar() }
     }
 
     func sessionShouldAttemptRelocalization(_ session: ARSession) -> Bool { true }
