@@ -119,8 +119,10 @@ struct PruebaCaraPrincipal {
             preconditionFailure("Falta una de las dos mediciones del mismo destino")
         }
         let sinCorregir = destino + deriva
-        precondition(simd_distance([medida.pos[0], medida.pos[1], medida.pos[2]], [destino.x, destino.y, destino.z]) < 0.001)
-        precondition(simd_distance([original[0], original[1], original[2]], [sinCorregir.x, sinCorregir.y, sinCorregir.z]) < 0.001)
+        let medidaCorregida = SIMD3<Float>(medida.pos[0], medida.pos[1], medida.pos[2])
+        let medidaOriginal = SIMD3<Float>(original[0], original[1], original[2])
+        precondition(simd_distance(medidaCorregida, [destino.x, destino.y, destino.z]) < 0.001)
+        precondition(simd_distance(medidaOriginal, [sinCorregir.x, sinCorregir.y, sinCorregir.z]) < 0.001)
         print("Comparación del mismo destino con y sin subancla intermedia verificada")
     }
 
