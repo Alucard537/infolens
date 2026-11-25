@@ -51,6 +51,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     @Published private(set) var desdeCaraOpuesta = false
     @Published private(set) var medicionSubancla: MedicionSubancla?
     @Published private(set) var comprobandoRetorno = false
+    @Published private(set) var avisoPostura: String?
     @Published var soloLinea: Bool { didSet { rehacer() } }
     var alCambiarEstado: ((EstadoAR) -> Void)?
     var alCambiarCamara: (() -> Void)?
@@ -63,6 +64,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     let medicionSimultanea: Bool
     let intermediaParaMedir: AnclaAR?
     let mapaTemporal: MapaTemporalAR?
+    private let diagnosticarPostura: Bool
+    private var registroPostura = RegistroPosturaAR()
     private var muestreoQR = MuestreoPosesQR()
     private var marcoPrincipalMedido: simd_float4x4?
     private var marcoMedicionCorregido: PoseQR?
@@ -116,6 +119,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         self.medicionSimultanea = false
         self.intermediaParaMedir = nil
         self.mapaTemporal = nil
+        self.diagnosticarPostura = false
         self.recorrido = recorrido
         self.soloLinea = recorrido.soloLinea
         super.init()
@@ -123,12 +127,13 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     }
 
     init(anclas: [AnclaAR], soloLinea: Bool, calibrar: AnclaAR? = nil, medicionSimultanea: Bool = false,
-         intermediaParaMedir: AnclaAR? = nil, referenciaMapa: SIMD3<Float>? = nil) {
+         intermediaParaMedir: AnclaAR? = nil, referenciaMapa: SIMD3<Float>? = nil, diagnosticarPostura: Bool = false) {
         self.anclas = Dictionary(anclas.filter(\.valida).map { ($0.id, $0) }, uniquingKeysWith: { primera, _ in primera })
         self.subanclaParaCalibrar = calibrar
         self.medicionSimultanea = medicionSimultanea
         self.intermediaParaMedir = intermediaParaMedir
         self.mapaTemporal = referenciaMapa.map { MapaTemporalAR(distanciaEsperada: $0) }
+        self.diagnosticarPostura = diagnosticarPostura
         self.anclaBuscada = calibrar?.principalId
         self.soloLinea = soloLinea
         super.init()
@@ -201,6 +206,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         baseAjusteSubancla = nil
         medicionSubancla = nil
         comprobandoRetorno = false
+        registroPostura = .init()
+        avisoPostura = nil
         muestreoQR = .init()
         marcoPrincipalMedido = nil
         marcoMedicionCorregido = nil
@@ -378,6 +385,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         guard case .normal = frame.camera.trackingState else {
             dejarDeVerReferencias()
             mapaTemporal?.perderSeguimiento()
+            registroPostura.silenciar()
+            if avisoPostura != nil { avisoPostura = nil }
             pausarGuia()
             let mensaje: String
             switch frame.camera.trackingState {
@@ -399,7 +408,10 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                     mostrarEstado("Mapa disponible. Completa la vuelta antes de probarlo.")
                 }
                 return
-            case .guardando, .recorriendo: return
+            case .guardando: return
+            case .recorriendo:
+                _ = medirPostura(frame)
+                return
             case .relocalizando:
                 guard let recuperado = mapaTemporal.recuperarOrigen(en: frame) else {
                     mostrarEstado("Busca una vista conocida para recuperar el QR principal del mapa.")
@@ -419,7 +431,11 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             return (imagen, referencia)
         }
         if let destino = subanclaParaCalibrar, let subancla = destino.subancla {
-            actualizarMedicion(visibles, destinoId: destino.id, subancla: subancla, tiempo: frame.timestamp)
+            let qrHorizontalVisible = visibles.contains { referencia in
+                (referencia.1.orientacion ?? referencia.1.subancla?.montaje) == .horizontal
+            }
+            let postura = medirPostura(frame, permitirAviso: !qrHorizontalVisible)
+            actualizarMedicion(visibles, destinoId: destino.id, subancla: subancla, tiempo: frame.timestamp, postura: postura)
             return
         }
         var principalVisible = false
@@ -479,8 +495,17 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         mostrarEstado("Vuelve al QR principal y encuádralo de nuevo.")
     }
 
+    private func medirPostura(_ frame: ARFrame, permitirAviso: Bool = true) -> PosturaCamaraAR? {
+        guard diagnosticarPostura, !comprobandoRetorno, let postura = PosturaCamaraAR(frame.camera.transform) else { return nil }
+        let duranteMedicion = marcoPrincipalMedido != nil || medicionSimultanea
+        registroPostura.observar(postura, en: frame.timestamp, duranteMedicion: duranteMedicion,
+                                  avisar: duranteMedicion && permitirAviso)
+        if avisoPostura != registroPostura.aviso { avisoPostura = registroPostura.aviso }
+        return postura
+    }
+
     private func actualizarMedicion(_ visibles: [(ARImageAnchor, AnclaAR)], destinoId: String,
-                                    subancla: SubanclaAR, tiempo: TimeInterval) {
+                                    subancla: SubanclaAR, tiempo: TimeInterval, postura: PosturaCamaraAR?) {
         func muestra(_ entrada: (ARImageAnchor, AnclaAR)?, orientacion: OrientacionQR?) -> MuestreoPosesQR.Muestra? {
             guard let (imagen, _) = entrada else { return nil }
             let pose = PoseQR(imagen.transform)
@@ -501,7 +526,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
             mostrarEstado("Mantén ambos QR en el encuadre unos instantes.")
             if let poses = muestreoQR.observar([principalVisible, secundaria], en: tiempo),
                let marco = poses[0].marcoInicialRecorrido(orientacion: orientacion) {
-                finalizarMedicion(marco: marco, subancla: poses[1], montaje: subancla.montaje)
+                finalizarMedicion(marco: marco, subancla: poses[1], montaje: subancla.montaje, postura: postura)
             }
             return
         }
@@ -571,13 +596,17 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         mostrarEstado("Mantén la subancla en el encuadre unos instantes.")
         if let poses = muestreoQR.observar([secundaria], en: tiempo) {
             finalizarMedicion(marco: marco, subancla: poses[0], montaje: subancla.montaje,
-                              correccion: marcoMedicionCorregido)
+                              correccion: marcoMedicionCorregido, postura: postura)
         }
     }
 
-    private func finalizarMedicion(marco: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR, correccion: PoseQR? = nil) {
-        medicionSubancla = MedicionSubancla(principal: correccion?.matriz ?? marco, subancla: subancla, montaje: montaje,
-                                           principalSinCorregir: correccion == nil ? nil : marco)
+    private func finalizarMedicion(marco: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR,
+                                   correccion: PoseQR? = nil, postura: PosturaCamaraAR?) {
+        var medida = MedicionSubancla(principal: correccion?.matriz ?? marco, subancla: subancla, montaje: montaje,
+                                      principalSinCorregir: correccion == nil ? nil : marco)
+        if let postura { medida?.postura = registroPostura.resumir(alMedirQR: postura) }
+        medicionSubancla = medida
+        if medida != nil { avisoPostura = nil }
         mostrarEstado(medicionSubancla == nil ? "Acerca la cámara al QR para medirlo." : "Medición lista.")
     }
 

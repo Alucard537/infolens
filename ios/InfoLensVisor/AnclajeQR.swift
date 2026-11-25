@@ -173,3 +173,61 @@ struct MuestreoPosesQR {
         return cantidad >= 10 && tiempo - inicio >= 0.65 ? medias : nil
     }
 }
+
+struct PosturaCamaraAR: Encodable {
+    let inclinacion: Float
+    let giroLateral: Float?
+
+    init?(_ camara: simd_float4x4) {
+        let x = camara.columns.0.y, y = camara.columns.1.y, z = camara.columns.2.y
+        guard x.isFinite, y.isFinite, z.isFinite else { return nil }
+        inclinacion = asin(min(1, abs(z))) * 180 / .pi
+        // ARKit mantiene el eje X de la cámara a lo largo del iPhone, incluso en vertical.
+        giroLateral = inclinacion < 70 ? atan2(abs(y), abs(x)) * 180 / .pi : nil
+    }
+
+    var aviso: String? {
+        if inclinacion >= 35 { return "Orienta la cámara hacia la máquina." }
+        if let giroLateral, giroLateral >= 40 { return "Mantén el iPhone en vertical." }
+        return nil
+    }
+}
+
+struct RegistroPosturaAR {
+    struct Resumen: Encodable {
+        let inclinacionMaxima: Float
+        let giroLateralMaximo: Float?
+        let alMedirQR: PosturaCamaraAR
+    }
+
+    private var inclinacionMaxima: Float = 0
+    private var giroLateralMaximo: Float?
+    private var candidata: String?
+    private var desde: TimeInterval = 0
+    private(set) var aviso: String?
+
+    mutating func observar(_ postura: PosturaCamaraAR, en tiempo: TimeInterval,
+                            duranteMedicion: Bool, avisar: Bool) {
+        if duranteMedicion {
+            inclinacionMaxima = max(inclinacionMaxima, postura.inclinacion)
+            if let giro = postura.giroLateral {
+                giroLateralMaximo = max(giroLateralMaximo ?? 0, giro)
+            }
+        }
+        let mensaje = avisar ? postura.aviso : nil
+        if mensaje != candidata {
+            candidata = mensaje
+            desde = tiempo
+        }
+        if !avisar || tiempo - desde >= 0.35 { aviso = candidata }
+    }
+
+    func resumir(alMedirQR postura: PosturaCamaraAR) -> Resumen {
+        .init(inclinacionMaxima: inclinacionMaxima, giroLateralMaximo: giroLateralMaximo, alMedirQR: postura)
+    }
+
+    mutating func silenciar() {
+        aviso = nil
+        candidata = nil
+    }
+}

@@ -196,6 +196,7 @@ struct MedicionSubancla: Encodable {
     let pos: [Float]
     let giroQR: Double
     var retorno: [Float]? = nil
+    var postura: RegistroPosturaAR.Resumen? = nil
     let posSinCorregir: [Float]?
 
     init?(principal: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR = .vertical,

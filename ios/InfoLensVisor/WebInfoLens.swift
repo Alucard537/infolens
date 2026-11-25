@@ -158,7 +158,7 @@ final class AplicacionInfoLens: ObservableObject {
             diagnosticoPrecision = diagnostico
             controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla,
                                         medicionSimultanea: simultanea, intermediaParaMedir: intermedia,
-                                        referenciaMapa: referenciaMapa)
+                                        referenciaMapa: referenciaMapa, diagnosticarPostura: diagnostico)
             pruebaAbierta = true
             return
         }

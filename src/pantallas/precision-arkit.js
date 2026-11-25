@@ -12,6 +12,8 @@ const ejes = [
 ];
 const formato = new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 });
 const cm = (n) => `${formato.format(Math.abs(n))} cm`;
+const anguloValido = (n) => Number.isFinite(n) && n >= 0 && n <= 90.1;
+const textoPostura = (inclinacion, giro) => `Cámara ${Math.round(inclinacion)}°${anguloValido(giro) ? ` · Giro lateral ${Math.round(giro)}°` : ''}`;
 const desvioTexto = (vector) => {
   const direcciones = deG(vector);
   return Object.values(direcciones).some(Boolean) ? describir(direcciones) : '0 cm';
@@ -72,6 +74,8 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
         <div class="precision-fila-sin-corregir" hidden><dt>Error sin la subancla intermedia</dt><dd class="precision-sin-corregir"></dd></div>
         <div class="precision-fila-media"><dt>Desvío medio por dirección</dt><dd class="precision-media"></dd></div>
         <div class="precision-fila-retorno" hidden><dt>Desplazamiento al volver al QR inicial</dt><dd class="precision-retorno"></dd></div>
+        <div class="precision-fila-postura" hidden><dt>Ángulos máximos durante la prueba</dt><dd class="precision-postura-maxima"></dd></div>
+        <div class="precision-fila-postura-qr" hidden><dt>Ángulos al medir el QR</dt><dd class="precision-postura-qr"></dd></div>
       </dl>
       <p class="nota precision-resumen"></p>
     </section>`;
@@ -140,6 +144,13 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     if (ultima.retorno) {
       const total = cm(Math.hypot(...ultima.retorno) * 100);
       $('.precision-retorno').textContent = `${total}${total === '0 cm' ? '' : ` · ${desvioTexto(ultima.retorno)}`}`;
+    }
+    $('.precision-fila-postura').hidden = !ultima.postura;
+    $('.precision-fila-postura-qr').hidden = !ultima.postura;
+    if (ultima.postura) {
+      const { inclinacionMaxima, giroLateralMaximo, alMedirQR } = ultima.postura;
+      $('.precision-postura-maxima').textContent = textoPostura(inclinacionMaxima, giroLateralMaximo);
+      $('.precision-postura-qr').textContent = textoPostura(alMedirQR.inclinacion, alMedirQR.giroLateral);
     }
     $('.precision-resumen').textContent =
       `${medidas.length} ${medidas.length === 1 ? 'prueba' : 'pruebas'} · Error medio: ${cm(promedio)} · Mayor error: ${cm(Math.max(...errores))}`;
@@ -250,13 +261,14 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     desbloquear();
     if (detail.error) { errorVisible(detail.error); return; }
     if (detail.medicion == null) return;
-    const { pos, retorno, posSinCorregir } = detail.medicion;
+    const { pos, retorno, posSinCorregir, postura } = detail.medicion;
     if (!puntoDeGuiaValido(pos) || (datos.intermedia && !puntoDeGuiaValido(posSinCorregir))) {
       errorVisible('ARKit devolvió una medición incompleta. Repite la prueba.');
       return;
     }
     const medidas = pruebas.get(datos.clave) ?? [];
-    medidas.push({ pos, posSinCorregir: datos.intermedia ? posSinCorregir : null,
+    const posturaValida = anguloValido(postura?.inclinacionMaxima) && anguloValido(postura?.alMedirQR?.inclinacion);
+    medidas.push({ pos, posSinCorregir: datos.intermedia ? posSinCorregir : null, postura: posturaValida ? postura : null,
       retorno: datos.metodo !== 'simultanea' && puntoDeGuiaValido(retorno) ? retorno : null });
     pruebas.set(datos.clave, medidas);
     pintarPruebas(datos);

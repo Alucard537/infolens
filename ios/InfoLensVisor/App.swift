@@ -62,6 +62,7 @@ private struct PanelCalibracion: View {
                 .font(.subheadline.weight(.semibold))
                 .padding(10)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            if let aviso = controlador.avisoPostura { AvisoPosturaAR(texto: aviso) }
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
                 Text(diagnostico ? "Medir precisión de ARKit"
@@ -107,6 +108,7 @@ private struct PanelMapaTemporal: View {
                 .font(.subheadline.weight(.semibold))
                 .padding(10)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            if let aviso = controlador.avisoPostura { AvisoPosturaAR(texto: aviso) }
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
                 Text("Mapa temporal del entorno").font(.headline)
@@ -153,6 +155,18 @@ private struct PanelMapaTemporal: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
         }
         .padding(12)
+    }
+}
+
+private struct AvisoPosturaAR: View {
+    let texto: String
+
+    var body: some View {
+        Label(texto, systemImage: "iphone")
+            .font(.subheadline.weight(.semibold))
+            .padding(10)
+            .foregroundStyle(.black)
+            .background(.yellow, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

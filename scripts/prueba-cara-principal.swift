@@ -97,6 +97,29 @@ struct PruebaCaraPrincipal {
         probarElementosDeGuia()
         probarMuestreoDePrecision()
         probarMedicionConSubanclaIntermedia()
+        probarPosturaCamara()
+    }
+
+    static func probarPosturaCamara() {
+        let vertical = simd_float4x4(simd_quatf(angle: -.pi / 2, axis: [0, 0, 1]))
+        let haciaSuelo = simd_float4x4(simd_quatf(angle: .pi / 3, axis: [1, 0, 0]))
+        guard let derecha = PosturaCamaraAR(vertical),
+              let girada = PosturaCamaraAR(matrix_identity_float4x4),
+              let inclinada = PosturaCamaraAR(haciaSuelo * vertical) else { preconditionFailure("Faltan los ángulos") }
+        precondition(derecha.inclinacion < 1 && (derecha.giroLateral ?? 90) < 1 && derecha.aviso == nil)
+        precondition(girada.inclinacion < 1 && (girada.giroLateral ?? 0) > 89)
+        precondition(abs(inclinada.inclinacion - 60) < 1 && (inclinada.giroLateral ?? 90) < 1)
+        var registro = RegistroPosturaAR()
+        registro.observar(inclinada, en: 1, duranteMedicion: true, avisar: true)
+        precondition(registro.aviso == nil)
+        registro.observar(inclinada, en: 1.4, duranteMedicion: true, avisar: true)
+        precondition(registro.aviso == inclinada.aviso)
+        registro.observar(girada, en: 1.5, duranteMedicion: true, avisar: false)
+        precondition(registro.aviso == nil)
+        let resultado = registro.resumir(alMedirQR: derecha)
+        precondition(resultado.inclinacionMaxima > 59 && (resultado.giroLateralMaximo ?? 0) > 89)
+        precondition(resultado.alMedirQR.inclinacion < 1)
+        print("Inclinación, giro lateral y postura durante la lectura del QR verificados")
     }
 
     static func probarMedicionConSubanclaIntermedia() {
