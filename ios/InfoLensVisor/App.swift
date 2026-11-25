@@ -76,6 +76,8 @@ private struct PanelCalibracion: View {
                     }
                 } else if controlador.medicionSimultanea {
                     Text("Busca una posición desde la que puedas ver los dos QR y mantén el iPhone quieto.")
+                } else if let intermedia = controlador.intermediaParaMedir?.subancla {
+                    Text("Enfoca primero el QR principal, después «\(intermedia.nombre)» y por último el QR de comprobación.")
                 } else {
                     Text("Mantén el QR principal encuadrado hasta que quede fijado. Rodea la máquina despacio y mantén la subancla encuadrada para terminar la medición.")
                 }

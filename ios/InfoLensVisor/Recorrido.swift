@@ -196,8 +196,10 @@ struct MedicionSubancla: Encodable {
     let pos: [Float]
     let giroQR: Double
     var retorno: [Float]? = nil
+    let posSinCorregir: [Float]?
 
-    init?(principal: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR = .vertical) {
+    init?(principal: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR = .vertical,
+          principalSinCorregir: simd_float4x4? = nil) {
         guard let marca = subancla.marcoInicialRecorrido(orientacion: montaje) else { return nil }
         let relativa = simd_inverse(principal) * marca
         let punto = relativa.columns.3
@@ -206,6 +208,14 @@ struct MedicionSubancla: Encodable {
         let normal = relativa.columns.2
         giroQR = atan2(Double(normal.x), Double(normal.z))
         guard giroQR.isFinite else { return nil }
+        if let principalSinCorregir {
+            let original = simd_inverse(principalSinCorregir) * marca.columns.3
+            let componentes = [original.x, original.y, original.z]
+            guard componentes.allSatisfy({ $0.isFinite && abs($0) < 1000 }) else { return nil }
+            posSinCorregir = componentes
+        } else {
+            posSinCorregir = nil
+        }
     }
 }
 

@@ -61,8 +61,10 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
     private let anclas: [String: AnclaAR]
     let subanclaParaCalibrar: AnclaAR?
     let medicionSimultanea: Bool
+    let intermediaParaMedir: AnclaAR?
     private var muestreoQR = MuestreoPosesQR()
     private var marcoPrincipalMedido: simd_float4x4?
+    private var marcoMedicionCorregido: PoseQR?
     private let marcoQR = Entity()
     private let marcoRuta = Entity()
     private let marcoModelos = Entity()
@@ -111,16 +113,19 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         self.anclas = [recorrido.anclaId: recorrido.ancla]
         self.subanclaParaCalibrar = nil
         self.medicionSimultanea = false
+        self.intermediaParaMedir = nil
         self.recorrido = recorrido
         self.soloLinea = recorrido.soloLinea
         super.init()
         configurar()
     }
 
-    init(anclas: [AnclaAR], soloLinea: Bool, calibrar: AnclaAR? = nil, medicionSimultanea: Bool = false) {
+    init(anclas: [AnclaAR], soloLinea: Bool, calibrar: AnclaAR? = nil, medicionSimultanea: Bool = false,
+         intermediaParaMedir: AnclaAR? = nil) {
         self.anclas = Dictionary(anclas.filter(\.valida).map { ($0.id, $0) }, uniquingKeysWith: { primera, _ in primera })
         self.subanclaParaCalibrar = calibrar
         self.medicionSimultanea = medicionSimultanea
+        self.intermediaParaMedir = intermediaParaMedir
         self.anclaBuscada = calibrar?.principalId
         self.soloLinea = soloLinea
         super.init()
@@ -195,6 +200,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         comprobandoRetorno = false
         muestreoQR = .init()
         marcoPrincipalMedido = nil
+        marcoMedicionCorregido = nil
         buscarTramoCercano = false
         poseParaProgreso = nil
         progreso = ProgresoRuta()
@@ -212,7 +218,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let activas = anclas.values.filter { anclaBuscada == nil || $0.principalId == anclaBuscada }
         let referencias = Set(activas
             .compactMap { ImagenQR.referencia(para: $0) })
-        guard !referencias.isEmpty, subanclaParaCalibrar == nil || referencias.count == 2 else {
+        let cantidadParaMedir = intermediaParaMedir == nil ? 2 : 3
+        guard !referencias.isEmpty, subanclaParaCalibrar == nil || referencias.count == cantidadParaMedir else {
             mostrarEstado("❌ No se pudo preparar el QR del ancla.")
             return
         }
@@ -221,7 +228,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         config.planeDetection = [.horizontal, .vertical]
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) { config.sceneReconstruction = .mesh }
         config.detectionImages = referencias
-        config.maximumNumberOfTrackedImages = activas.contains { $0.subancla != nil } ? 2 : 1
+        config.maximumNumberOfTrackedImages = intermediaParaMedir != nil ? 3 : (activas.contains { $0.subancla != nil } ? 2 : 1)
         config.automaticImageScaleEstimationEnabled = !activas.allSatisfy { $0.medidaFija == true }
         let id = sesionId
         if referencias.count == 1, let referencia = referencias.first {
@@ -354,8 +361,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                   principal == nil || principal == referencia.principalId else { return nil }
             return (imagen, referencia)
         }
-        if let subancla = subanclaParaCalibrar?.subancla {
-            actualizarMedicion(visibles, subancla: subancla, tiempo: frame.timestamp)
+        if let destino = subanclaParaCalibrar, let subancla = destino.subancla {
+            actualizarMedicion(visibles, destinoId: destino.id, subancla: subancla, tiempo: frame.timestamp)
             return
         }
         var principalVisible = false
@@ -415,7 +422,8 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         mostrarEstado("Vuelve al QR principal y encuádralo de nuevo.")
     }
 
-    private func actualizarMedicion(_ visibles: [(ARImageAnchor, AnclaAR)], subancla: SubanclaAR, tiempo: TimeInterval) {
+    private func actualizarMedicion(_ visibles: [(ARImageAnchor, AnclaAR)], destinoId: String,
+                                    subancla: SubanclaAR, tiempo: TimeInterval) {
         func muestra(_ entrada: (ARImageAnchor, AnclaAR)?, orientacion: OrientacionQR?) -> MuestreoPosesQR.Muestra? {
             guard let (imagen, _) = entrada else { return nil }
             let pose = PoseQR(imagen.transform)
@@ -425,7 +433,7 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
         let principal = visibles.first { $0.1.subancla == nil }
         let orientacion = principal?.1.orientacion
         let principalVisible = muestra(principal, orientacion: orientacion)
-        let secundaria = muestra(visibles.first { $0.1.subancla != nil }, orientacion: subancla.montaje)
+        let secundaria = muestra(visibles.first { $0.1.id == destinoId }, orientacion: subancla.montaje)
 
         if medicionSimultanea {
             guard let principalVisible, let secundaria else {
@@ -463,24 +471,50 @@ final class ControladorAR: NSObject, ObservableObject, ARSessionDelegate {
                 mostrarEstado("Medición del retorno lista.")
             } else {
                 marcoPrincipalMedido = marco
-                mostrarEstado("Principal fijado. Enfoca «\(subancla.nombre)».")
+                mostrarEstado("Principal fijado. Enfoca «\(intermediaParaMedir?.subancla?.nombre ?? subancla.nombre)».")
             }
             return
         }
 
-        guard let marco = marcoPrincipalMedido, let secundaria else {
+        guard let marco = marcoPrincipalMedido else { return }
+        if let referencia = intermediaParaMedir, let intermedia = referencia.subancla, marcoMedicionCorregido == nil {
+            guard let lectura = muestra(visibles.first(where: { $0.1.id == referencia.id }), orientacion: intermedia.montaje) else {
+                muestreoQR = .init()
+                mostrarEstado("Enfoca la subancla intermedia «\(intermedia.nombre)».")
+                return
+            }
+            guard let poses = muestreoQR.observar([lectura], en: tiempo) else {
+                mostrarEstado("Mantén «\(intermedia.nombre)» en el encuadre unos instantes.")
+                return
+            }
+            let observada = poses[0]
+            let base = PoseQR(marco)
+            let nominal = intermedia.poseRecorrido(desde: observada, respectoA: anclas[intermedia.anclaId]?.cara)
+            guard let corregida = intermedia.poseConRumboFijado(observada: observada, nominal: nominal, base: base),
+                  base.cercana(a: corregida, metros: 0.50, grados: 15) else {
+                muestreoQR = .init()
+                mostrarEstado("«\(intermedia.nombre)» no coincide con la calibración. Revisa su montaje y vuelve a enfocarla.")
+                return
+            }
+            marcoMedicionCorregido = corregida
             muestreoQR = .init()
-            mostrarEstado("Principal fijado. Enfoca «\(subancla.nombre)».")
+        }
+        guard let secundaria else {
+            muestreoQR = .init()
+            let estado = marcoMedicionCorregido == nil ? "Principal fijado." : "Subancla intermedia fijada."
+            mostrarEstado("\(estado) Enfoca «\(subancla.nombre)».")
             return
         }
         mostrarEstado("Mantén la subancla en el encuadre unos instantes.")
         if let poses = muestreoQR.observar([secundaria], en: tiempo) {
-            finalizarMedicion(marco: marco, subancla: poses[0], montaje: subancla.montaje)
+            finalizarMedicion(marco: marco, subancla: poses[0], montaje: subancla.montaje,
+                              correccion: marcoMedicionCorregido)
         }
     }
 
-    private func finalizarMedicion(marco: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR) {
-        medicionSubancla = MedicionSubancla(principal: marco, subancla: subancla, montaje: montaje)
+    private func finalizarMedicion(marco: simd_float4x4, subancla: PoseQR, montaje: OrientacionQR, correccion: PoseQR? = nil) {
+        medicionSubancla = MedicionSubancla(principal: correccion?.matriz ?? marco, subancla: subancla, montaje: montaje,
+                                           principalSinCorregir: correccion == nil ? nil : marco)
         mostrarEstado(medicionSubancla == nil ? "Acerca la cámara al QR para medirlo." : "Medición lista.")
     }
 

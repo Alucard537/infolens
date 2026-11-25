@@ -1,7 +1,7 @@
 import { leerAjustes } from '../ajustes.js';
 import { aG, deG, describir } from '../coordenadas.js';
 import { listarAnclas, maquinaActiva } from '../maquinas.js';
-import { ladoPrincipalValido, ladoQRAncla, subanclasDe } from '../subanclas.js';
+import { giroSubanclaValido, ladoPrincipalValido, ladoQRAncla, subanclasDe, textoQRSubancla } from '../subanclas.js';
 import { enviarARKit, referenciasDelAncla, tieneARKitIntegrado } from '../ar/visor-nativo.js';
 import { puntoDeGuiaValido } from '../ar/guia-recorrido.js';
 
@@ -38,8 +38,12 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
         <p class="nota">Mide el ancho impreso de cada código, sin el margen blanco.</p>
         <label>Método de prueba<select name="metodo">
           <option value="recorrido">Recorrer la máquina</option>
+          <option value="intermedia">Recorrer con una subancla intermedia</option>
           <option value="simultanea">Ambos QR a la vez</option>
         </select></label>
+        <div class="precision-intermedia" hidden>
+          <label>Subancla intermedia<select name="intermedia"></select></label>
+        </div>
         <p class="nota precision-ayuda-metodo"></p>
         <h3>Medidas de referencia</h3>
         <p class="nota">Con una cinta métrica, mide del centro del QR principal al centro de la subancla por cada eje.
@@ -64,6 +68,7 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
         <div><dt>Distancia de referencia</dt><dd class="precision-referencia"></dd></div>
         <div><dt>Distancia medida por ARKit</dt><dd class="precision-distancia"></dd></div>
         <div><dt>Desvío por dirección</dt><dd class="precision-desvio"></dd></div>
+        <div class="precision-fila-sin-corregir" hidden><dt>Error sin la subancla intermedia</dt><dd class="precision-sin-corregir"></dd></div>
         <div class="precision-fila-media"><dt>Desvío medio por dirección</dt><dd class="precision-media"></dd></div>
         <div class="precision-fila-retorno" hidden><dt>Desplazamiento al volver al QR inicial</dt><dd class="precision-retorno"></dd></div>
       </dl>
@@ -80,6 +85,7 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
   const error = $('.precision-error');
   const principal = () => anclas.find((a) => a.id === campos.principal.value);
   const subancla = () => subanclasDe(principal() ?? {}).find((s) => s.id === campos.subancla.value);
+  const intermedias = () => subanclasDe(principal() ?? {}).filter((s) => s.id !== campos.subancla.value && giroSubanclaValido(s.giroQR));
   const errorVisible = (mensaje = '') => { error.textContent = mensaje; error.hidden = !mensaje; };
   const numero = (campo, defecto = NaN) => {
     const texto = campo.value.trim();
@@ -100,8 +106,12 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
       throw new Error('Introduce una distancia de referencia distinta de cero, en centímetros y sin signos.');
     }
     const metodo = campos.metodo.value;
-    return { a, s, anchoPrincipal, anchoSubancla, pos, metodo,
-      clave: JSON.stringify([a.id, s.id, anchoPrincipal, anchoSubancla, pos, metodo]) };
+    const intermedia = metodo === 'intermedia' ? intermedias().find((s) => s.id === campos.intermedia.value) : null;
+    if (metodo === 'intermedia' && !intermedia) {
+      throw new Error('Calibra con cámara otra subancla de esta máquina para usarla como referencia intermedia.');
+    }
+    return { a, s, anchoPrincipal, anchoSubancla, pos, metodo, intermedia,
+      clave: JSON.stringify([a.id, s.id, anchoPrincipal, anchoSubancla, pos, metodo, intermedia?.id]) };
   }
 
   function pintarPruebas(datos) {
@@ -118,6 +128,11 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     $('.precision-referencia').textContent = cm(Math.hypot(...datos.pos) * 100);
     $('.precision-distancia').textContent = cm(Math.hypot(...ultima.pos) * 100);
     $('.precision-desvio').textContent = desvioTexto(desvios.at(-1));
+    $('.precision-fila-sin-corregir').hidden = !ultima.posSinCorregir;
+    if (ultima.posSinCorregir) {
+      const desvioOriginal = ultima.posSinCorregir.map((n, i) => n - datos.pos[i]);
+      $('.precision-sin-corregir').textContent = cm(Math.hypot(...desvioOriginal) * 100);
+    }
     $('.precision-fila-media').hidden = medidas.length < 2;
     $('.precision-media').textContent = desvioTexto(vectorMedio);
     $('.precision-fila-retorno').hidden = !ultima.retorno;
@@ -131,9 +146,15 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
 
   function cambiarMedidas() {
     errorVisible();
-    $('.precision-ayuda-metodo').textContent = campos.metodo.value === 'simultanea'
-      ? 'Si ambos QR caben en el mismo encuadre, esta prueba mide el desvío sin recorrer la máquina.'
-      : 'Al terminar, puedes volver al QR inicial con la misma sesión para comprobar cuánto se desplazó su posición aparente.';
+    const ayudas = {
+      simultanea: 'Si ambos QR caben en el mismo encuadre, esta prueba mide el desvío sin recorrer la máquina.',
+      recorrido: 'Al terminar, puedes volver al QR inicial con la misma sesión para comprobar cuánto se desplazó su posición aparente.',
+      intermedia: campos.intermedia.options.length
+        ? 'Enfoca el QR principal, la subancla intermedia y el QR de comprobación. Verás el error de la misma pasada con y sin la corrección.'
+        : 'Calibra con cámara otra subancla de esta máquina para usarla como referencia intermedia.',
+    };
+    $('.precision-intermedia').hidden = campos.metodo.value !== 'intermedia' || !campos.intermedia.options.length;
+    $('.precision-ayuda-metodo').textContent = ayudas[campos.metodo.value];
     let datos;
     try { datos = configuracion(); } catch { /* Se valida al iniciar. */ }
     pintarPruebas(datos);
@@ -142,6 +163,10 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
   function cambiarSubancla() {
     const s = subancla();
     campos.anchoSubancla.value = s ? String(s.ladoCm).replace('.', ',') : '';
+    const seleccion = campos.intermedia.value;
+    const candidatas = intermedias();
+    campos.intermedia.replaceChildren(...candidatas.map((m) => new Option(m.nombre, m.id)));
+    if (candidatas.some((m) => m.id === seleccion)) campos.intermedia.value = seleccion;
     for (const [eje] of ejes) {
       campos[eje].value = '';
       campos[eje + 'Sentido'].value = '1';
@@ -192,15 +217,18 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     if (pendiente) return;
     try {
       const datos = configuracion();
-      const { a, s, anchoPrincipal, anchoSubancla, metodo } = datos;
-      const anclasDePrueba = referenciasDelAncla({ ...a, ladoCm: anchoPrincipal }, anchoPrincipal, [{ ...s, ladoCm: anchoSubancla }]);
+      const { a, s, anchoPrincipal, anchoSubancla, metodo, intermedia } = datos;
+      const marcas = [{ ...s, ladoCm: anchoSubancla }];
+      if (intermedia) marcas.push(intermedia);
+      const anclasDePrueba = referenciasDelAncla({ ...a, ladoCm: anchoPrincipal }, anchoPrincipal, marcas);
       const solicitud = crypto.randomUUID();
       pendiente = { solicitud, datos };
       formulario.querySelector('fieldset').disabled = true;
       botonMaquina.disabled = true;
       errorVisible();
       enviarARKit({ accion: 'calibrarSubancla', solicitud, anclas: anclasDePrueba,
-        diagnostico: true, medicionSimultanea: metodo === 'simultanea' });
+        diagnostico: true, medicionSimultanea: metodo === 'simultanea',
+        ...(intermedia ? { destinoId: textoQRSubancla(s.id), intermediaId: textoQRSubancla(intermedia.id) } : {}) });
     } catch (e) {
       desbloquear();
       errorVisible(e.message);
@@ -219,10 +247,14 @@ export function montarPrecisionARKit(cont, elegirMaquina) {
     desbloquear();
     if (detail.error) { errorVisible(detail.error); return; }
     if (detail.medicion == null) return;
-    if (!puntoDeGuiaValido(detail.medicion.pos)) { errorVisible('ARKit devolvió una medición inválida. Repite la prueba.'); return; }
+    const { pos, retorno, posSinCorregir } = detail.medicion;
+    if (!puntoDeGuiaValido(pos) || (datos.intermedia && !puntoDeGuiaValido(posSinCorregir))) {
+      errorVisible('ARKit devolvió una medición incompleta. Repite la prueba.');
+      return;
+    }
     const medidas = pruebas.get(datos.clave) ?? [];
-    const { pos, retorno } = detail.medicion;
-    medidas.push({ pos, retorno: datos.metodo === 'recorrido' && puntoDeGuiaValido(retorno) ? retorno : null });
+    medidas.push({ pos, posSinCorregir: datos.intermedia ? posSinCorregir : null,
+      retorno: datos.metodo !== 'simultanea' && puntoDeGuiaValido(retorno) ? retorno : null });
     pruebas.set(datos.clave, medidas);
     pintarPruebas(datos);
     resultado.scrollIntoView({ block: 'nearest' });

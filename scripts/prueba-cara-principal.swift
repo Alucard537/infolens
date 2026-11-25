@@ -96,6 +96,32 @@ struct PruebaCaraPrincipal {
         try probarColocacionDelQR()
         probarElementosDeGuia()
         probarMuestreoDePrecision()
+        probarMedicionConSubanclaIntermedia()
+    }
+
+    static func probarMedicionConSubanclaIntermedia() {
+        let base = PoseQR(matrix_identity_float4x4)
+        let intermedia = SubanclaAR(anclaId: "PRINCIPAL", nombre: "Intermedia", pos: [-1, 0, -0.4],
+                                   cara: .frontal, giroQR: 0)
+        let deriva: SIMD4<Float> = [0.13, 0.01, 0.10, 0]
+        var marca = simd_float4x4(columns: ([1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0], [-1, 0, -0.4, 1]))
+        marca.columns.3 += deriva
+        let lectura = PoseQR(marca)
+        let nominal = intermedia.poseRecorrido(desde: lectura)
+        guard let corregida = intermedia.poseConRumboFijado(observada: lectura, nominal: nominal, base: base) else {
+            preconditionFailure("No se recuperó el origen desde la subancla intermedia")
+        }
+
+        let destino: SIMD4<Float> = [-1.65, -1, -0.25, 1]
+        marca.columns.3 = destino + deriva
+        guard let medida = MedicionSubancla(principal: corregida.matriz, subancla: PoseQR(marca),
+                                           principalSinCorregir: base.matriz), let original = medida.posSinCorregir else {
+            preconditionFailure("Falta una de las dos mediciones del mismo destino")
+        }
+        let sinCorregir = destino + deriva
+        precondition(simd_distance([medida.pos[0], medida.pos[1], medida.pos[2]], [destino.x, destino.y, destino.z]) < 0.001)
+        precondition(simd_distance([original[0], original[1], original[2]], [sinCorregir.x, sinCorregir.y, sinCorregir.z]) < 0.001)
+        print("Comparación del mismo destino con y sin subancla intermedia verificada")
     }
 
     static func probarMuestreoDePrecision() {

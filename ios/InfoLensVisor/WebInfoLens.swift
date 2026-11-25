@@ -123,16 +123,27 @@ final class AplicacionInfoLens: ObservableObject {
         }
         if accion == "calibrarSubancla" {
             guard let solicitud = mensaje["solicitud"] as? String, UUID(uuidString: solicitud) != nil else { return }
-            guard let anclas = leerAnclas(mensaje["anclas"]), anclas.count == 2,
-                  let subancla = anclas.first(where: { $0.subancla != nil }) else {
-                enviarMedicion(solicitud, error: "No se pudieron preparar los dos QR. Revisa sus medidas y repite la prueba.")
+            let diagnostico = mensaje["diagnostico"] as? Bool == true
+            let simultanea = diagnostico && (mensaje["medicionSimultanea"] as? Bool == true)
+            let intermediaId = mensaje["intermediaId"] as? String
+            let destinoId = mensaje["destinoId"] as? String
+            guard let anclas = leerAnclas(mensaje["anclas"]), anclas.count == (intermediaId == nil ? 2 : 3),
+                  let subancla = anclas.first(where: { $0.subancla != nil && (destinoId == nil || $0.id == destinoId) }) else {
+                enviarMedicion(solicitud, error: "No se pudieron preparar los QR. Revisa sus medidas y repite la prueba.")
                 return
+            }
+            let intermedia = anclas.first { $0.id == intermediaId && $0.subancla?.giroQR != nil }
+            if intermediaId != nil {
+                guard diagnostico, !simultanea, destinoId != nil, let intermedia, intermedia.id != subancla.id else {
+                    enviarMedicion(solicitud, error: "Elige una subancla intermedia calibrada con cámara.")
+                    return
+                }
             }
             cerrar()
             solicitudCalibracion = solicitud
-            diagnosticoPrecision = mensaje["diagnostico"] as? Bool == true
-            let simultanea = diagnosticoPrecision && (mensaje["medicionSimultanea"] as? Bool == true)
-            controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla, medicionSimultanea: simultanea)
+            diagnosticoPrecision = diagnostico
+            controlador = ControladorAR(anclas: anclas, soloLinea: false, calibrar: subancla,
+                                        medicionSimultanea: simultanea, intermediaParaMedir: intermedia)
             pruebaAbierta = true
             return
         }
